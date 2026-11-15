@@ -8,6 +8,9 @@ export const STATE = { menu: 0, edit: 1, play: 2, selectEdit: 4, selectPlay: 5, 
 export interface TosuNow {
   /** the difficulty's MD5 ("" when there's none) */
   md5: string;
+  /** its osu! ids, 0 when it has none (not submitted) */
+  beatmapId: number;
+  setId: number;
   state: number;
   /** where the song is, ms (osu!'s own clock) */
   live: number;
@@ -114,6 +117,8 @@ export function readTosu(msg: unknown): TosuNow | null {
   const keys = num(cs.converted) ?? num(cs.original);
   return {
     md5: str(beatmap.checksum).toLowerCase(),
+    beatmapId: Math.max(0, num(beatmap.id) ?? 0),
+    setId: Math.max(0, num(beatmap.set) ?? 0),
     state: num(obj(m.state).number) ?? -1,
     live,
     rate: rate && rate > 0 ? rate : 1,

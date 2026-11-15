@@ -46,6 +46,8 @@ const rankOf = (acc: number): string => (acc >= 100 ? "SS" : acc >= 95 ? "S" : a
 export function demoAt(kind: DemoKind, s: number, map: DemoMap): TosuNow | null {
   const make = (state: number, live: number, play: Partial<TosuNow["play"]> = {}, extra: Partial<TosuNow> = {}): TosuNow => ({
     md5: DEMO_MD5,
+    beatmapId: 0,
+    setId: 0,
     state,
     live: Math.round(live),
     rate: 1,

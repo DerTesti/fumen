@@ -522,6 +522,9 @@ export interface UiPrefs {
   tosuAutostart: boolean;
   /** OBS (docs/OBS.md) */
   obs: ObsPrefs;
+  /** Fumen's status in Discord (lib/discord), and whether it shows the pulse */
+  discord: boolean;
+  discordPulse: boolean;
   /** the heart rate monitor used (lib/heart): connected on every start */
   heart: { id: string | null; name: string | null };
 }

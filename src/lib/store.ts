@@ -63,6 +63,8 @@ export const DEFAULT_PREFS: UiPrefs = {
   companionPool: null,
   followOsu: false,
   followSelect: true,
+  discord: true,
+  discordPulse: true,
   tosuAutostart: true,
   obs: {
     serve: false,

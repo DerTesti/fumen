@@ -9,6 +9,8 @@ type Step = Partial<Omit<TosuNow, "play">> & { play?: Partial<TosuNow["play"]> }
 function msg(s: Step): TosuNow {
   return {
     md5: MD5,
+    beatmapId: 0,
+    setId: 0,
     state: 2,
     live: 0,
     rate: 1,

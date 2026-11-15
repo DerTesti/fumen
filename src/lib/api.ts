@@ -118,6 +118,9 @@ export const api = {
   heartScan: () => invoke<HeartDevice[]>("heart_scan"),
   heartConnect: (id: string, name: string) => invoke<void>("heart_connect", { id, name }),
   heartDisconnect: () => invoke<void>("heart_disconnect"),
+  /** Fumen's status in Discord (src-tauri/src/discord.rs, lib/discord) */
+  discordSet: (activity: Record<string, unknown> | null) => invoke<void>("discord_set", { activity }),
+  discordStatus: () => invoke<{ configured: boolean; connected: boolean }>("discord_status"),
   /** every try with its pulse, in short */
   heartTries: () => invoke<HeartTry[]>("heart_tries"),
   liveReplay: (id: string) => invoke<ReplayData>("live_replay", { id }),

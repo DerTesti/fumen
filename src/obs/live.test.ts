@@ -4,6 +4,8 @@ import { live, mapBegins } from "./live";
 
 /** a tosu message for an osu!mania map, as readTosu makes it */
 const msg = (state: number, at: number, o: { paused?: boolean; hits?: number; md5?: string } = {}): TosuNow => ({
+  beatmapId: 0,
+  setId: 0,
   md5: o.md5 ?? "a",
   state,
   live: at,

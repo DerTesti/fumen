@@ -125,8 +125,11 @@ export class SettingsView {
       heart.bus.on("status", () => this.renderHeart()),
       heart.bus.on("reading", () => this.renderPulse()),
     );
-    // tosu comes and goes on its own
-    const tosuTimer = window.setInterval(() => void this.renderTosu(), 3000);
+    // tosu and Discord come and go on their own
+    const tosuTimer = window.setInterval(() => {
+      void this.renderTosu();
+      void this.renderDiscord();
+    }, 3000);
     this.offs.push(() => clearInterval(tosuTimer));
     this.el.addEventListener("click", (e) => void this.onClick(e));
     shown = this;
@@ -311,6 +314,20 @@ export class SettingsView {
             <input type="checkbox" role="switch" data-pref="tosuAutostart" aria-label="${t("Start tosu with osu!")}" ${p.tosuAutostart ? "checked" : ""} />
           </div>
           <div class="setting-row" data-row="heart"></div>
+          <div class="setting-row">
+            <div class="setting-text">
+              <div class="setting-title">${t("Discord status")}</div>
+              <div class="setting-desc">${t("Shows your friends the map you play in osu!, with its cover, your accuracy, combo and pp as you go, the chart's patterns and dan, and buttons to the map and to Fumen. Without osu!, the song Fumen plays. Turn osu!'s own Discord status off so there aren't two.")}<span class="s-discord-state"></span></div>
+            </div>
+            <input type="checkbox" role="switch" data-pref="discord" aria-label="${t("Discord status")}" ${p.discord ? "checked" : ""} />
+          </div>
+          <div class="setting-row" data-row="discord-pulse" ${p.discord ? "" : "hidden"}>
+            <div class="setting-text">
+              <div class="setting-title">${t("Pulse in Discord")}</div>
+              <div class="setting-desc">${t("Your pulse in the status too, while a heart rate monitor is connected.")}</div>
+            </div>
+            <input type="checkbox" role="switch" data-pref="discordPulse" aria-label="${t("Pulse in Discord")}" ${p.discordPulse ? "checked" : ""} />
+          </div>
         </section>
 
         <section class="settings-section" data-section="stream" role="tabpanel">
@@ -388,6 +405,7 @@ export class SettingsView {
     this.renderUpdate();
     void this.renderTosu();
     this.renderHeart();
+    void this.renderDiscord();
     this.renderObs();
     const link = this.el.querySelector<HTMLElement>('[data-row="obs-link"]');
     if (link) this.offs.push(mountObsSettings(link));
@@ -594,6 +612,22 @@ export class SettingsView {
       this.heartSearching = false;
       this.renderHeart();
     }
+  }
+
+  /** whether Discord's there, under the switch (and when this build can't show a status at all) */
+  private async renderDiscord(): Promise<void> {
+    const el = this.el.querySelector<HTMLElement>(".s-discord-state");
+    if (!el) return;
+    const st = isTauri ? await api.discordStatus().catch(() => null) : { configured: true, connected: false };
+    if (!st || !store.prefs.discord) {
+      el.textContent = "";
+      return;
+    }
+    el.innerHTML = !st.configured
+      ? `<br>${t("Not in this build yet.")}`
+      : st.connected
+        ? `<br><span class="s-tosu-on">${t("Discord hears it")}</span>`
+        : `<br>${t("Discord isn't open (or nothing is shown yet).")}`;
   }
 
   private async renderTosu(): Promise<void> {
@@ -1012,6 +1046,10 @@ export class SettingsView {
       setPrefs({ [input.dataset.pref]: input.checked } as never);
       applyAppearance();
       if (input.dataset.pref === "followOsu") void this.renderTosu();
+      if (input.dataset.pref === "discord") {
+        this.el.querySelector<HTMLElement>('[data-row="discord-pulse"]')!.hidden = !input.checked;
+        void this.renderDiscord();
+      }
     } else if (input.dataset.obs === "serve") {
       setPrefs({ obs: { ...store.prefs.obs, serve: input.checked } });
       void (input.checked ? startOverlay() : stopOverlay());

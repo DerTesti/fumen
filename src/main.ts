@@ -42,6 +42,7 @@ import { follow } from "./lib/tosu-follow";
 import { STATE, type TosuNow } from "./lib/tosu";
 import { pickPpMods } from "./views/pp";
 import { heart } from "./lib/heart";
+import { presence } from "./lib/discord";
 import { launchHtml, renderLaunch } from "./ui/osu-launch";
 import { BrowseView } from "./views/browse";
 import { ScoreView } from "./views/score";
@@ -943,6 +944,7 @@ async function boot(): Promise<void> {
   initFollow();
   initSongSelect();
   heart.init();
+  presence.init();
   document.body.classList.add("ready");
   void startPing()
     .catch((e) => console.warn("[ping]", asApiError(e).message))

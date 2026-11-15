@@ -95,6 +95,14 @@ export const live: Record<string, string> = {
   "Start tosu with osu!": "tosu mit osu! starten",
   "When osu! runs and tosu doesn't, Fumen starts it in the background.": "Läuft osu! ohne tosu, startet Fumen tosu im Hintergrund.",
   "Song select on this screen": "Songauswahl auf diesem Bildschirm",
+  "Discord status": "Discord-Status",
+  "Shows your friends the map you play in osu!, with its cover, your accuracy, combo and pp as you go, the chart's patterns and dan, and buttons to the map and to Fumen. Without osu!, the song Fumen plays. Turn osu!'s own Discord status off so there aren't two.":
+    "Zeigt deinen Freunden die Map, die du in osu! spielst, mit Cover, deiner Accuracy, Combo und pp während des Plays, den Patterns und dem Dan des Charts und Buttons zur Map und zu Fumen. Ohne osu! den Song, den Fumen abspielt. Schalte osu!s eigenen Discord-Status aus, damit es nicht zwei gibt.",
+  "Pulse in Discord": "Puls in Discord",
+  "Your pulse in the status too, while a heart rate monitor is connected.": "Auch deinen Puls im Status, solange ein Pulsmesser verbunden ist.",
+  "Not in this build yet.": "In diesem Build noch nicht dabei.",
+  "Discord hears it": "Discord empfängt ihn",
+  "Discord isn't open (or nothing is shown yet).": "Discord ist nicht offen (oder es wird gerade nichts gezeigt).",
   "While you pick a map in osu!, Fumen shows it here: its patterns, dan, your best, and stars and pp at the mods you picked. Only while you're in the library, on home or on a map's page, so it doesn't pull you out of anything else.":
     "Während du in osu! eine Map aussuchst, zeigt Fumen sie hier: ihre Patterns, den Dan, deine Bestleistung und Sterne und pp bei den gewählten Mods. Nur wenn du in der Bibliothek, auf der Startseite oder auf der Seite einer Map bist, damit es dich nicht aus etwas anderem herausholt.",
   Running: "Läuft",
