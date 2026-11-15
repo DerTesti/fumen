@@ -39,6 +39,8 @@ import { getVersion } from "@tauri-apps/api/app";
 import { mountPlayerBar } from "./player";
 import { closeFullscreen, finaleLeft, fullscreenOpen, openFullscreen } from "./views/fullscreen";
 import { follow } from "./lib/tosu-follow";
+import { STATE, type TosuNow } from "./lib/tosu";
+import { pickPpMods } from "./views/pp";
 import { heart } from "./lib/heart";
 import { launchHtml, renderLaunch } from "./ui/osu-launch";
 import { BrowseView } from "./views/browse";
@@ -939,6 +941,7 @@ async function boot(): Promise<void> {
   initObsControl();
   initLivePlays();
   initFollow();
+  initSongSelect();
   heart.init();
   document.body.classList.add("ready");
   void startPing()
@@ -1023,6 +1026,45 @@ function initFollow(): void {
     }, LAST_TRY_WAIT);
   });
 }
+
+/** Song select on the second screen (prefs followSelect): the map picked in osu!'s song select
+ * opens on its page in Fumen, its chart open, at osu!'s mods (the rate follows on its own, lib/tosu-follow).
+ * Only from the library, home or a map's page, so it never pulls you out of anything else; going
+ * from one map to the next replaces the page instead of piling up history. */
+function initSongSelect(): void {
+  let timer = 0;
+  /** the map and mods shown last (or passed over: on another page), and the ones waited on */
+  let shown = "";
+  let waiting = "";
+  const show = async (now: TosuNow): Promise<void> => {
+    shown = `${now.md5}|${now.play.modList.join("")}`;
+    const id = await api.mapByMd5(now.md5).catch(() => null);
+    const snap = store.snap;
+    const map = id && snap ? snap.maps.find((m) => m.id === id) : undefined;
+    if (!map || !snap || follow.current !== now.md5) return;
+    pickPpMods(map.mode, now.play.modList);
+    const here = current();
+    if (fullscreenOpen() || !SELECT_FROM.has(here.name)) return;
+    go({ name: "set", id: snap.sets[map.set].id, map: map.id }, { replace: here.name === "set" });
+  };
+  follow.bus.on("tosu", (now) => {
+    if (!store.prefs.followSelect || (now.state !== STATE.selectPlay && now.state !== STATE.selectEdit) || !now.md5) return;
+    const key = `${now.md5}|${now.play.modList.join("")}`;
+    if (key === shown || key === waiting) return;
+    // scrolling through song select: only the map it stops on (tosu says it again every 150 ms)
+    waiting = key;
+    clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      waiting = "";
+      void show(now);
+    }, SELECT_SETTLE);
+  });
+  follow.bus.on("leave", () => (shown = waiting = ""));
+}
+/** the pages song select may replace (initSongSelect) */
+const SELECT_FROM = new Set<Route["name"]>(["home", "library", "set", "collection"]);
+/** ms osu!'s song select has to rest on a map before Fumen shows it */
+const SELECT_SETTLE = 350;
 
 /** the visualizer is open because a map started in osu! (initFollow) */
 let followOpened = false;

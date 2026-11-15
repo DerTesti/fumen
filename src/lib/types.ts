@@ -516,6 +516,8 @@ export interface UiPrefs {
   companionPool: string | null;
   /** play along with osu! through tosu (lib/tosu-follow) */
   followOsu: boolean;
+  /** while following: the map picked in osu!'s song select opens in Fumen, at its mods (main.ts) */
+  followSelect: boolean;
   /** Fumen starts tosu when osu! runs without it (while following) */
   tosuAutostart: boolean;
   /** OBS (docs/OBS.md) */

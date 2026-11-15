@@ -94,6 +94,9 @@ export const live: Record<string, string> = {
   "Your tries": "Deine Versuche",
   "Start tosu with osu!": "tosu mit osu! starten",
   "When osu! runs and tosu doesn't, Fumen starts it in the background.": "Läuft osu! ohne tosu, startet Fumen tosu im Hintergrund.",
+  "Song select on this screen": "Songauswahl auf diesem Bildschirm",
+  "While you pick a map in osu!, Fumen shows it here: its patterns, dan, your best, and stars and pp at the mods you picked. Only while you're in the library, on home or on a map's page, so it doesn't pull you out of anything else.":
+    "Während du in osu! eine Map aussuchst, zeigt Fumen sie hier: ihre Patterns, den Dan, deine Bestleistung und Sterne und pp bei den gewählten Mods. Nur wenn du in der Bibliothek, auf der Startseite oder auf der Seite einer Map bist, damit es dich nicht aus etwas anderem herausholt.",
   Running: "Läuft",
   "Fumen hears it": "Fumen ist verbunden",
   "Not running. It starts with osu! when that's on below, or start it now.": "Läuft nicht. Es startet mit osu!, wenn das unten an ist, oder starte es jetzt.",

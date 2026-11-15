@@ -296,6 +296,13 @@ export class SettingsView {
             <input type="checkbox" role="switch" data-pref="followOsu" aria-label="${t("Follow osu!")}" ${p.followOsu ? "checked" : ""} />
           </div>
           <div class="setting-row" data-row="tosu" hidden></div>
+          <div class="setting-row" data-row="tosu-select" hidden>
+            <div class="setting-text">
+              <div class="setting-title">${t("Song select on this screen")}</div>
+              <div class="setting-desc">${t("While you pick a map in osu!, Fumen shows it here: its patterns, dan, your best, and stars and pp at the mods you picked. Only while you're in the library, on home or on a map's page, so it doesn't pull you out of anything else.")}</div>
+            </div>
+            <input type="checkbox" role="switch" data-pref="followSelect" aria-label="${t("Song select on this screen")}" ${p.followSelect ? "checked" : ""} />
+          </div>
           <div class="setting-row" data-row="tosu-auto" hidden>
             <div class="setting-text">
               <div class="setting-title">${t("Start tosu with osu!")}</div>
@@ -592,9 +599,10 @@ export class SettingsView {
   private async renderTosu(): Promise<void> {
     const row = this.el.querySelector<HTMLElement>('[data-row="tosu"]');
     const auto = this.el.querySelector<HTMLElement>('[data-row="tosu-auto"]');
-    if (!row || !auto) return;
+    const select = this.el.querySelector<HTMLElement>('[data-row="tosu-select"]');
+    if (!row || !auto || !select) return;
     const on = store.prefs.followOsu;
-    row.hidden = auto.hidden = !on;
+    row.hidden = auto.hidden = select.hidden = !on;
     if (!on) return;
     const st = isTauri ? await api.tosuStatus().catch(() => null) : { running: follow.connected, path: null };
     if (!st) return;

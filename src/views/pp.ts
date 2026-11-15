@@ -27,7 +27,7 @@ import {
   type PpKind,
   type PpMod,
 } from "../lib/pp";
-import { store } from "../lib/store";
+import { Emitter, store } from "../lib/store";
 import type { PpSheet } from "../lib/types";
 import { player } from "../player";
 import { fitCanvas } from "../ui/playfield";
@@ -37,6 +37,18 @@ import { icon } from "../ui/icons";
 const picked: Record<number, PpMod[]> = {};
 /** the lines shown per ruleset, for the session */
 const shownBy: Record<number, PpKind[]> = {};
+/** the picked mods changed from outside (osu!'s song select): the ruleset */
+const pickedBus = new Emitter<{ picked: number }>();
+
+/** Picks the mods osu! has picked (song select on the second screen, main.ts), the rate apart:
+ * that one is the player's. Open panels of the ruleset follow. */
+export function pickPpMods(mode: number, mods: readonly string[]): void {
+  const next = ppModsFor(mode).filter((m) => m !== "HT" && m !== "DT" && mods.includes(m));
+  const now = picked[mode] ?? [];
+  if (next.length === now.length && next.every((m) => now.includes(m))) return;
+  picked[mode] = next;
+  pickedBus.emit("picked", mode);
+}
 
 const GRAPH_PAD = { left: 38, right: 10, top: 10, bottom: 22 };
 
@@ -109,7 +121,14 @@ export class PpPanel {
     this.renderMods();
     this.renderFields();
     this.bind();
-    this.offs.push(player.bus.on("rate", () => this.onRate()));
+    this.offs.push(
+      player.bus.on("rate", () => this.onRate()),
+      pickedBus.on("picked", (mode) => {
+        if (mode !== this.mode) return;
+        this.renderMods();
+        void this.refresh();
+      }),
+    );
     this.resize = new ResizeObserver(() => this.draw());
     this.resize.observe(this.el.querySelector(".pp-graph")!);
     void this.refresh();
