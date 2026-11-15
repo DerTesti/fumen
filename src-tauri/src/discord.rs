@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 /// Fumen's application in Discord's developer portal; its name is what Discord shows after
@@ -60,8 +60,6 @@ type Pipe = std::os::unix::net::UnixStream;
 
 struct Conn {
     pipe: Pipe,
-    /// the reader saw the pipe end
-    closed: Arc<AtomicBool>,
 }
 
 fn frame(op: u32, body: &Value) -> Vec<u8> {
@@ -120,43 +118,50 @@ impl Conn {
     /// Finds Discord and says hello; it answers with READY.
     fn open() -> Option<Conn> {
         let mut pipe = open_pipe()?;
+        // a Discord that stops answering mustn't hold the status thread for good (Unix; Windows'
+        // pipe has no timeout, and Discord answers every command)
+        #[cfg(unix)]
+        let _ = pipe.set_read_timeout(Some(Duration::from_secs(5)));
         pipe.write_all(&frame(0, &json!({ "v": 1, "client_id": CLIENT_ID }))).ok()?;
         let (op, msg) = read_frame(&mut pipe).ok()?;
         if op != 1 || msg.get("evt").and_then(Value::as_str) != Some("READY") {
             eprintln!("[discord] no hello: {msg}");
             return None;
         }
-        // Discord answers every update: read them all on the side, so its answers never pile up
-        let closed = Arc::new(AtomicBool::new(false));
-        let mut reader = pipe.try_clone().ok()?;
-        let gone = closed.clone();
-        std::thread::Builder::new()
-            .name("discord-read".into())
-            .spawn(move || {
-                while let Ok((op, msg)) = read_frame(&mut reader) {
-                    if op == 2 || msg.get("evt").and_then(Value::as_str) == Some("ERROR") {
-                        eprintln!("[discord] {msg}");
-                    }
-                    if op == 2 {
-                        break;
-                    }
-                }
-                gone.store(true, Ordering::Relaxed);
-            })
-            .ok()?;
-        Some(Conn { pipe, closed })
+        Some(Conn { pipe })
     }
 
+    /// Sends the status and reads Discord's answer to it. Both on this thread, one after the other:
+    /// on Windows a pipe opened like this does one thing at a time, so a reader waiting on another
+    /// thread would hold every write back (only the first update got through that way).
     fn send(&mut self, activity: &Option<Value>, nonce: u64) -> std::io::Result<()> {
-        if self.closed.load(Ordering::Relaxed) {
-            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Discord closed"));
-        }
         let mut args = json!({ "pid": std::process::id() });
         if let Some(a) = activity {
             args["activity"] = a.clone();
         }
-        let msg = json!({ "cmd": "SET_ACTIVITY", "args": args, "nonce": nonce.to_string() });
-        self.pipe.write_all(&frame(1, &msg))
+        let nonce = nonce.to_string();
+        let msg = json!({ "cmd": "SET_ACTIVITY", "args": args, "nonce": nonce });
+        self.pipe.write_all(&frame(1, &msg))?;
+        for _ in 0..16 {
+            let (op, msg) = read_frame(&mut self.pipe)?;
+            match op {
+                // Discord closes: it says why
+                2 => {
+                    eprintln!("[discord] closed: {msg}");
+                    return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Discord closed"));
+                }
+                // a ping wants its pong
+                3 => self.pipe.write_all(&frame(4, &msg))?,
+                _ if msg.get("nonce").and_then(Value::as_str) == Some(nonce.as_str()) => {
+                    if msg.get("evt").and_then(Value::as_str) == Some("ERROR") {
+                        eprintln!("[discord] {msg}");
+                    }
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 }
 
@@ -234,5 +239,22 @@ mod tests {
         let mut bytes = 1u32.to_le_bytes().to_vec();
         bytes.extend_from_slice(&((MAX_FRAME as u32) + 1).to_le_bytes());
         assert!(read_frame(&mut &bytes[..]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod real {
+    use super::*;
+
+    /// Against the Discord running on this PC: three updates in a row and a clear, each answered.
+    #[test]
+    #[ignore]
+    fn updates_keep_going_through() {
+        let mut c = Conn::open().expect("Discord open?");
+        for (i, s) in ["Test one", "Test two", "Test three"].iter().enumerate() {
+            c.send(&Some(json!({ "type": 0, "details": s, "state": "Fumen check" })), i as u64 + 1).expect("sent and answered");
+            std::thread::sleep(Duration::from_millis(1500));
+        }
+        c.send(&None, 9).expect("cleared");
     }
 }
