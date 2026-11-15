@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 /// Fumen's application in Discord's developer portal; its name is what Discord shows after
 /// "Playing". Empty: not set up, and the status stays off.
-pub const CLIENT_ID: &str = "";
+pub const CLIENT_ID: &str = "1571535832924295269";
 /// the least time between two updates (five in 20 s, with room)
 const GAP: Duration = Duration::from_millis(4500);
 /// how long to wait before looking for Discord again
