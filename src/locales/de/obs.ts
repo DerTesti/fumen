@@ -132,4 +132,7 @@ export const obs: Record<string, string> = {
   "Heart rate": "Puls",
   "Your pulse, beating along. Only there with a heart rate monitor connected in Settings, While you play.":
     "Dein Puls, der mitschlägt. Nur da, wenn in den Einstellungen unter Beim Spielen ein Pulsmesser verbunden ist.",
+  "Heart rate, not playing": "Puls, wenn du nicht spielst",
+  "Your pulse while you pick a map or sit in the menus, in a place of its own. Goes away when a map starts.":
+    "Dein Puls, während du eine Map aussuchst oder in den Menüs bist, an einer eigenen Stelle. Geht weg, sobald eine Map startet.",
 };

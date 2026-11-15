@@ -34,6 +34,7 @@ const NAMES: Record<HudPartId, () => string> = {
   judges: () => t("Judgements"),
   keys: () => t("Keys"),
   heart: () => t("Heart rate"),
+  rest: () => t("Heart rate, not playing"),
   vis: () => t("Visualizer"),
 };
 
@@ -49,6 +50,7 @@ const ABOUT: Record<HudPartId, () => string> = {
   judges: () => t("How many of each judgement so far."),
   keys: () => t("Which keys are held, with a trail for each press. Needs reading the keys switched on in OBS's settings."),
   heart: () => t("Your pulse, beating along. Only there with a heart rate monitor connected in Settings, While you play."),
+  rest: () => t("Your pulse while you pick a map or sit in the menus, in a place of its own. Goes away when a map starts."),
   vis: () => t("Lamps that play with the song and answer the play."),
 };
 

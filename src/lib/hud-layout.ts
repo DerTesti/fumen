@@ -3,7 +3,7 @@
  * a point of the source (0–1 of its width and height) by one of its corners, edges or its middle,
  * at a size of its own. Arranged in Fumen (views/hud-editor.ts); the page follows at once. */
 
-export type HudPartId = "bar" | "title" | "stars" | "combo" | "hp" | "acc" | "pp" | "lines" | "judges" | "keys" | "heart" | "vis";
+export type HudPartId = "bar" | "title" | "stars" | "combo" | "hp" | "acc" | "pp" | "lines" | "judges" | "keys" | "heart" | "rest" | "vis";
 
 /** words keep their shape and grow as a whole; a line stretches across (its width is set); an
  * area has its width and height set */
@@ -21,6 +21,7 @@ export const HUD_PARTS: readonly { id: HudPartId; shape: HudShape }[] = [
   { id: "judges", shape: "words" },
   { id: "keys", shape: "area" },
   { id: "heart", shape: "words" },
+  { id: "rest", shape: "words" },
   { id: "vis", shape: "area" },
 ];
 
@@ -83,6 +84,8 @@ export const DEFAULT_HUD: HudLayout = {
   keys: part(MARGIN_X, 0.3, 0, 0, { w: 0.13, h: 0.27 }),
   // the pulse under pp (only there with a heart rate monitor)
   heart: part(1 - MARGIN_X, 0.845, 1, 1),
+  // the pulse again while not playing (song select, menus): on its own, low on the left
+  rest: part(MARGIN_X, 0.86, 0, 1),
   vis: part(0, 1, 0, 1, { w: 1, h: 0.135 }),
 };
 

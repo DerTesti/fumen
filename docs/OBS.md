@@ -179,6 +179,9 @@ like the title.
   (`src-tauri/src/heart.rs`, part `heart`: `{ bpm, contact, at }`), about once a second, not the
   window. Any strap or watch with Bluetooth's standard Heart Rate Service works (Moofit, Polar,
   Garmin, Wahoo); a strap talks to one app at a time, so its phone app has to let go first.
+- **Pulse, not playing** (`rest`, 2026-11-15): the same pulse while osu! is in song select or
+  the menus, placed on its own (low on the left at first). It goes when a map starts and comes
+  back after the results; the editor keeps it at half strength so it can be moved any time.
 - The pulse is kept with each try (`attempts.heart`: readings against song time, average,
   highest, lowest and the average in the map's fastest part) and shown on the score page, with
   your tries and in History's Heart rate tab.

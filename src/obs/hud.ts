@@ -179,6 +179,9 @@ export function start(): void {
       <div class="hud-part" data-part="heart"><div class="hud-in"><div class="hud-heart" hidden>
         <span class="hud-heart-icon">${icon("heart-fill")}</span><b class="hud-bpm num"></b><span class="hud-bpm-unit">bpm</span>
       </div></div></div>
+      <div class="hud-part" data-part="rest"><div class="hud-in"><div class="hud-heart" hidden>
+        <span class="hud-heart-icon">${icon("heart-fill")}</span><b class="hud-bpm num"></b><span class="hud-bpm-unit">bpm</span>
+      </div></div></div>
     </div>`;
   const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
   const hud = $(".hud");
@@ -384,9 +387,9 @@ export function start(): void {
     setCols();
   });
 
-  // ── the pulse (a heart rate monitor): the heart beats at its rate ──
-  const heartEl = $(".hud-heart");
-  const bpmEl = $(".hud-bpm");
+  // ── the pulse (a heart rate monitor): the heart beats at its rate. Twice: while playing (heart)
+  // and while not (rest), each in its own place ──
+  const heartEls = [...root.querySelectorAll<HTMLElement>(".hud-heart")];
   let demoBpm = 128;
   const pulseNow = (): number | null => {
     if (editing) return demoBpm;
@@ -396,11 +399,14 @@ export function start(): void {
   };
   const showPulse = (): void => {
     const bpm = pulseNow();
-    heartEl.hidden = bpm === null;
-    if (bpm === null) return;
-    const text = String(Math.round(bpm));
-    if (bpmEl.textContent !== text) bpmEl.textContent = text;
-    heartEl.style.setProperty("--beat", `${(60 / Math.min(240, Math.max(30, bpm))).toFixed(3)}s`);
+    for (const el of heartEls) {
+      el.hidden = bpm === null;
+      if (bpm === null) continue;
+      const num = el.querySelector<HTMLElement>(".hud-bpm")!;
+      const text = String(Math.round(bpm));
+      if (num.textContent !== text) num.textContent = text;
+      el.style.setProperty("--beat", `${(60 / Math.min(240, Math.max(30, bpm))).toFixed(3)}s`);
+    }
   };
   showPulse();
   link.on("heart", showPulse);
