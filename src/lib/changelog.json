@@ -1,7 +1,7 @@
 [
   {
     "version": "1.4.0",
-    "date": "2026-11-13",
+    "date": "2026-11-15",
     "en": [
       "New: Follow osu! through tosu. The visualizer opens when a map starts, and a pass opens its score.",
       "New: Fumen finds tosu and can start it together with osu!.",
