@@ -50,6 +50,7 @@ mod test_http;
 mod thumbs;
 mod tosu;
 mod heart;
+mod discord;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1234,6 +1235,18 @@ fn heart_connect(app: AppHandle, id: String, name: String) {
     );
 }
 
+/// Fumen's status in Discord (discord.rs): the activity the window built, or none.
+#[tauri::command]
+fn discord_set(activity: Option<serde_json::Value>) {
+    discord::set(activity);
+}
+
+/// Whether Fumen has a Discord application to show itself as, and whether Discord is there.
+#[tauri::command]
+fn discord_status() -> serde_json::Value {
+    serde_json::json!({ "configured": discord::configured(), "connected": discord::connected() })
+}
+
 #[tauri::command]
 fn heart_disconnect() {
     heart::disconnect();
@@ -2383,6 +2396,8 @@ pub fn run() {
             heart_tries,
             heart_connect,
             heart_disconnect,
+            discord_set,
+            discord_status,
             obs_password_set,
             obs_password_get,
             rename_clip,
