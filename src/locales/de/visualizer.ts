@@ -59,4 +59,6 @@ export const visualizer: Record<string, string> = {
   Style: "Stil",
   Video: "Video",
   "The beatmap's video in place of the cover, when it has one": "Das Video der Beatmap statt des Covers, wenn sie eins hat",
+  Storyboard: "Storyboard",
+  "The beatmap's storyboard in place of the cover, when it has one": "Das Storyboard der Beatmap statt des Covers, wenn sie eins hat",
 };

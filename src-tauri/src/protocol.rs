@@ -4,6 +4,8 @@
 //!                                            (Range-capable, for audio), or a video rewrapped as
 //!                                            .mp4 (remux.rs, key mp4-…)
 //!   fumen://localhost/thumb/<width>/<key>    cached JPEG thumbnail of an image file
+//!   fumen://localhost/sb/<key>/<hex name>     a file in a stable chart's folder by name, for its
+//!                                            storyboard (storyboard.rs)
 //!   fumen://localhost/skin/<skin>/<file>       lazer's built-in skin textures and hit sounds (see skins.rs)
 //!
 //! On Windows the webview sees these as `http://fumen.localhost/...`. A key stands for one content
@@ -15,7 +17,7 @@ use std::path::Path;
 use tauri::http::{header, Request, Response, StatusCode};
 use tauri::{AppHandle, Manager};
 
-use crate::{remux, skins, thumbs};
+use crate::{remux, skins, storyboard, thumbs};
 use crate::AppState;
 
 /// Open-ended range requests (`bytes=N-`) are answered in chunks so playback starts fast.
@@ -40,6 +42,10 @@ fn route(app: &AppHandle, req: &Request<Vec<u8>>) -> Result<Response<Vec<u8>>, S
     match parts.as_slice() {
         ["file", hash] => {
             let path = remux::served(state.cache_dir(), hash).or_else(|| files.path(hash)).ok_or(StatusCode::NOT_FOUND)?;
+            serve_file(&path, req)
+        }
+        ["sb", key, name] => {
+            let path = storyboard::served(&files, key, name).ok_or(StatusCode::NOT_FOUND)?;
             serve_file(&path, req)
         }
         ["thumb", width, hash] => {

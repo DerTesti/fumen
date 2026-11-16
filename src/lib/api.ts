@@ -25,6 +25,7 @@ import type {
   ImportSummary,
   PlayedFound,
   LazerImportStatus,
+  MapStoryboard,
   MapVideo,
   RepairSummary,
   LazerInstall, StableInstall,
@@ -147,6 +148,8 @@ export const api = {
   },
   /** a difficulty's background video, if it has one */
   mapVideo: (id: string) => invoke<MapVideo | null>("map_video", { id }),
+  /** a difficulty's storyboard, if it has one */
+  mapStoryboard: (id: string) => invoke<MapStoryboard | null>("map_storyboard", { id }),
   /** starts osu!lazer or osu!stable */
   launchOsu: (client: "lazer" | "stable") => invoke<void>("launch_osu", { client }),
   /** which osu! runs right now */
@@ -275,6 +278,8 @@ const BASE =
   (navigator.userAgent.includes("Windows") ? "http://fumen.localhost/" : "fumen://localhost/");
 
 export const fileUrl = (hash: string): string => `${BASE}file/${hash}`;
+/** an address under fumen://localhost/ as the backend gives it ("file/<hash>", "sb/…") */
+export const fumenUrl = (path: string): string => `${BASE}${path}`;
 /** WebKitGTK (Linux) plays media through GStreamer, which can't read fumen:// itself: the player
  * fetches the file and plays it from memory there (`fetch` reads custom schemes fine). */
 export const mediaFromMemory = !(window as { __FUMEN_BASE__?: string }).__FUMEN_BASE__ && /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);

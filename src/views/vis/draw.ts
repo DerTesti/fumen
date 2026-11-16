@@ -59,6 +59,9 @@ export interface VisFrame {
   artMix: number;
   /** the beatmap's video at this moment, drawn in place of the sharp cover; null when there's none */
   video: HTMLVideoElement | null;
+  /** the beatmap's storyboard at this moment (its background and video under it), drawn in place of
+   * the cover, blurred or not: it's made to be seen; null when there's none */
+  story: HTMLCanvasElement | null;
   /** how far below the content box its floor goes now: as far as the transport has slid away (Stage, idle), px */
   drop: number;
   meta: { title: string; artist: string; version: string };
@@ -140,12 +143,13 @@ function blurredVideo(v: HTMLVideoElement, amount: number): HTMLCanvasElement | 
 }
 
 /** The cover filling x/y/w/h (cropped to fit), the old one under it while the new one fades in;
- * the map's video in its place while it plays (blurred too, where the cover would be). */
+ * the map's video in its place while it plays (blurred too, where the cover would be), the
+ * storyboard in its place while there's one (never blurred). */
 export function drawArt(f: VisFrame, x: number, y: number, w: number, h: number, o: { blur?: boolean; zoom?: number; px?: number; py?: number } = {}): void {
   const c = f.c;
   const pick = (a: Art) => (o.blur && a.blur ? still(a.blur) : a.img);
   const video = f.video && o.blur ? (blurredVideo(f.video, f.o.blur) ?? f.video) : f.video;
-  const cur = video ?? pick(f.art);
+  const cur = f.story ?? video ?? pick(f.art);
   const prev = f.prevArt && f.artMix < 1 ? pick(f.prevArt) : null;
   const zoom = o.zoom ?? 1;
   if (!cur && !prev) {
@@ -235,7 +239,7 @@ export function background(f: VisFrame, o: { dim?: number; still?: boolean } = {
     return;
   }
   const mode = f.o.background;
-  if (isLinux) {
+  if (isLinux && !f.story) {
     const dim = o.dim ?? f.o.dim;
     c.save();
     c.setTransform(1, 0, 0, 1, 0, 0);

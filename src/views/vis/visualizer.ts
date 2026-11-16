@@ -12,6 +12,10 @@
  * can't play (old .avi / .flv) just leave the cover. With the cover's colours, the colours follow the
  * video while it plays (a small frame read a few times a second, gliding slower than a cover change).
  *
+ * A difficulty with a storyboard (and the Storyboard setting on) plays that in place of the cover,
+ * its background and video under it (./storyboard-gl), never blurred; its colours then come from it
+ * like a video's.
+ *
  * Where the song, its time and the play come from is its host: Fumen's player in the window
  * (./window-host), osu! through tosu in an OBS page (src/obs/stage.ts).
  */
@@ -20,6 +24,8 @@ import { DEFAULT_PREFS, setPrefs, store } from "../../lib/store";
 import type { VisPrefs, VisStyle } from "../../lib/types";
 import { Analysis, type AnalyserSet } from "../../lib/vis/analysis";
 import type { FeelFrame } from "../../lib/vis/feel";
+import { parseStoryboard } from "../../lib/vis/storyboard";
+import { StoryboardView } from "./storyboard-gl";
 import { beatAt, inKiai } from "../../lib/vis/beat";
 import { css, hexRgb, mix, paletteOf, type Palette, type Rgb } from "../../lib/vis/palette";
 import { reduceMotion } from "../../ui/controls";
@@ -89,6 +95,8 @@ export interface VisHost {
   timing(mapId: string): Promise<{ beats: number[]; kiai: number[] }>;
   /** the difficulty's video, if it has one and it can be played here */
   video(mapId: string): Promise<{ url: string; offset: number } | null>;
+  /** the difficulty's storyboard and its images' addresses by name (normalised), if it has one */
+  storyboard?(mapId: string): Promise<{ osu: string; osb: string | null; url: (name: string) => string | null } | null>;
 }
 
 const WHITE: Rgb = [255, 255, 255];
@@ -178,6 +186,8 @@ export class Visualizer {
   private fade: { snap: HTMLCanvasElement; k: number } | null = null;
   /** the difficulty's video: for which map, the element once it can show a frame, its start (song ms) */
   private video: { map: string; el: HTMLVideoElement; offset: number; ready: boolean } | null = null;
+  /** the difficulty's storyboard: for which map, and what draws it */
+  private story: { map: string; view: StoryboardView } | null = null;
   /** the difficulty the track is on */
   private mapId: string | null = null;
   /** pauses the video once frames stop coming (the playfield tab, fullscreen closed) */
@@ -210,6 +220,8 @@ export class Visualizer {
     }
     if (!this.o.video && this.video) this.dropVideo();
     else if (this.o.video && !this.video && this.mapId) this.loadVideo(this.mapId);
+    if (!this.o.storyboard && this.story) this.dropStory();
+    else if (this.o.storyboard && !this.story && this.mapId) this.loadStory(this.mapId);
     if (this.o.style === this.styleId) return;
     const def = STYLES.find((s) => s.id === this.o.style) ?? STYLES[0];
     if (this.canvas.width && this.canvas.height && !reduceMotion()) {
@@ -244,7 +256,9 @@ export class Visualizer {
     if (o.mapId !== this.mapId) {
       this.mapId = o.mapId;
       this.dropVideo();
+      this.dropStory();
       if (o.mapId && this.o.video) this.loadVideo(o.mapId);
+      if (o.mapId && this.o.storyboard) this.loadStory(o.mapId);
     }
     if (!o.mapId) this.timing = null;
     else if (this.timing?.map !== o.mapId) {
@@ -288,6 +302,27 @@ export class Visualizer {
       .catch(() => {});
   }
 
+  private loadStory(map: string): void {
+    const get = this.host.storyboard;
+    if (!get) return;
+    void get(map)
+      .then((s) => {
+        if (!s || this.mapId !== map || this.story || !this.o.storyboard) return;
+        const sb = parseStoryboard(s.osu, s.osb);
+        if (!sb.sprites.length) return;
+        const view = new StoryboardView(sb, s.url, this.kick);
+        if (!view.ok) return view.dispose();
+        this.story = { map, view };
+        this.kick();
+      })
+      .catch((e) => console.warn("[vis] no storyboard", e));
+  }
+
+  private dropStory(): void {
+    this.story?.view.dispose();
+    this.story = null;
+  }
+
   private dropVideo(): void {
     const v = this.video;
     if (!v) return;
@@ -322,8 +357,8 @@ export class Visualizer {
     return el;
   }
 
-  /** The video's colours, read from a 48×27 copy of its frame eight times a second; null without one. */
-  private readVideoColours(video: HTMLVideoElement | null, now: number): void {
+  /** The video's (or storyboard's) colours, read from a 48×27 copy of its frame eight times a second; null without one. */
+  private readVideoColours(video: CanvasImageSource | null, now: number): void {
     if (!video || this.o.colors !== "cover") {
       this.videoPalette = null;
       return;
@@ -400,7 +435,9 @@ export class Visualizer {
     const pulse = beat ? (playing ? Math.exp(-(beat.phase * beat.length) / rate / 1000 / 0.12) * (beat.inBar === 0 ? 1 : 0.65) : 0) : this.a.kick;
     // a video moves on its own: no beat pulse over it
     const video = this.syncVideo(heard, playing, rate);
-    const amount = video ? 0 : o.pulse * (reduce ? 0.3 : 1);
+    // the storyboard at the song's time as heard, the cover and video under it
+    const story = this.story?.view.render(heard, c0.width, c0.height, this.art.img, video) ?? null;
+    const amount = video || story ? 0 : o.pulse * (reduce ? 0.3 : 1);
     const hit = Math.min(1, Math.max(pulse, this.a.kick * 0.8)) * amount;
     const kiaiOn = !!tm && o.kiai && playing && inKiai(tm.kiai, songMs);
     const target = kiaiOn ? 1 : 0;
@@ -417,7 +454,7 @@ export class Visualizer {
     this.flashT *= Math.exp(-dt / 0.1);
 
     // colours glide to where they're going
-    this.readVideoColours(video, now);
+    this.readVideoColours(story ?? video, now);
     const goal = this.targetLook();
     // video colours glide a little so the many small changes stay calm
     const k = this.look ? 1 - Math.exp(-dt / (this.videoPalette ? 0.2 : 0.25)) : 1;
@@ -457,6 +494,7 @@ export class Visualizer {
       prevArt: this.prevArt,
       artMix: this.artMix,
       video,
+      story,
       drop: box.drop,
       meta: this.meta,
       o,
@@ -488,7 +526,7 @@ export class Visualizer {
         c.globalAlpha = 1;
       }
     }
-    return moving || (!!video && playing) || dropping || this.a.moving || this.kiai > 0.01 || this.flashT > 0.01 || this.artMix < 1 || !!this.fade || settling || !!play;
+    return moving || (!!(video || story) && playing) || dropping || this.a.moving || this.kiai > 0.01 || this.flashT > 0.01 || this.artMix < 1 || !!this.fade || settling || !!play;
   }
 
   /** ms a pass or full combo still has for its moment (what Stage plays over the results) before

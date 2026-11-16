@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.5.0",
+    "date": "2026-11-16",
+    "en": [
+      "New: Storyboards in the visualizer. A map's storyboard plays in place of the cover, with its background and video under it. You can turn it off in the visualizer's settings."
+    ],
+    "de": [
+      "Neu: Storyboards im Visualizer. Das Storyboard einer Map läuft statt des Covers, mit Hintergrund und Video darunter. Abschalten geht in den Einstellungen des Visualizers."
+    ]
+  },
+  {
     "version": "1.4.0",
     "date": "2026-11-15",
     "en": [

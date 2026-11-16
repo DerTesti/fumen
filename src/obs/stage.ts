@@ -42,6 +42,7 @@ function addressPrefs(): VisPrefs {
     else if (v === "1") o[k] = true;
   }
   o.video = false;
+  o.storyboard = false;
   return o;
 }
 

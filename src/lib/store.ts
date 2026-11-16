@@ -52,6 +52,7 @@ export const DEFAULT_PREFS: UiPrefs = {
     dim: 0.55,
     title: true,
     video: true,
+    storyboard: true,
     offset: 0,
     react: true,
     stats: true,

@@ -19,6 +19,7 @@ mod lazer;
 mod lazer_import;
 mod lazer_linux;
 mod launch;
+mod storyboard;
 mod video;
 mod remux;
 mod matches;
@@ -892,6 +893,19 @@ async fn map_video(app: AppHandle, id: String) -> Result<Option<video::Video>> {
             return Ok(Some(v));
         }
         Ok(remux::mp4_for(state.cache_dir(), &v.file, &path).map(|file| video::Video { file, ..v }))
+    })
+    .await
+    .map_err(|e| Error::known("internal", e.to_string()))?
+}
+
+/// A library difficulty's storyboard (its .osu, the set's .osb and images), if it has one.
+#[tauri::command]
+async fn map_storyboard(app: AppHandle, id: String) -> Result<Option<storyboard::Storyboard>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let files = state.files();
+        let conn = state.db();
+        storyboard::for_map(&conn, &files, &id)
     })
     .await
     .map_err(|e| Error::known("internal", e.to_string()))?
@@ -2338,6 +2352,7 @@ pub fn run() {
             close_osu,
             osu_running,
             map_video,
+            map_storyboard,
             repair_lazer_sets,
             compare_player,
             cancel_compare,

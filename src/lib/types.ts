@@ -557,6 +557,14 @@ export interface MapVideo {
   offset: number;
 }
 
+/** A difficulty's storyboard as read from the library (src-tauri/src/storyboard.rs). */
+export interface MapStoryboard {
+  osu: string;
+  osb: string | null;
+  /** the set's images: [name, address under fumen://localhost/] */
+  files: [string, string][];
+}
+
 export interface VisPrefs {
   style: VisStyle;
   /** from the cover, the app's accent, or one of the pairs in views/vis (`own`) */
@@ -581,6 +589,8 @@ export interface VisPrefs {
   title: boolean;
   /** the beatmap's video in place of the cover, when it has one */
   video: boolean;
+  /** the beatmap's storyboard in place of the cover, when it has one */
+  storyboard: boolean;
   /** ms added to the song's time for the beat (later = positive) */
   offset: number;
   /** answers the play in osu! (Follow osu!, lib/vis/feel): misses, combo, health, the end */

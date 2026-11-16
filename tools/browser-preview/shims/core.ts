@@ -416,6 +416,14 @@ export async function invoke<T>(cmd: string, args: Record<string, unknown> = {},
       const v = localStorage.getItem("fumen-preview-video");
       return (v ? JSON.parse(v) : null) as T;
     }
+    case "map_storyboard": {
+      // localStorage "fumen-preview-storyboard": {"<map id>": {"osu": <hash>, "osb": <hash> | null, "files": [[name, hash]]}}
+      const all = JSON.parse(localStorage.getItem("fumen-preview-storyboard") ?? "{}") as Record<string, { osu: string; osb: string | null; files: [string, string][] }>;
+      const sb = all[args.id as string];
+      if (!sb) return null as T;
+      const text = (h: string) => fetch(`/__fumen/file/${h}`).then((r) => r.text());
+      return { osu: await text(sb.osu), osb: sb.osb ? await text(sb.osb) : null, files: sb.files.map(([n, h]) => [n, `file/${h}`]) } as T;
+    }
     case "launch_osu":
       localStorage.setItem("fumen-preview-lazer", "running");
       return null as T;

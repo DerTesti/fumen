@@ -351,7 +351,7 @@ export function stage(): Style {
       }
       drawArt(f, 0, 0, W, H, { zoom, px, py });
       // out of focus for a moment after a combo break, going on a fail (the blurred copy over it)
-      const unfocus = isLinux || f.video || !f.art.blur ? 0 : clamp01(0.75 * grief + 0.6 * failK);
+      const unfocus = isLinux || f.video || f.story || !f.art.blur ? 0 : clamp01(0.75 * grief + 0.6 * failK);
       if (unfocus > 0.01) {
         // the blurred copy was made zoomed in a little (its edges): drawn that much smaller to line up
         const made = canvasFilters ? 1 + (4 * Math.round(24 * f.o.blur)) / 180 : 1;

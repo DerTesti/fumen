@@ -12,7 +12,7 @@ import { esc } from "../../lib/format";
 
 type Num = "reaction" | "sensitivity" | "pulse" | "bars" | "blur" | "dim" | "offset";
 type Seg = "colors" | "flashes" | "background";
-type Flag = "kiai" | "mirror" | "title" | "video" | "react" | "stats";
+type Flag = "kiai" | "mirror" | "title" | "video" | "storyboard" | "react" | "stats";
 
 /** sliders: setting, label, min, max, scale to the input's numbers, ends, shown value */
 const RANGES: [Num, string, number, number, number, string, string, (v: number) => string][] = [
@@ -42,6 +42,7 @@ const FLAGS: [Flag, string, string][] = [
   ["mirror", t("Mirrored"), t("Bass in the middle, highs to both sides")],
   ["title", t("Title"), ""],
   ["video", t("Video"), t("The beatmap's video in place of the cover, when it has one")],
+  ["storyboard", t("Storyboard"), t("The beatmap's storyboard in place of the cover, when it has one")],
 ];
 
 export function panelHtml(): string {
