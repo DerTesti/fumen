@@ -1,10 +1,12 @@
 //! A difficulty's background video (the visualizer plays it in place of the cover): the
-//! `Video,<offset>,"<file>"` line of its [Events], and that file among its set's files.
+//! `Video,<offset>,"<file>"` line of its [Events] (or, as osu! reads it too, of the set's .osb),
+//! and that file among its set's files.
 
 use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::error::Result;
+use crate::hitsounds::SetFiles;
 use crate::paths;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -18,14 +20,23 @@ pub struct Video {
 
 /// The video line of a chart: its file (as written, `/` for `\`) and offset, ms.
 pub fn video_line(osu: &str) -> Option<(String, f64)> {
-    let mut events = false;
-    for line in osu.trim_start_matches('\u{feff}').lines() {
+    find_video(osu, false)
+}
+
+/// The video line of a storyboard file (.osb): events only, with or without their header.
+pub fn osb_video_line(osb: &str) -> Option<(String, f64)> {
+    find_video(osb, true)
+}
+
+fn find_video(text: &str, whole: bool) -> Option<(String, f64)> {
+    let mut events = whole;
+    for line in text.trim_start_matches('\u{feff}').lines() {
         let line = line.trim();
         if line.starts_with('[') {
-            if events {
+            if events && line != "[Events]" && !whole {
                 return None;
             }
-            events = line == "[Events]";
+            events = line == "[Events]" || (whole && line != "[Variables]");
             continue;
         }
         if !events || line.starts_with("//") {
@@ -61,7 +72,25 @@ pub fn for_map(conn: &Connection, files: &paths::Files, id: &str) -> Result<Opti
         .optional()?;
     let Some((Some(hash), source, set_files, folder)) = row else { return Ok(None) };
     let Some(bytes) = files.read(&hash) else { return Ok(None) };
-    let Some((name, offset)) = video_line(&String::from_utf8_lossy(&bytes)) else { return Ok(None) };
+    let found = video_line(&String::from_utf8_lossy(&bytes)).or_else(|| {
+        // none in the difficulty: the set's storyboard file may name one
+        let osb = if source == "stable" {
+            let dir = files.path(&hash)?.parent()?.to_path_buf();
+            let mut names: Vec<String> = std::fs::read_dir(&dir)
+                .ok()?
+                .flatten()
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|n| n.to_lowercase().ends_with(".osb"))
+                .collect();
+            names.sort_by_key(|n| n.to_lowercase());
+            std::fs::read(dir.join(names.first()?)).ok()?
+        } else {
+            let list: Vec<(String, String)> = serde_json::from_str(&set_files).unwrap_or_default();
+            files.read(SetFiles::new(list).storyboard()?)?
+        };
+        osb_video_line(&String::from_utf8_lossy(&osb))
+    });
+    let Some((name, offset)) = found else { return Ok(None) };
     let lower = name.to_lowercase();
     let file = if source == "stable" {
         // stable: the key its scan gave the file in the set's folder
@@ -87,5 +116,16 @@ mod tests {
         assert_eq!(video_line("[Events]\n1,500,\"v.avi\",0,0\n"), Some(("v.avi".to_string(), 500.0)));
         assert_eq!(video_line("[Events]\n0,0,\"bg.jpg\",0,0\n[HitObjects]\nVideo,0,\"x.mp4\"\n"), None);
         assert_eq!(video_line("[General]\nAudioFilename: a.mp3\n"), None);
+    }
+
+    #[test]
+    fn reads_the_storyboard_files_video_line() {
+        let osb = "[Events]\n//Background and Video events\nVideo,0,\"video.mp4\"\n//Storyboard Layer 0 (Background)\nSprite,Background,Centre,\"bg.jpg\",320,240\n";
+        assert_eq!(osb_video_line(osb), Some(("video.mp4".to_string(), 0.0)));
+        assert_eq!(osb_video_line("[Variables]\n$v=1\n[Events]\nVideo,-50,\"a\\b.mp4\"\n"), Some(("a/b.mp4".to_string(), -50.0)));
+        // without a header, and variables never count as events
+        assert_eq!(osb_video_line("Video,10,v.mp4\n"), Some(("v.mp4".to_string(), 10.0)));
+        assert_eq!(osb_video_line("[Variables]\nVideo,0,\"x.mp4\"\n"), None);
+        assert_eq!(osb_video_line("[Events]\nSprite,Background,Centre,\"bg.jpg\",320,240\n"), None);
     }
 }
