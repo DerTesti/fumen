@@ -212,6 +212,8 @@ interface Pending {
 export function parseStoryboard(osu: string, osb: string | null): Storyboard {
   const vars: [string, string][] = [];
   const sprites: Sprite[] = [];
+  /** every image the Background layer names, with commands or without (osu! counts both) */
+  const bgLayer = new Set<string>();
   let budget = BUDGET;
   let bg: string | null = null;
   let widescreen = false;
@@ -251,6 +253,7 @@ export function parseStoryboard(osu: string, osb: string | null): Storyboard {
       if (!cur) return;
       const p: Pending = cur;
       cur = null;
+      if (p.layer === 0) bgLayer.add(p.path);
       const sp = finish(p);
       if (sp) sprites.push(sp);
     };
@@ -340,7 +343,7 @@ export function parseStoryboard(osu: string, osb: string | null): Storyboard {
   read(osu, false);
   // layers stack in order, each in the order its sprites were written
   sprites.sort((a, b) => a.layer - b.layer);
-  const replacesBackground = !!bg && sprites.some((s) => s.layer === 0 && s.path === bg);
+  const replacesBackground = !!bg && bgLayer.has(bg);
   return { sprites, widescreen, replacesBackground };
 }
 

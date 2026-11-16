@@ -63,6 +63,12 @@ describe("storyboard", () => {
     expect(sb.widescreen).toBe(true);
   });
 
+  it("counts the background as replaced by a sprite without commands too", () => {
+    const sb = parseStoryboard(osu(`0,0,"bg.jpg",0,0`), `[Events]\nVideo,0,"video.mp4"\nSprite,Background,Centre,"bg.jpg",320,240\nSprite,Foreground,Centre,"a.png",0,0\n F,0,0,100,1`);
+    expect(sb.sprites).toHaveLength(1);
+    expect(sb.replacesBackground).toBe(true);
+  });
+
   it("colours, flips and additive", () => {
     const sb = parseStoryboard(osu(`Sprite,Foreground,Centre,"a.png",0,0\n C,0,0,100,255,0,0,0,0,255\n P,0,50,,A\n P,0,0,100,H`), null);
     const sp = sb.sprites[0];
