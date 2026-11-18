@@ -136,4 +136,12 @@ export const live: Record<string, string> = {
   "Your pulse over the song": "Dein Puls über den Song",
   "Highest: {bpm} bpm at {at}": "Höchster: {bpm} bpm bei {at}",
   "Your pulse on average": "Dein Puls im Schnitt",
+  // its HRV and where the nerves set in (1.5)
+  Pulse: "Puls",
+  Nerves: "Nerven",
+  "from {at}": "ab {at}",
+  "Nerves at {at}: pulse +{rise}, HRV −{drop} %": "Nerven bei {at}: Puls +{rise}, HRV −{drop} %",
+  "RMSSD over the half minute around each moment: lower is more stress. A tendency, not a measurement.":
+    "RMSSD über die halbe Minute um jede Stelle: niedriger heißt mehr Stress. Eine Tendenz, kein Messwert.",
+  "Pulse climbing while the HRV falls": "Puls steigt, HRV fällt",
 };

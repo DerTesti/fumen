@@ -1,5 +1,66 @@
 import { describe, expect, it } from "vitest";
-import { averageIn, dayOf, summarize, totals, type HeartTry } from "./heart-stats";
+import { averageIn, dayOf, hrvCurve, nerveSpots, rmssd, summarize, totals, type HeartTry } from "./heart-stats";
+
+/** Beats at a steady pulse with a given unevenness: [song ms, spacing ms], from `from` to `to`. */
+function beats(from: number, to: number, spacing: (i: number) => number, rate = 1): [number, number][] {
+  const out: [number, number][] = [];
+  let at = from;
+  for (let i = 0; at <= to; i++) {
+    const ms = spacing(i);
+    at += ms * rate;
+    out.push([Math.round(at), ms]);
+  }
+  return out;
+}
+
+describe("HRV", () => {
+  it("is the RMSSD of the beats' spacing, leaving out glitches", () => {
+    // spacings alternating 800 / 820: every difference is 20
+    const even = beats(0, 30_000, (i) => (i % 2 ? 820 : 800));
+    expect(rmssd(even)).toBeCloseTo(20);
+    // a missed beat (1620) and a doubled one (400) don't count
+    const glitchy: [number, number][] = [...even.slice(0, 20), [16_000, 1620], [16_400, 400], ...even.slice(20)];
+    expect(rmssd(glitchy)).toBeCloseTo(20);
+    expect(rmssd(even.slice(0, 10))).toBeNull();
+  });
+
+  it("comes with the try's summary", () => {
+    const h = summarize([[0, 75], [1000, 75], [2000, 76]], null, beats(0, 30_000, (i) => (i % 2 ? 820 : 800)))!;
+    expect(h.hrv).toBe(20);
+    expect(h.rr!.length).toBeGreaterThan(30);
+    expect(summarize([[0, 75], [1000, 75], [2000, 76]])!.hrv).toBeNull();
+  });
+
+  it("follows the song as a curve, the window at the rate", () => {
+    // calm (differences of 40) for a minute, then tense (differences of 6)
+    const rr = [...beats(0, 60_000, (i) => (i % 2 ? 840 : 800)), ...beats(60_000, 120_000, (i) => (i % 2 ? 506 : 500))];
+    const curve = hrvCurve(rr);
+    expect(curve.length).toBeGreaterThan(40);
+    const near = (ms: number) => curve.reduce((a, b) => (Math.abs(b[0] - ms) < Math.abs(a[0] - ms) ? b : a))[1];
+    // the half minute around a moment: a quarter minute either side of the change is clean
+    expect(near(40_000)).toBeCloseTo(40, 0);
+    expect(near(100_000)).toBeCloseTo(6, 0);
+    // at 1.5× the half minute is 45 s of song
+    const fast = hrvCurve(beats(0, 90_000, (i) => (i % 2 ? 840 : 800), 1.5), 1.5);
+    expect(fast[fast.length - 1][0]).toBeGreaterThan(85_000);
+  });
+
+  it("finds where the nerves set in: the pulse climbing while the HRV falls", () => {
+    const rr = [...beats(0, 60_000, (i) => (i % 2 ? 840 : 800)), ...beats(60_000, 120_000, (i) => (i % 2 ? 506 : 500))];
+    const curve = hrvCurve(rr);
+    // the pulse: 75, then from 60 s up to 118 within 12 s, staying there
+    const samples: [number, number][] = [];
+    for (let s = 0; s <= 120; s++) samples.push([s * 1000, s < 60 ? 75 : Math.min(118, 75 + (s - 60) * 4)]);
+    const spots = nerveSpots(samples, curve);
+    expect(spots).toHaveLength(1);
+    expect(spots[0].a).toBeGreaterThanOrEqual(60_000);
+    expect(spots[0].a).toBeLessThan(76_000);
+    expect(spots[0].rise).toBeGreaterThanOrEqual(10);
+    expect(spots[0].drop).toBeGreaterThan(0.35);
+    // the same HRV with a pulse that stays put: no nerves, just a calmer song
+    expect(nerveSpots(samples.map(([t]) => [t, 75]), curve)).toEqual([]);
+  });
+});
 
 describe("a try's pulse", () => {
   const samples: [number, number][] = [
@@ -44,6 +105,7 @@ describe("the pulse over many tries", () => {
     max,
     min,
     fast,
+    hrv: null,
   });
   const list = [
     tri(1, "a", at(12, 20), 120, 150, 90, "pass", 140),

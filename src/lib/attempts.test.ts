@@ -105,6 +105,26 @@ describe("AttemptTracker", () => {
     expect(h.min).toBeGreaterThanOrEqual(100);
   });
 
+  it("keeps the beats' spacing with the song, back from each reading, at the rate", () => {
+    const t = new AttemptTracker();
+    const out: Attempt[] = [];
+    let i = 0;
+    const feed = (s: Step, rr: number[]): void => {
+      out.push(...t.feed(msg(s), 1_000_000 + i++ * 150));
+      t.pulse(90, true, rr);
+    };
+    for (const s of start()) feed(s, [700]);
+    playing(500, 30000).forEach((s) => feed(s, [600, 650]));
+    feed({ state: 5, live: 50000 }, [700]);
+    const rr = out[0].heart!.rr!;
+    expect(rr.length).toBeGreaterThan(40);
+    expect(rr.every(([, ms]) => ms === 600 || ms === 650)).toBe(true);
+    // each pair: the 650 at the reading, the 600 one spacing before it
+    const k = rr.findIndex(([, ms]) => ms === 650);
+    expect(rr[k][0] - rr[k - 1][0]).toBe(650);
+    expect(rr.every(([at], j) => j === 0 || at >= rr[j - 1][0] - 1000)).toBe(true);
+  });
+
   it("a pass takes the first score the results screen shows", () => {
     const out = run([
       ...start(),

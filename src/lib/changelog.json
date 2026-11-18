@@ -3,10 +3,12 @@
     "version": "1.5.0",
     "date": "2026-11-16",
     "en": [
-      "New: Storyboards in the visualizer. A map's storyboard plays in place of the cover, with its background and video under it. You can turn it off in the visualizer's settings."
+      "New: Storyboards in the visualizer. A map's storyboard plays in place of the cover, with its background and video under it. You can turn it off in the visualizer's settings.",
+      "New: Your HRV for every try, with a heart rate monitor that sends the spacing of your beats (chest straps like Moofit's do). The pulse graph gets a second curve and marks where your nerves kicked in: your pulse climbing while your HRV drops."
     ],
     "de": [
-      "Neu: Storyboards im Visualizer. Das Storyboard einer Map läuft statt des Covers, mit Hintergrund und Video darunter. Abschalten geht in den Einstellungen des Visualizers."
+      "Neu: Storyboards im Visualizer. Das Storyboard einer Map läuft statt des Covers, mit Hintergrund und Video darunter. Abschalten geht in den Einstellungen des Visualizers.",
+      "Neu: Deine HRV bei jedem Versuch, wenn dein Pulsmesser den Abstand deiner Herzschläge sendet (Brustgurte wie die von Moofit tun das). Die Pulskurve bekommt eine zweite Linie und zeigt, wo deine Nerven eingesetzt haben: Der Puls steigt, während die HRV fällt."
     ]
   },
   {

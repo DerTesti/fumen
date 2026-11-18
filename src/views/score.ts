@@ -176,7 +176,7 @@ export class ScoreView {
         ${this.actions(map)}
         ${this.lossSection(map)}
         ${this.timingSection()}
-        ${pulseSection(this.attempt?.heart, this.data)}
+        ${pulseSection(this.attempt?.heart, this.data, this.attempt?.rate)}
         ${this.sessionSection()}
       </div>`;
     claimContentArt(set?.bg ? thumbUrl(set.bg, 640) : null);

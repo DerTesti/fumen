@@ -397,6 +397,9 @@ fn ensure_columns(conn: &Connection) -> Result<()> {
         ("hr_max", "INTEGER"),
         ("hr_min", "INTEGER"),
         ("hr_fast", "REAL"),
+        // the beats' spacing during a try and its HRV (1.5)
+        ("heart_rr", "TEXT"),
+        ("hr_hrv", "REAL"),
     ];
     for (name, kind) in later {
         if !cols.iter().any(|c| c == name) {

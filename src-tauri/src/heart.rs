@@ -41,11 +41,14 @@ pub struct Device {
     pub rssi: Option<i16>,
 }
 
-/// One reading: beats per minute, and whether the strap touches skin (when it says).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+/// One reading: beats per minute, whether the strap touches skin (when it says) and the times
+/// between the beats since the reading before, in milliseconds (when it sends them; a try keeps
+/// them for its HRV).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Reading {
     pub bpm: u16,
     pub contact: Option<bool>,
+    pub rr: Vec<u16>,
 }
 
 /// How the connection goes.
@@ -63,11 +66,23 @@ pub struct Status {
 
 /// The Heart Rate Measurement characteristic (Bluetooth's Heart Rate Service 1.0): flags, then the
 /// rate as one byte or (flag bit 0) two, little endian. Bits 1–2: skin contact, when supported.
+/// Bit 3: two bytes of energy expended follow. Bit 4: RR intervals follow, two bytes each, in
+/// 1/1024 s.
 pub fn parse(data: &[u8]) -> Option<Reading> {
     let flags = *data.first()?;
-    let bpm = if flags & 1 == 0 { u16::from(*data.get(1)?) } else { u16::from_le_bytes([*data.get(1)?, *data.get(2)?]) };
+    let (bpm, mut at) = if flags & 1 == 0 { (u16::from(*data.get(1)?), 2) } else { (u16::from_le_bytes([*data.get(1)?, *data.get(2)?]), 3) };
     let contact = (flags & 0b100 != 0).then_some(flags & 0b10 != 0);
-    Some(Reading { bpm, contact })
+    if flags & 0b1000 != 0 {
+        at += 2;
+    }
+    let mut rr = Vec::new();
+    if flags & 0b1_0000 != 0 {
+        while let (Some(lo), Some(hi)) = (data.get(at), data.get(at + 1)) {
+            rr.push((u32::from(u16::from_le_bytes([*lo, *hi])) * 1000 / 1024) as u16);
+            at += 2;
+        }
+    }
+    Some(Reading { bpm, contact, rr })
 }
 
 async fn adapter() -> Result<Adapter> {
@@ -221,15 +236,19 @@ mod tests {
 
     #[test]
     fn readings_as_the_service_sends_them() {
+        let r = |bpm, contact, rr: &[u16]| Some(Reading { bpm, contact, rr: rr.to_vec() });
         // one byte, no contact info
-        assert_eq!(parse(&[0x00, 72]), Some(Reading { bpm: 72, contact: None }));
+        assert_eq!(parse(&[0x00, 72]), r(72, None, &[]));
         // two bytes
-        assert_eq!(parse(&[0x01, 0x2C, 0x01]), Some(Reading { bpm: 300, contact: None }));
+        assert_eq!(parse(&[0x01, 0x2C, 0x01]), r(300, None, &[]));
         // contact supported: detected, then not
-        assert_eq!(parse(&[0x06, 95]), Some(Reading { bpm: 95, contact: Some(true) }));
-        assert_eq!(parse(&[0x04, 0]), Some(Reading { bpm: 0, contact: Some(false) }));
-        // with RR intervals after it
-        assert_eq!(parse(&[0x16, 120, 0x00, 0x02]), Some(Reading { bpm: 120, contact: Some(true) }));
+        assert_eq!(parse(&[0x06, 95]), r(95, Some(true), &[]));
+        assert_eq!(parse(&[0x04, 0]), r(0, Some(false), &[]));
+        // with RR intervals after it: 512/1024 s, then also 1024/1024 s
+        assert_eq!(parse(&[0x16, 120, 0x00, 0x02]), r(120, Some(true), &[500]));
+        assert_eq!(parse(&[0x16, 60, 0x00, 0x02, 0x00, 0x04]), r(60, Some(true), &[500, 1000]));
+        // energy expended before them
+        assert_eq!(parse(&[0x18, 80, 0x10, 0x00, 0x00, 0x03]), r(80, None, &[750]));
         assert_eq!(parse(&[]), None);
         assert_eq!(parse(&[0x01, 80]), None);
     }

@@ -59,6 +59,13 @@ pub struct Heart {
     pub min: i64,
     /// the average in the map's fastest part (none without its chart)
     pub fast: Option<f64>,
+    /// the beats' spacing (RR intervals): [song ms, ms between this beat and the one before];
+    /// empty when the strap doesn't send them (and for tries from before 1.5)
+    #[serde(default)]
+    pub rr: Vec<[i64; 2]>,
+    /// RMSSD over the whole try, ms (none without enough RR intervals)
+    #[serde(default)]
+    pub hrv: Option<f64>,
 }
 
 /// A try's pulse in short, for the totals (History's heart rate).
@@ -75,6 +82,7 @@ pub struct HeartTry {
     pub max: i64,
     pub min: i64,
     pub fast: Option<f64>,
+    pub hrv: Option<f64>,
 }
 
 const OUTCOMES: [&str; 4] = ["pass", "fail", "quit", "retry"];
@@ -100,6 +108,9 @@ fn check(a: &Attempt) -> Result<()> {
                 && bpm(h.max as f64)
                 && bpm(h.min as f64)
                 && h.fast.map_or(true, bpm)
+                && h.rr.len() <= 60_000
+                && h.rr.iter().all(|[t, ms]| (-60_000..=86_400_000).contains(t) && (1..=5_000).contains(ms))
+                && h.hrv.map_or(true, |v| (0.0..=1_000.0).contains(&v))
         });
     if ok {
         Ok(())
@@ -113,8 +124,10 @@ pub fn store(conn: &Connection, a: &Attempt) -> Result<i64> {
     check(a)?;
     conn.execute(
         "INSERT INTO attempts (md5, mode, client, started, ended, outcome, reached, failed_at, first_object, last_object,
-            accuracy, score, max_combo, misses, misses_at, mods, rate, pp, score_id, rank, heart, hr_avg, hr_max, hr_min, hr_fast)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+            accuracy, score, max_combo, misses, misses_at, mods, rate, pp, score_id, rank, heart, hr_avg, hr_max, hr_min, hr_fast,
+            heart_rr, hr_hrv)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25,
+            ?26, ?27)",
         params![
             a.md5.to_ascii_lowercase(),
             a.mode,
@@ -141,13 +154,16 @@ pub fn store(conn: &Connection, a: &Attempt) -> Result<i64> {
             a.heart.as_ref().map(|h| h.max),
             a.heart.as_ref().map(|h| h.min),
             a.heart.as_ref().and_then(|h| h.fast),
+            a.heart.as_ref().filter(|h| !h.rr.is_empty()).map(|h| serde_json::to_string(&h.rr)).transpose()?,
+            a.heart.as_ref().and_then(|h| h.hrv),
         ],
     )?;
     Ok(conn.last_insert_rowid())
 }
 
 const COLUMNS: &str = "id, md5, mode, client, started, ended, outcome, reached, failed_at, first_object, last_object,
-    accuracy, score, max_combo, misses, misses_at, mods, rate, pp, score_id, rank, heart, hr_avg, hr_max, hr_min, hr_fast";
+    accuracy, score, max_combo, misses, misses_at, mods, rate, pp, score_id, rank, heart, hr_avg, hr_max, hr_min, hr_fast,
+    heart_rr, hr_hrv";
 
 fn row(r: &rusqlite::Row) -> rusqlite::Result<Attempt> {
     Ok(Attempt {
@@ -179,6 +195,8 @@ fn row(r: &rusqlite::Row) -> rusqlite::Result<Attempt> {
                 max: r.get::<_, Option<i64>>(23)?.unwrap_or(0),
                 min: r.get::<_, Option<i64>>(24)?.unwrap_or(0),
                 fast: r.get(25)?,
+                rr: r.get::<_, Option<String>>(26)?.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
+                hrv: r.get(27)?,
             }),
             None => None,
         },
@@ -188,7 +206,7 @@ fn row(r: &rusqlite::Row) -> rusqlite::Result<Attempt> {
 /// Every try with its pulse, in short, newest first.
 pub fn heart_tries(conn: &Connection) -> Result<Vec<HeartTry>> {
     let mut st = conn.prepare(
-        "SELECT id, md5, mode, started, outcome, mods, hr_avg, hr_max, hr_min, hr_fast FROM attempts
+        "SELECT id, md5, mode, started, outcome, mods, hr_avg, hr_max, hr_min, hr_fast, hr_hrv FROM attempts
          WHERE hr_avg IS NOT NULL ORDER BY started DESC LIMIT 50000",
     )?;
     let rows = st.query_map([], |r| {
@@ -203,6 +221,7 @@ pub fn heart_tries(conn: &Connection) -> Result<Vec<HeartTry>> {
             max: r.get::<_, Option<i64>>(7)?.unwrap_or(0),
             min: r.get::<_, Option<i64>>(8)?.unwrap_or(0),
             fast: r.get(9)?,
+            hrv: r.get(10)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -270,13 +289,24 @@ mod tests {
         assert!(got[0].heart.is_none() && heart_tries(&conn).unwrap().is_empty());
         // with the pulse during it
         let mut h = attempt("pass", 9000);
-        h.heart = Some(Heart { samples: vec![[-1000, 88], [0, 90], [1000, 131]], avg: 103.0, max: 131, min: 88, fast: Some(131.0) });
+        h.heart = Some(Heart {
+            samples: vec![[-1000, 88], [0, 90], [1000, 131]],
+            avg: 103.0,
+            max: 131,
+            min: 88,
+            fast: Some(131.0),
+            rr: vec![[0, 660], [650, 650], [1290, 640]],
+            hrv: Some(10.0),
+        });
         let id = store(&conn, &h).unwrap();
         let back = for_map(&conn, &h.md5, 1).unwrap().remove(0);
         assert_eq!((back.id, back.heart.clone()), (id, h.heart.clone()));
         let short = heart_tries(&conn).unwrap();
-        assert_eq!((short.len(), short[0].max, short[0].fast), (1, 131, Some(131.0)));
+        assert_eq!((short.len(), short[0].max, short[0].fast, short[0].hrv), (1, 131, Some(131.0), Some(10.0)));
         h.heart.as_mut().unwrap().max = 900;
+        assert!(store(&conn, &h).is_err());
+        h.heart.as_mut().unwrap().max = 131;
+        h.heart.as_mut().unwrap().rr.push([2000, 0]);
         assert!(store(&conn, &h).is_err());
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);

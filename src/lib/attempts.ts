@@ -47,6 +47,8 @@ const RESULTS_WAIT = 3000;
 const MISSES_KEPT = 5000;
 /** readings kept per try at most (about one a second) */
 const PULSE_KEPT = 20_000;
+/** beats' spacings kept per try at most (one per beat) */
+const RR_KEPT = 60_000;
 /** mods that play by themselves */
 const AUTO = new Set(["AT", "CN", "AP"]);
 
@@ -66,6 +68,8 @@ interface Open {
   last: TosuNow;
   /** the pulse while it ran: [song ms, bpm] */
   pulse: [number, number][];
+  /** the beats' spacing while it ran: [song ms, ms since the beat before] */
+  rr: [number, number][];
 }
 
 export class AttemptTracker {
@@ -114,10 +118,21 @@ export class AttemptTracker {
 
   /** A reading from the heart rate monitor: kept with the try under way, where its song is (not
    * while it loads, nor behind the fail screen). */
-  pulse(bpm: number, contact: boolean | null): void {
+  pulse(bpm: number, contact: boolean | null, rr: readonly number[] = []): void {
     const cur = this.cur;
     if (!cur || cur.hold.on || cur.failedAt !== null || bpm <= 0 || contact === false || cur.pulse.length >= PULSE_KEPT) return;
     cur.pulse.push([Math.round(cur.prevLive), Math.round(bpm)]);
+    // the beats came before the reading, the last one about now: back from here, each spacing
+    // (real ms) turned into song ms by the rate
+    if (!rr.length || cur.rr.length + rr.length > RR_KEPT) return;
+    const rate = cur.last.rate > 0 ? cur.last.rate : 1;
+    let at = cur.prevLive;
+    const beats: [number, number][] = [];
+    for (let i = rr.length - 1; i >= 0; i--) {
+      beats.push([Math.round(at), Math.round(rr[i])]);
+      at -= rr[i] * rate;
+    }
+    cur.rr.push(...beats.reverse());
   }
 
   /** tosu went (or following stopped): a try under way ends as a quit, a pass without its score. */
@@ -141,7 +156,7 @@ export class AttemptTracker {
   private open(n: TosuNow, before: number | null, now: number): void {
     const hold = new StartHold();
     hold.begin(n.live, before, now);
-    this.cur = { md5: n.md5, hold, started: now, reached: 0, failedAt: null, prevLive: n.live, maxHits: 0, missesAt: [], missCount: 0, last: n, pulse: [] };
+    this.cur = { md5: n.md5, hold, started: now, reached: 0, failedAt: null, prevLive: n.live, maxHits: 0, missesAt: [], missCount: 0, last: n, pulse: [], rr: [] };
   }
 
   private track(cur: Open, n: TosuNow, now: number, out: Attempt[]): void {
@@ -208,7 +223,7 @@ export class AttemptTracker {
       scoreId: null,
       rank: null,
       // the fastest part comes with the chart, as the try is kept (lib/tosu-follow)
-      heart: summarize(cur.pulse),
+      heart: summarize(cur.pulse, null, cur.rr),
     };
   }
 }

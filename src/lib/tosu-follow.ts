@@ -171,9 +171,10 @@ class Follow {
     }
   }
 
-  /** A reading from the heart rate monitor (lib/heart): kept with the try under way. */
-  pulse(bpm: number, contact: boolean | null): void {
-    this.tries.pulse(bpm, contact);
+  /** A reading from the heart rate monitor (lib/heart): kept with the try under way, the beats'
+   * spacing too. */
+  pulse(bpm: number, contact: boolean | null, rr: readonly number[] = []): void {
+    this.tries.pulse(bpm, contact, rr);
   }
 
   /** tosu is gone (or following stopped): Fumen's song stops and Fumen has its sound again. */
@@ -373,4 +374,4 @@ async function withFastPart(a: Attempt): Promise<Attempt> {
 }
 
 export const follow = new Follow();
-heart.bus.on("reading", (r) => follow.pulse(r.bpm, r.contact));
+heart.bus.on("reading", (r) => follow.pulse(r.bpm, r.contact, r.rr));

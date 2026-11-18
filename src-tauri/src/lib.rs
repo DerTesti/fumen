@@ -1229,7 +1229,8 @@ async fn heart_scan() -> Result<Vec<heart::Device>> {
 }
 
 /// Connects to a strap and keeps it: how it goes to the window (`heart-status`), every reading to
-/// the window (`heart`) and the OBS pages (the `heart` part, gone while there's none).
+/// the window (`heart`, RR intervals included) and the OBS pages (the `heart` part, gone while
+/// there's none).
 #[tauri::command]
 fn heart_connect(app: AppHandle, id: String, name: String) {
     let told = app.clone();

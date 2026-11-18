@@ -139,7 +139,7 @@ export class TriesView {
         </div>
         ${this.actions(a, map)}
         ${this.heatSection(a, map)}
-        ${pulseSection(a.heart, this.data)}
+        ${pulseSection(a.heart, this.data, a.rate)}
         ${this.listSection(a)}
       </div>`;
     claimContentArt(set?.bg ? thumbUrl(set.bg, 640) : null);

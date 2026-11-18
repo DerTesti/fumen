@@ -10,6 +10,10 @@ export interface HeartTrack {
   min: number;
   /** the average in the map's fastest part (null without its chart) */
   fast: number | null;
+  /** the beats' spacing: [song ms, ms since the beat before] (straps that send it; none before 1.5) */
+  rr?: [number, number][];
+  /** RMSSD over the whole try, ms (null with too few beats) */
+  hrv?: number | null;
 }
 
 /** a try needs this many readings for its pulse to count */
@@ -24,18 +28,123 @@ export function averageIn(samples: readonly [number, number][], a: number, b: nu
 
 /** What the readings of a try came to; `fast`: the map's fastest part (song ms), if known. Null
  * with too few readings. */
-export function summarize(samples: readonly [number, number][], fast: { a: number; b: number } | null = null): HeartTrack | null {
+export function summarize(samples: readonly [number, number][], fast: { a: number; b: number } | null = null, rr: readonly [number, number][] = []): HeartTrack | null {
   const ok = samples.filter(([, bpm]) => bpm > 0);
   if (ok.length < MIN_SAMPLES) return null;
   const bpms = ok.map(([, bpm]) => bpm);
   const avg = bpms.reduce((s, v) => s + v, 0) / bpms.length;
+  const beats = rr.filter(([, ms]) => ms > 0 && ms <= 5000).map(([t, ms]): [number, number] => [Math.round(t), Math.round(ms)]);
   return {
     samples: ok.map(([t, bpm]) => [Math.round(t), Math.round(bpm)]),
     avg: Math.round(avg * 10) / 10,
     max: Math.max(...bpms),
     min: Math.min(...bpms),
     fast: fast ? round1(averageIn(ok, fast.a, fast.b)) : null,
+    rr: beats,
+    hrv: round1(rmssd(beats)),
   };
+}
+
+// ── HRV: how evenly the heart beats (lower while stressed) ──────────────
+//
+// RMSSD, the root mean square of the differences between neighbouring beats' spacings. Over half a
+// minute it's a tendency, not a measurement: good enough to see where a map got to you.
+
+/** spacings outside this (ms) aren't beats (a strap's glitch) */
+const RR_MIN = 300;
+const RR_MAX = 2000;
+/** a spacing this much off the one before is an artefact, left out */
+const RR_JUMP = 0.2;
+/** RMSSD needs at least this many differences */
+const MIN_DIFFS = 15;
+
+/** The squared differences between neighbouring beats that look real. */
+function diffs(rr: readonly [number, number][]): number[] {
+  const out: number[] = [];
+  for (let i = 1; i < rr.length; i++) {
+    const a = rr[i - 1][1];
+    const b = rr[i][1];
+    if (a < RR_MIN || a > RR_MAX || b < RR_MIN || b > RR_MAX || Math.abs(b - a) > a * RR_JUMP) continue;
+    out.push((b - a) * (b - a));
+  }
+  return out;
+}
+
+/** RMSSD of these beats, ms; null with too few. */
+export function rmssd(rr: readonly [number, number][]): number | null {
+  const d = diffs(rr);
+  return d.length < MIN_DIFFS ? null : Math.sqrt(d.reduce((s, v) => s + v, 0) / d.length);
+}
+
+/** the HRV curve's window and step, real seconds (song ms = real ms × rate) */
+export const HRV_WINDOW = 30_000;
+const HRV_STEP = 2000;
+
+/** RMSSD over the half minute around each moment of the song: [song ms, ms], every 2 s. Centred,
+ * not trailing: it's drawn after the try, and a drop then shows where it happened, not 15 s on. */
+export function hrvCurve(rr: readonly [number, number][], rate = 1): [number, number][] {
+  if (rr.length < MIN_DIFFS + 1) return [];
+  const half = (HRV_WINDOW * rate) / 2;
+  const step = HRV_STEP * rate;
+  const out: [number, number][] = [];
+  let from = 0;
+  for (let at = rr[0][0] + step; at <= rr[rr.length - 1][0] + step / 2; at += step) {
+    while (from < rr.length && rr[from][0] < at - half) from++;
+    let to = from;
+    while (to < rr.length && rr[to][0] <= at + half) to++;
+    const v = rmssd(rr.slice(from, to));
+    if (v !== null) out.push([Math.round(at), Math.round(v * 10) / 10]);
+  }
+  return out;
+}
+
+/** A stretch where the nerves set in: the pulse climbing fast while the HRV falls away. */
+export interface NerveSpot {
+  /** song ms */
+  a: number;
+  b: number;
+  /** how far the pulse climbed within the 15 s before, bpm */
+  rise: number;
+  /** how far the HRV fell below the try's usual, 0–1 */
+  drop: number;
+}
+
+/** the pulse has to climb this much (bpm) within NERVE_RISE_WINDOW real ms */
+const NERVE_RISE = 10;
+const NERVE_RISE_WINDOW = 15_000;
+/** and the HRV be this far below the try's median */
+const NERVE_DROP = 0.35;
+
+/** Where the pulse climbs at least 10 bpm within 15 s while the HRV is a third or more below the
+ * try's median: the moments a map got to you. Neighbouring moments are one spot. */
+export function nerveSpots(samples: readonly [number, number][], curve: readonly [number, number][], rate = 1): NerveSpot[] {
+  if (curve.length < 5 || samples.length < 2) return [];
+  const sorted = curve.map(([, v]) => v).sort((x, y) => x - y);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  if (median <= 0) return [];
+  const riseWin = NERVE_RISE_WINDOW * rate;
+  const join = HRV_STEP * rate * 2.5;
+  const spots: NerveSpot[] = [];
+  for (const [at, v] of curve) {
+    const drop = 1 - v / median;
+    if (drop < NERVE_DROP) continue;
+    let now: number | null = null;
+    let low = Infinity;
+    for (const [t, bpm] of samples) {
+      if (t < at - riseWin || t > at) continue;
+      low = Math.min(low, bpm);
+      now = bpm;
+    }
+    if (now === null || now - low < NERVE_RISE) continue;
+    const rise = now - low;
+    const last = spots[spots.length - 1];
+    if (last && at - last.b <= join) {
+      last.b = at;
+      last.rise = Math.max(last.rise, rise);
+      last.drop = Math.max(last.drop, drop);
+    } else spots.push({ a: at, b: at, rise, drop });
+  }
+  return spots.map((s) => ({ ...s, drop: Math.round(s.drop * 100) / 100 }));
 }
 
 const round1 = (v: number | null): number | null => (v === null ? null : Math.round(v * 10) / 10);
@@ -52,6 +161,8 @@ export interface HeartTry {
   max: number;
   min: number;
   fast: number | null;
+  /** RMSSD over the try (null without the beats' spacing) */
+  hrv: number | null;
 }
 
 /** One difficulty's tries with a pulse, put together. */

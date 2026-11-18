@@ -17,6 +17,8 @@ export interface HeartReading {
   bpm: number;
   /** the strap touches skin (when it says) */
   contact: boolean | null;
+  /** ms between the beats since the reading before (straps that send them; a try keeps them for its HRV) */
+  rr?: number[];
 }
 
 export interface HeartStatus {
