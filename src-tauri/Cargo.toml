@@ -39,7 +39,7 @@ rosu-pp = { package = "rosu-pp-gemini", version = "=5.0.4" }
 # Linux builds need libdbus-1-dev
 btleplug = "0.11"
 futures = "0.3"
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", features = ["time", "net", "io-util"] }
 uuid = "1"
 
 [target.'cfg(windows)'.dependencies]

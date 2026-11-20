@@ -106,9 +106,15 @@ async fn is_strap(p: &Peripheral) -> Option<Device> {
     Some(Device { id: p.id().to_string(), name: props.local_name.unwrap_or_else(|| "Heart rate monitor".into()), rssi: props.rssi })
 }
 
-/// Straps in reach (those advertising the Heart Rate Service), strongest first.
+/// Straps in reach (those advertising the Heart Rate Service), strongest first; Kodou first when
+/// it's open and sharing (then even without Bluetooth here).
 pub async fn scan() -> Result<Vec<Device>> {
-    let adapter = adapter().await?;
+    let kodou = kodou::find().await;
+    let adapter = match adapter().await {
+        Ok(a) => a,
+        Err(_) if kodou.is_some() => return Ok(kodou.into_iter().collect()),
+        Err(e) => return Err(e),
+    };
     adapter
         .start_scan(ScanFilter { services: vec![HEART_RATE_SERVICE] })
         .await
@@ -123,6 +129,9 @@ pub async fn scan() -> Result<Vec<Device>> {
         }
     }
     out.sort_by_key(|d| std::cmp::Reverse(d.rssi.unwrap_or(i16::MIN)));
+    if let Some(k) = kodou {
+        out.insert(0, k);
+    }
     Ok(out)
 }
 
@@ -147,7 +156,9 @@ pub fn connect(id: String, name: String, status: impl Fn(Status) + Send + Sync +
         let say = |state: &'static str, battery: Option<u8>, message: Option<String>| status(Status { state, name: Some(name.clone()), battery, message });
         while wanted.load(Ordering::SeqCst) {
             say("connecting", None, None);
-            let why = match run(&id, &wanted, &|battery| say("on", battery, None), &reading).await {
+            let on = |battery| say("on", battery, None);
+            let result = if id == kodou::ID { kodou::run(&wanted, &on, &reading).await } else { run(&id, &wanted, &on, &reading).await };
+            let why = match result {
                 Ok(()) => None,
                 Err(e) => Some(e.to_string()),
             };
@@ -230,6 +241,103 @@ async fn run(id: &str, wanted: &AtomicBool, on: &(dyn Fn(Option<u8>) + Sync), re
     result
 }
 
+/// Kodou, a heart rate app: while it's open it keeps the strap and shares it on 127.0.0.1:47830,
+/// one JSON object per line (`hello` with its status, then `status` and `reading`). Picked like a
+/// strap, with the id `kodou`; the readings then come from there, RR intervals included, and
+/// both apps show the pulse.
+mod kodou {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    use serde_json::Value;
+    use tokio::io::{AsyncBufReadExt, BufReader, Lines};
+    use tokio::net::TcpStream;
+    use tokio::time::timeout;
+
+    use super::{Device, Reading};
+    use crate::error::{Error, Result};
+
+    pub const ID: &str = "kodou";
+    const PORT: u16 = 47830;
+    /// a line longer than this isn't Kodou
+    const LONGEST: usize = 64 * 1024;
+
+    fn closed() -> Error {
+        Error::known("heart-lost", "Kodou isn't open, or isn't sharing.")
+    }
+
+    async fn open() -> Result<Lines<BufReader<TcpStream>>> {
+        let sock = timeout(Duration::from_millis(800), TcpStream::connect(("127.0.0.1", PORT))).await.map_err(|_| closed())?.map_err(|_| closed())?;
+        let _ = sock.set_nodelay(true);
+        Ok(BufReader::new(sock).lines())
+    }
+
+    /// The next message, None for nothing within `wait`; an error once Kodou is gone.
+    async fn next(lines: &mut Lines<BufReader<TcpStream>>, wait: Duration) -> Result<Option<Value>> {
+        match timeout(wait, lines.next_line()).await {
+            Err(_) => Ok(None),
+            Ok(Ok(Some(line))) if line.len() <= LONGEST => Ok(serde_json::from_str(&line).ok()),
+            Ok(_) => Err(closed()),
+        }
+    }
+
+    /// Kodou, when it's open and sharing: "Kodou (the strap it has)".
+    pub async fn find() -> Option<Device> {
+        let mut lines = open().await.ok()?;
+        let hello = next(&mut lines, Duration::from_millis(800)).await.ok()??;
+        if hello["type"] != "hello" || hello["app"] != "kodou" {
+            return None;
+        }
+        let strap = hello["status"]["name"].as_str().filter(|_| hello["status"]["state"] == "on");
+        let name = match strap {
+            Some(s) => format!("Kodou ({s})"),
+            None => "Kodou".to_string(),
+        };
+        Some(Device { id: ID.into(), name, rssi: None })
+    }
+
+    /// One connection to Kodou, until it closes, loses its strap or isn't wanted any more.
+    pub async fn run(wanted: &AtomicBool, on: &(dyn Fn(Option<u8>) + Sync), reading: &(dyn Fn(Reading) + Send + Sync)) -> Result<()> {
+        let mut lines = open().await?;
+        let mut is_on = false;
+        let mut battery = None;
+        while wanted.load(Ordering::SeqCst) {
+            let Some(msg) = next(&mut lines, Duration::from_millis(500)).await? else { continue };
+            let kind = msg["type"].as_str().unwrap_or_default().to_string();
+            let status = match kind.as_str() {
+                "hello" => msg.get("status").cloned().filter(|s| !s.is_null()),
+                "status" => Some(msg),
+                "reading" if is_on => {
+                    if let Some(r) = parse_reading(&msg) {
+                        reading(r);
+                    }
+                    None
+                }
+                _ => None,
+            };
+            let Some(s) = status else { continue };
+            if s["state"] == "on" {
+                let b = s["battery"].as_u64().and_then(|b| u8::try_from(b).ok()).filter(|b| *b <= 100);
+                if !is_on || b != battery {
+                    is_on = true;
+                    battery = b;
+                    on(battery);
+                }
+            } else if is_on {
+                return Err(Error::known("heart-lost", "Kodou lost its heart rate monitor."));
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn parse_reading(v: &Value) -> Option<Reading> {
+        let bpm = u16::try_from(v["bpm"].as_u64()?).ok()?;
+        let contact = v["contact"].as_bool();
+        let rr = v["rr"].as_array().map(|a| a.iter().filter_map(|x| x.as_u64().and_then(|n| u16::try_from(n).ok())).collect()).unwrap_or_default();
+        Some(Reading { bpm, contact, rr })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,6 +357,11 @@ mod tests {
         assert_eq!(parse(&[0x16, 60, 0x00, 0x02, 0x00, 0x04]), r(60, Some(true), &[500, 1000]));
         // energy expended before them
         assert_eq!(parse(&[0x18, 80, 0x10, 0x00, 0x00, 0x03]), r(80, None, &[750]));
+        // as Kodou passes them on
+        let k = |s: &str| kodou::parse_reading(&serde_json::from_str(s).unwrap());
+        assert_eq!(k(r#"{"type":"reading","bpm":92,"contact":true,"rr":[652,648]}"#), r(92, Some(true), &[652, 648]));
+        assert_eq!(k(r#"{"type":"reading","bpm":70,"contact":null,"rr":[]}"#), r(70, None, &[]));
+        assert_eq!(k(r#"{"type":"reading","bpm":-3}"#), None);
         assert_eq!(parse(&[]), None);
         assert_eq!(parse(&[0x01, 80]), None);
     }

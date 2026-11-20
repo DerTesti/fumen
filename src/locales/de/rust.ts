@@ -148,4 +148,6 @@ export const rust: Record<string, string> = {
   "The heart rate monitor dropped out.": "Die Verbindung zum Pulsmesser ist abgebrochen.",
   "The heart rate monitor isn't in reach. Is it on, and not connected to another app?": "Der Pulsmesser ist nicht in Reichweite. Ist er an und mit keiner anderen App verbunden?",
   "That device doesn't share a heart rate.": "Dieses Gerät teilt keinen Puls.",
+  "Kodou isn't open, or isn't sharing.": "Kodou ist nicht offen oder teilt gerade nicht.",
+  "Kodou lost its heart rate monitor.": "Kodou hat die Verbindung zum Pulsmesser verloren.",
 };
