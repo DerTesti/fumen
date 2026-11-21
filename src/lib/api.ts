@@ -26,6 +26,7 @@ import type {
   PlayedFound,
   LazerImportStatus,
   MapVideo,
+  Msd,
   RepairSummary,
   LazerInstall, StableInstall,
   LibraryStatus,
@@ -69,6 +70,8 @@ export const api = {
   },
   /** an osu!mania difficulty's dan at a clock rate */
   getDan: (id: string, rate: number) => invoke<DanRating | null>("get_dan", { id, rate }),
+  /** Etterna's MSD at a rate (osu!mania 4K to 7K) */
+  getMsd: (id: string, rate: number) => invoke<Msd | null>("get_msd", { id, rate }),
   getPools: () => invoke<Pool[]>("get_pools"),
   createPool: (name: string, mode: number, keys: number | null, categories: PoolKind[]) => invoke<string>("create_pool", { name, mode, keys, categories }),
   updatePool: (id: string, patch: { name?: string; categories?: PoolKind[]; note?: string }) => invoke<void>("update_pool", { id, patch }),

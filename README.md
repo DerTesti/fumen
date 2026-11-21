@@ -281,6 +281,8 @@ docs/PLAN.md      roadmap
   skin components and storyboards (the full list in [THIRD_PARTY.md](THIRD_PARTY.md))
 - [osu-framework](https://github.com/ppy/osu-framework) (MIT, ppy Pty Ltd): slider path
   approximation and the easing functions
+- [Etterna](https://github.com/etternagame/etterna) (MIT): its difficulty calculator MinaCalc, for
+  MSD, compiled in from `src-tauri/minacalc`
 - Beatmap mirrors [osu.direct](https://osu.direct), [nekoha.moe](https://mirror.nekoha.moe),
   [catboy.best](https://catboy.best), [beatconnect.io](https://beatconnect.io),
   [sayobot.cn](https://osu.sayobot.cn) and [nerinyan.moe](https://nerinyan.moe) for the downloads

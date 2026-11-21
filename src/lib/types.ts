@@ -76,6 +76,10 @@ export interface MapRow {
   danValue?: number;
   /** pattern category from the pattern report ("Jumpstream", "Chordjacks Tech", "… SV") */
   category?: string;
+  /** Etterna's MSD at 1× (osu!mania 4K to 7K) */
+  msd?: number;
+  /** the skillset that MSD comes from most ("jackspeed", "technical" …) */
+  msdSkill?: MsdSkill;
   /** osu!mania: each pattern's share of the chart in percent, in lib/skills' PATTERNS order
    * (stream, jumpstream, handstream, chordjack, jacks, ln) */
   shares?: number[];
@@ -168,6 +172,8 @@ export interface ChartData {
   report?: PatternReport;
   /** osu!mania: the dan at 1× */
   dan?: DanRating;
+  /** osu!mania 4K to 7K: Etterna's MSD at 1× */
+  msd?: Msd;
   /** osu!taiko: the chart as lazer plays it (src-tauri/src/taiko.rs) */
   taiko?: TaikoChartData;
   /** osu!: the chart as lazer plays it (src-tauri/src/osu.rs) */
@@ -552,6 +558,12 @@ export interface ObsPrefs {
 export type VisStyle = "spectrum" | "ring" | "wave" | "stars" | "stage" | "hifi";
 
 /** A difficulty's background video: its file's key and the song ms it starts at. */
+/** Etterna's MinaCalc skillsets, as Fumen names them (src-tauri/src/msd.rs) */
+export type MsdSkill = "stream" | "jumpstream" | "handstream" | "stamina" | "jackspeed" | "chordjack" | "technical";
+
+/** Etterna's difficulty rating of an osu!mania chart at a rate: overall and per skillset. */
+export type Msd = { overall: number } & Record<MsdSkill, number>;
+
 export interface MapVideo {
   file: string;
   offset: number;

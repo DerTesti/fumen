@@ -86,6 +86,13 @@ export async function invoke<T>(cmd: string, args: Record<string, unknown> = {},
       const chart = (await res.json()) as { dans?: Record<string, unknown> };
       return (chart.dans?.[(args.rate as number).toFixed(2)] ?? null) as T;
     }
+    case "get_msd": {
+      // preview chart files carry the MSD at every rate the panel offers (see preview_charts)
+      const res = await fetch(`/__fumen/chart/${args.id as string}`);
+      if (!res.ok) throw { code: "chart-missing", message: "This chart wasn't exported for the browser preview." };
+      const chart = (await res.json()) as { msds?: Record<string, unknown> };
+      return (chart.msds?.[(args.rate as number).toFixed(2)] ?? null) as T;
+    }
     case "get_matches":
     case "create_match":
     case "update_match":

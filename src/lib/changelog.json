@@ -3,9 +3,11 @@
     "version": "1.4.1",
     "date": "2026-11-16",
     "en": [
+      "New: MSD, Etterna's difficulty rating, for osu!mania 4K to 7K. It shows next to the dan at any rate, and you can search with msd>25 or skillset=jackspeed and sort by it.",
       "Fix: Background videos play on maps that name them only in their storyboard file."
     ],
     "de": [
+      "Neu: MSD, die Schwierigkeit aus Etterna, für osu!mania 4K bis 7K. Steht neben dem Dan, bei jeder Rate, und lässt sich mit msd>25 oder skillset=jackspeed suchen und sortieren.",
       "Fix: Hintergrundvideos laufen auch bei Maps, die sie nur in ihrer Storyboard-Datei nennen."
     ]
   },

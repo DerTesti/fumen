@@ -12,6 +12,8 @@ export const chart: Record<string, string> = {
     "Geschätzter Dan (Kursstufe), aus ManiaMapAnalyser von Leo_Black: Azusa für 4K-Rice, sonst Sunnys Sternebewertung auf den Dan-Tabellen. Eine Orientierung, kein Urteil.",
   Dan: "Dan",
   "Dan at {rate}×": "Dan bei {rate}×",
+  "MSD at {rate}×": "MSD bei {rate}×",
+  "Etterna's MSD, from its own calculator (MinaCalc).": "Etternas MSD, aus Etternas eigenem Rechner (MinaCalc).",
   "couldn't be rated": "ließ sich nicht bewerten",
   "too short to rate": "zu kurz zum Bewerten",
   "no dan tables for {keys}K": "keine Dan-Tabellen für {keys}K",

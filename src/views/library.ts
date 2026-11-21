@@ -38,10 +38,11 @@ const SET_SORTS: { value: SetSort; label: string }[] = [
   { value: "ranked", label: t("Ranked date") },
   { value: "played", label: t("Last played") },
   { value: "peak", label: t("Peak density") },
+  { value: "msd", label: "MSD" },
 ];
 
 /** Sorts where "descending" is the natural first click. */
-const DESC_FIRST = new Set<string>(["added", "sr", "bpm", "length", "ranked", "played", "od", "hp", "objects", "ln", "nps", "grade", "peak"]);
+const DESC_FIRST = new Set<string>(["added", "sr", "bpm", "length", "ranked", "played", "od", "hp", "objects", "ln", "nps", "grade", "peak", "msd"]);
 
 /** The list's date column follows the sort: when sorting by a date, it shows that date. */
 const DATE_COLUMN: Partial<Record<SetSort, string>> = { added: t("Added"), played: t("Played"), ranked: t("Ranked") };

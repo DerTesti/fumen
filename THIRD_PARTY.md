@@ -37,6 +37,15 @@ installed on the computer.
 | `src-tauri/src/osu.rs` | `PathApproximator` and `CircularArcProperties` (linear, perfect circle, Bézier and Catmull paths) |
 | `src/lib/vis/storyboard.ts` | the easing functions |
 
+## MinaCalc (Etterna, MIT)
+
+[github.com/etternagame/etterna](https://github.com/etternagame/etterna), licence in
+[LICENSES/etterna.txt](LICENSES/etterna.txt) and [src-tauri/minacalc/LICENSE](src-tauri/minacalc/LICENSE).
+Etterna's difficulty calculator (version 527) is in `src-tauri/minacalc` as it is, not ported:
+`build.rs` compiles it into Fumen and `src-tauri/src/msd.rs` asks it for a chart's MSD. The
+sources and their small C bridge (`API.cpp`, `API.h`) come as the
+[minacalc-sys](https://crates.io/crates/minacalc-sys) crate (MIT) vendors them.
+
 ## ManiaMapAnalyser (Leo_Black, MIT)
 
 [github.com/LeoBlackMT/osumania_map_analyser](https://github.com/LeoBlackMT/osumania_map_analyser),

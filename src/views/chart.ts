@@ -14,11 +14,11 @@
  * come with the chart from Fumen's own calculator; 1× shows lazer's value.
  */
 import { asApiError } from "../lib/api";
-import { danAt, loadChart } from "../lib/charts";
+import { danAt, loadChart, MSD_SKILLS, msdAt, topSkill } from "../lib/charts";
 import { CORE_PATTERNS, danReadings, MODE_LABEL, patternGroups, SV_AMOUNT } from "../lib/dan";
 import { bpm, duration, esc, fixed, num, srChip } from "../lib/format";
 import { store } from "../lib/store";
-import type { ChartData, DanRating } from "../lib/types";
+import type { ChartData, DanRating, Msd, MsdSkill } from "../lib/types";
 import { player } from "../player";
 import { attachSegIndicator } from "../ui/controls";
 import { icon } from "../ui/icons";
@@ -45,6 +45,9 @@ export class ChartPanel {
   private danJob = 0;
   /** the dan card's last content, kept while the next rate's dan loads */
   private danHtml = "";
+  /** the same for the MSD card */
+  private msdJob = 0;
+  private msdHtml = "";
   private plays: MapPlays | null = null;
   private similar: SimilarMaps | null = null;
   private pp: PpPanel | null = null;
@@ -158,7 +161,7 @@ export class ChartPanel {
           <div class="graph-tip num"></div>
         </div>
         <div class="graph-axis num"><span>0:00</span><span class="graph-hint">${d.kiai.length ? t("Notes per second · kiai shaded") : t("Notes per second")}</span><span class="axis-end">${duration(this.total() / player.rate)}</span></div>
-        <div class="chart-stats${mania ? " has-dan" : ""}">${this.statsHtml(d)}</div>
+        <div class="chart-stats${mania ? " has-dan" : ""}${this.hasMsd(d) ? " has-msd" : ""}">${this.statsHtml(d)}</div>
         ${mania ? this.maniaBlocks(d) : ""}
         ${field ? `<div class="chart-pp-slot"></div>` : ""}
         <div class="chart-plays"></div>
@@ -180,6 +183,7 @@ export class ChartPanel {
     attachSegIndicator(this.el.querySelector(".rate-presets")!);
     this.renderRate();
     this.renderDan();
+    this.renderMsd();
     this.bind();
     this.resize = new ResizeObserver(() => this.drawGraph());
     this.resize.observe(this.el.querySelector(".chart-graph")!);
@@ -205,7 +209,10 @@ export class ChartPanel {
     } else {
       stats.push([t("Objects"), num(a.notes), t("{n} with a length", { n: num(a.holds) })]);
     }
-    return dan + stats.map(([k, v, s]) => `<div class="cstat"><span class="cstat-k">${k}</span><b class="num">${v}</b><span class="cstat-s">${s}</span></div>`).join("");
+    const msd = this.hasMsd(d)
+      ? `<div class="cstat cstat-msd is-loading">${this.msdHtml || `<span class="cstat-k">MSD</span><b>–</b><span class="cstat-s">&nbsp;</span>`}</div>`
+      : "";
+    return dan + msd + stats.map(([k, v, s]) => `<div class="cstat"><span class="cstat-k">${k}</span><b class="num">${v}</b><span class="cstat-s">${s}</span></div>`).join("");
   }
 
   /** The dan at the current rate (1× comes with the chart, other rates are asked for). */
@@ -227,6 +234,35 @@ export class ChartPanel {
       (dan) => fill(dan),
       () => fill(null, true),
     );
+  }
+
+  /** MinaCalc rates 4K to 7K */
+  private hasMsd(d: ChartData): boolean {
+    return d.mode === 3 && d.keys >= 4 && d.keys <= 7;
+  }
+
+  /** Etterna's MSD at the current rate (1× comes with the chart, other rates are asked for). */
+  private renderMsd(): void {
+    const d = this.data;
+    if (!d || !this.hasMsd(d)) return;
+    const job = ++this.msdJob;
+    const rate = player.rate;
+    const map = store.snap!.maps[this.mapIdx];
+    const fill = (m: Msd | null) => {
+      if (job !== this.msdJob || this.dead) return;
+      const k = `<span class="cstat-k">${rate !== 1 ? t("MSD at {rate}×", { rate: fixed(rate, 2) }) : "MSD"}</span>`;
+      this.msdHtml = m
+        ? `${k}<b class="num">${fixed(m.overall, 2)}</b><span class="cstat-s">${MSD_SKILLS[topSkill(m)]} <span class="num">${fixed(m[topSkill(m)], 2)}</span></span>`
+        : `${k}<b>–</b><span class="cstat-s">${t("too short to rate")}</span>`;
+      const el = this.el.querySelector<HTMLElement>(".cstat-msd");
+      if (!el) return;
+      el.innerHTML = this.msdHtml;
+      el.classList.remove("is-loading");
+      el.dataset.tip = m
+        ? [t("Etterna's MSD, from its own calculator (MinaCalc)."), ...(Object.keys(MSD_SKILLS) as MsdSkill[]).map((s) => `${MSD_SKILLS[s]}: ${fixed(m[s], 2)}`)].join("\n")
+        : t("Etterna's MSD, from its own calculator (MinaCalc).");
+    };
+    msdAt(map.id, d, rate).then(fill, () => fill(null));
   }
 
   private danCard(d: ChartData, dan: DanRating | null, failed: boolean, rate: number): string {
@@ -264,6 +300,7 @@ export class ChartPanel {
     this.renderRate();
     this.el.querySelector(".chart-stats")!.innerHTML = this.statsHtml(this.data);
     this.renderDan();
+    this.renderMsd();
     for (const el of this.el.querySelectorAll<HTMLElement>(".pat-bpm[data-bpm]")) el.textContent = String(Math.round(+el.dataset.bpm! * player.rate));
     this.el.querySelector(".axis-end")!.textContent = duration(this.total() / player.rate);
   }

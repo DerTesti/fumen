@@ -25,6 +25,7 @@ mod matches;
 mod mirror_search;
 mod mma;
 mod mods;
+mod msd;
 mod osu;
 mod osu_auth;
 mod osu_scores;
@@ -835,6 +836,14 @@ async fn get_chart(app: AppHandle, id: String, mods: Option<mods::Mods>) -> Resu
 #[tauri::command]
 async fn get_dan(app: AppHandle, id: String, rate: f64) -> Result<Option<mma::dan::Dan>> {
     tauri::async_runtime::spawn_blocking(move || Ok(mma::dan::rate(&load_chart(&app, &id)?, rate.clamp(0.25, 4.0))))
+        .await
+        .map_err(|e| Error::known("internal", e.to_string()))?
+}
+
+/// Etterna's MSD of a library difficulty at a rate (osu!mania 4K to 7K), see `msd.rs`.
+#[tauri::command]
+async fn get_msd(app: AppHandle, id: String, rate: f64) -> Result<Option<msd::Msd>> {
+    tauri::async_runtime::spawn_blocking(move || Ok(msd::rate(&load_chart(&app, &id)?, rate.clamp(0.5, 3.0))))
         .await
         .map_err(|e| Error::known("internal", e.to_string()))?
 }
@@ -2328,6 +2337,7 @@ pub fn run() {
             get_library,
             get_chart,
             get_dan,
+            get_msd,
             get_pp,
             get_hitsounds,
             get_skins,

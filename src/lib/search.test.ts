@@ -16,10 +16,10 @@ function snapshot(): Snapshot {
     { id: "c", status: -3, title: "Local Song", artist: "Nobody", creator: "me", added: 1_000, from: "stable", maps: [] },
   ];
   const maps: MapRow[] = [
-    map(0, { version: "Extreme", sr: 7.2, bpm: 230, cs: 4, length: 300_000, best: { rank: 3, acc: 0.95, score: 900_000, plays: 3 }, peak: 18.5, patterns: "jumpstream chordjack stamina", srHt: 5.4, srDt: 10.1, dan: "Gamma high", danValue: 13.38, category: "Jumpstream" }),
+    map(0, { version: "Extreme", sr: 7.2, bpm: 230, cs: 4, length: 300_000, best: { rank: 3, acc: 0.95, score: 900_000, plays: 3 }, peak: 18.5, patterns: "jumpstream chordjack stamina", srHt: 5.4, srDt: 10.1, dan: "Gamma high", danValue: 13.38, category: "Jumpstream", msd: 27.4, msdSkill: "jumpstream" }),
     map(0, { version: "Hard", sr: 4.1, bpm: 230, cs: 7, dan: "Regular 3 mid", category: "Dense Chordstream Tech" }),
     map(1, { version: "Easy", status: 4, sr: 1.4, bpm: 200, cs: 4, holds: 500, objects: 1000 }),
-    map(1, { version: "LN Insane", status: 4, sr: 5.05, bpm: 200, cs: 4, holds: 800, objects: 1000, played: Date.now() - 2 * 86_400_000, peak: 9, patterns: "ln", srHt: 3.8, srDt: 7.3, dan: "Reform 4 low || LN 9 mid", category: "Column Lock" }),
+    map(1, { version: "LN Insane", status: 4, sr: 5.05, bpm: 200, cs: 4, holds: 800, objects: 1000, played: Date.now() - 2 * 86_400_000, peak: 9, patterns: "ln", srHt: 3.8, srDt: 7.3, dan: "Reform 4 low || LN 9 mid", category: "Column Lock", msd: 18.2, msdSkill: "technical" }),
     map(2, { version: "Taiko Oni", status: -3, mode: 1, sr: 5.5, bpm: 150, cs: 5 }),
   ];
   maps.forEach((m, i) => sets[m.set].maps.push(i));
@@ -116,6 +116,15 @@ describe("filterLibrary", () => {
     expect(versions({ text: 'dan="ln 9"' })).toEqual(["LN Insane"]);
     expect(versions({ text: "category=tech" })).toEqual(["Hard"]);
     expect(versions({ text: 'cat="column lock"' })).toEqual(["LN Insane"]);
+  });
+
+  it("filters by MSD and its skillset", () => {
+    expect(versions({ text: "msd>20" })).toEqual(["Extreme"]);
+    expect(versions({ text: "msd<20" })).toEqual(["LN Insane"]);
+    expect(versions({ text: "skillset=tech" })).toEqual(["LN Insane"]);
+    expect(versions({ text: "skillset=js" })).toEqual(["Extreme"]);
+    expect(versions({ text: "skillset!=js msd>1" })).toEqual(["LN Insane"]);
+    expect(parseQuery("skillset=nonsense").conds).toHaveLength(0);
   });
 
   it("combines the UI filters with the query", () => {
