@@ -3,7 +3,7 @@
 import { api } from "./api";
 import { chartModsKey, type ChartMods } from "./mods";
 import { store } from "./store";
-import type { ChartData, DanRating, PatternName } from "./types";
+import type { ChartData, DanRating, Msd, MsdSkill, PatternName } from "./types";
 import { t } from "./i18n";
 
 const cache = new Map<string, Promise<ChartData>>();
@@ -36,6 +36,40 @@ export function danAt(mapId: string, d: ChartData, rate: number): Promise<DanRat
     if (danCache.size > 200) danCache.delete(danCache.keys().next().value!);
   }
   return p;
+}
+
+const msdCache = new Map<string, Promise<Msd | null>>();
+
+/** Etterna's MSD at a rate: 1× comes with the chart, other rates are asked for (and kept). */
+export function msdAt(mapId: string, d: ChartData, rate: number): Promise<Msd | null> {
+  if (Math.abs(rate - 1) < 1e-6) return Promise.resolve(d.msd ?? null);
+  const key = `${mapId}@${rate.toFixed(2)}`;
+  let p = msdCache.get(key);
+  if (!p) {
+    p = api.getMsd(mapId, rate);
+    p.catch(() => msdCache.delete(key));
+    msdCache.set(key, p);
+    if (msdCache.size > 200) msdCache.delete(msdCache.keys().next().value!);
+  }
+  return p;
+}
+
+/** The skillsets' names as Etterna shows them. */
+export const MSD_SKILLS: Record<MsdSkill, string> = {
+  stream: "Stream",
+  jumpstream: "Jumpstream",
+  handstream: "Handstream",
+  stamina: "Stamina",
+  jackspeed: "Jackspeed",
+  chordjack: "Chordjack",
+  technical: "Technical",
+};
+
+/** The skillset an MSD comes from most. */
+export function topSkill(m: Msd): MsdSkill {
+  let best: MsdSkill = "stream";
+  for (const k of Object.keys(MSD_SKILLS) as MsdSkill[]) if (m[k] > m[best]) best = k;
+  return best;
 }
 
 export const PATTERNS: Record<PatternName, { label: string; hint: string }> = {

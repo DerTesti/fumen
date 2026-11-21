@@ -7,6 +7,7 @@
  *                       status=ranked  mode=mania  creator=Shoegazer  grade>=A  played=no  ln>30
  *                       pattern=jumpstream  peak>15  dt=5  ht<3   (from the chart analysis)
  *                       dan=gamma  dan>=13  dan>="reform 8"  category=jumpstream   (osu!mania dan / report)
+ *                       msd>25  skillset=jackspeed   (Etterna's MSD at 1×, 4K to 7K)
  *                       game=stable  game=lazer   (which osu! it's in)
  */
 import { danNumber } from "./dan";
@@ -18,8 +19,8 @@ type Op = "=" | "==" | "!=" | "<" | "<=" | ">" | ">=";
 
 type NumKey =
   | "sr" | "bpm" | "length" | "od" | "hp" | "ar" | "cs" | "keys" | "objects" | "ln" | "nps"
-  | "plays" | "acc" | "added" | "played" | "year" | "setid" | "mapid" | "peak" | "srdt" | "srht";
-type StrKey = "creator" | "artist" | "title" | "source" | "tags" | "diff" | "category";
+  | "plays" | "acc" | "added" | "played" | "year" | "setid" | "mapid" | "peak" | "srdt" | "srht" | "msd";
+type StrKey = "creator" | "artist" | "title" | "source" | "tags" | "diff" | "category" | "skillset";
 type Key = NumKey | StrKey | "status" | "mode" | "grade" | "pattern" | "dan" | "game";
 
 const ALIASES: Record<string, Key> = {
@@ -36,6 +37,8 @@ const ALIASES: Record<string, Key> = {
   pattern: "pattern", patterns: "pattern", skill: "pattern", style: "pattern",
   dan: "dan", tier: "dan",
   category: "category", cat: "category",
+  msd: "msd", etterna: "msd",
+  skillset: "skillset", msdskill: "skillset",
   plays: "plays", playcount: "plays",
   added: "added", played: "played", lastplayed: "played",
   ranked: "year", year: "year",
@@ -79,6 +82,17 @@ const PATTERN_NAMES: Record<string, string> = {
   jack: "jacks", jacks: "jacks", jackhammer: "jacks",
   ln: "ln", lns: "ln", longnote: "ln", longnotes: "ln",
   stamina: "stamina", stam: "stamina",
+};
+
+/** Etterna's skillsets, with the community's short forms */
+const SKILLSET_NAMES: Record<string, string> = {
+  stream: "stream", streams: "stream",
+  jumpstream: "jumpstream", js: "jumpstream",
+  handstream: "handstream", hs: "handstream",
+  stamina: "stamina", stam: "stamina",
+  jackspeed: "jackspeed", jack: "jackspeed", jacks: "jackspeed", speedjack: "jackspeed",
+  chordjack: "chordjack", chordjacks: "chordjack", cj: "chordjack",
+  technical: "technical", tech: "technical",
 };
 
 /** lazer ScoreRank ordinal for grade comparisons (silver variants rank with their gold ones). */
@@ -143,6 +157,10 @@ function parseCond(rawKey: string, rawOp: string, rawValue: string): Cond | null
     }
     case "creator": case "artist": case "title": case "source": case "tags": case "diff": case "category":
       return lower ? { key, op, value: lower } : null;
+    case "skillset": {
+      const name = SKILLSET_NAMES[lower];
+      return name ? { key, op: op === "!=" ? "!=" : "=", value: name } : null;
+    }
     case "dan":
       // LN dans have their own scale: those match by name
       return lower ? { key, op, value: /\bln\b/.test(lower) ? null : danNumber(lower), tier: /\b(low|mid|high)\b/.test(lower), text: lower } : null;
@@ -297,6 +315,7 @@ function numValue(key: NumKey, m: MapRow, s: SetRow, now: number): number {
     case "peak": return m.peak ?? NaN;
     case "srdt": return m.srDt ?? NaN;
     case "srht": return m.srHt ?? NaN;
+    case "msd": return m.msd ?? NaN;
   }
 }
 
@@ -368,6 +387,7 @@ function test(c: Cond, m: MapRow, s: SetRow, fields: LibIndex["setFields"][numbe
     case "tags": return cmpStr(fields.tags, c.op, c.value);
     case "diff": return cmpStr(version, c.op, c.value);
     case "category": return cmpStr((m.category ?? "").toLowerCase(), c.op, c.value);
+    case "skillset": return c.op === "!=" ? m.msdSkill !== c.value : m.msdSkill === c.value;
     case "dan": {
       if (!m.dan) return c.op === "!=";
       if (c.value === null) return cmpStr(m.dan.toLowerCase(), c.op, c.text);
@@ -397,7 +417,7 @@ function test(c: Cond, m: MapRow, s: SetRow, fields: LibIndex["setFields"][numbe
 
 // ── sorting ────────────────────────────────────────────────────────────────
 
-export type SetSort = "added" | "title" | "artist" | "creator" | "sr" | "bpm" | "length" | "ranked" | "played" | "peak";
+export type SetSort = "added" | "title" | "artist" | "creator" | "sr" | "bpm" | "length" | "ranked" | "played" | "peak" | "msd";
 export type MapSort = SetSort | "version" | "keys" | "od" | "hp" | "objects" | "ln" | "nps" | "grade";
 
 const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true });
@@ -422,6 +442,7 @@ function mapKey(key: MapSort, m: MapRow, s: SetRow): number | string {
     case "nps": return m.length ? m.objects / m.length : 0;
     case "grade": return m.best ? gradeOrdinal(m.best.rank) * 1000 + m.best.acc : -10_000;
     case "peak": return m.peak ?? -1;
+    case "msd": return m.msd ?? -1;
   }
 }
 
@@ -436,7 +457,7 @@ export function sortSets(ix: LibIndex, results: SetResult[], key: SetSort, desc:
   const keyOf = (r: SetResult): number | string => {
     const s = sets[r.set];
     switch (key) {
-      case "sr": case "bpm": case "length": case "played": case "peak": {
+      case "sr": case "bpm": case "length": case "played": case "peak": case "msd": {
         let v = desc ? -Infinity : Infinity;
         for (const mi of r.maps) {
           const x = mapKey(key, maps[mi], s) as number;

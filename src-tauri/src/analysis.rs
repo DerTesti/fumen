@@ -12,7 +12,8 @@ use crate::chart::{Chart, Kind};
 /// Bump when the analysis changes, so cached results are recomputed.
 /// 2: osu!mania star ratings at HT and DT joined the cached summary.
 /// 3: the dan rating and pattern category (ManiaMapAnalyser port, `mma`) too.
-pub const VERSION: i64 = 3;
+/// 4: Etterna's MSD (`msd`) too.
+pub const VERSION: i64 = 4;
 
 const WINDOW: i32 = 1000;
 /// rows per window below which a window counts as light

@@ -378,7 +378,26 @@ pub fn open(path: &Path) -> Result<Connection> {
     )?;
     migrate(&mut conn)?;
     ensure_columns(&conn)?;
+    ensure_chart_columns(&conn)?;
     Ok(conn)
+}
+
+/// Columns the chart analysis gained in a patch (MSD, 1.4.1): added here rather than by a
+/// migration, so the numbered migrations of the next version's branch stay as they are. Safe to
+/// run every time; the analysis version going up fills them in.
+fn ensure_chart_columns(conn: &Connection) -> Result<()> {
+    let mut st = conn.prepare("SELECT name FROM pragma_table_info('chart_stats')")?;
+    let cols = st.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if cols.is_empty() {
+        return Ok(());
+    }
+    // Etterna's MSD at 1× (msd.rs) and the skillset it asks most of
+    for (name, kind) in [("msd", "REAL"), ("msd_skill", "TEXT")] {
+        if !cols.iter().any(|c| c == name) {
+            conn.execute_batch(&format!("ALTER TABLE chart_stats ADD COLUMN {name} {kind}"))?;
+        }
+    }
+    Ok(())
 }
 
 /// Columns that came to a table after its migration had already run on a development build

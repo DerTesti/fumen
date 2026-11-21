@@ -69,6 +69,9 @@ struct ChartOut<'a> {
     /// osu!mania: the dan at 1×
     #[serde(skip_serializing_if = "Option::is_none")]
     dan: Option<dan::Dan>,
+    /// osu!mania 4K to 7K: Etterna's MSD at 1×
+    #[serde(skip_serializing_if = "Option::is_none")]
+    msd: Option<crate::msd::Msd>,
     /// osu!taiko: the chart as lazer plays it
     #[serde(skip_serializing_if = "Option::is_none")]
     taiko: Option<TaikoOut>,
@@ -274,6 +277,7 @@ pub fn chart_json(chart: &Chart, mods: Mods) -> Result<Vec<u8>> {
         analysis: &analysis,
         report: patterns::report(chart),
         dan: dan::rate(chart, 1.0),
+        msd: crate::msd::rate(chart, 1.0),
         taiko: chart.taiko.as_ref().map(taiko_out),
         osu: chart.osu.as_ref().map(osu_out),
         catch: chart.catch.as_ref().map(catch_out),
@@ -331,6 +335,8 @@ pub struct Summary {
     dan: Option<String>,
     dan_value: Option<f32>,
     category: Option<String>,
+    msd: Option<f32>,
+    msd_skill: Option<&'static str>,
 }
 
 fn summarize(hash: &str, chart: &Chart) -> Summary {
@@ -338,6 +344,7 @@ fn summarize(hash: &str, chart: &Chart) -> Summary {
     let rated = |rate: f64| (chart.mode == 3).then(|| stars::round2(stars::mania(chart, rate)));
     let d = dan::rate(chart, 1.0);
     let report = patterns::report(chart);
+    let msd = crate::msd::rate(chart, 1.0);
     Summary {
         hash: hash.to_owned(),
         nps_avg: a.nps_avg,
@@ -353,6 +360,8 @@ fn summarize(hash: &str, chart: &Chart) -> Summary {
         dan: d.as_ref().map(dan::Dan::label),
         dan_value: d.and_then(|d| d.value),
         category: report.map(|r| if r.sv() { format!("{} SV", r.category) } else { r.category }),
+        msd: msd.map(|m| m.overall),
+        msd_skill: msd.map(|m| m.top_skill()),
     }
 }
 
@@ -388,8 +397,8 @@ pub fn store(conn: &mut Connection, rows: &[Summary]) -> Result<()> {
     {
         let mut st = tx.prepare(
             "INSERT OR REPLACE INTO chart_stats
-               (hash, version, nps_avg, nps_peak, ln_time, jack_ratio, longest_burst, tags, patterns, sr_ht, sr_dt, dan, dan_value, category, sr)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+               (hash, version, nps_avg, nps_peak, ln_time, jack_ratio, longest_burst, tags, patterns, sr_ht, sr_dt, dan, dan_value, category, sr, msd, msd_skill)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         )?;
         for r in rows {
             st.execute(params![
@@ -407,7 +416,9 @@ pub fn store(conn: &mut Connection, rows: &[Summary]) -> Result<()> {
                 r.dan,
                 r.dan_value,
                 r.category,
-                r.sr
+                r.sr,
+                r.msd,
+                r.msd_skill
             ])?;
         }
     }
@@ -475,7 +486,7 @@ mod tests {
     /// Chart files for the browser preview (tools/browser-preview), for every difficulty whose
     /// title contains one of the comma-separated `FUMEN_PREVIEW_TITLES` (and every one already
     /// there, refreshed). osu!mania charts also get `dans`: the dan at every rate the panel offers,
-    /// for the preview's `get_dan`; every chart also comes with the mods that change it, as
+    /// for the preview's `get_dan`, and `msds` the same for `get_msd`; every chart also comes with the mods that change it, as
     /// `<id>+HR.json` and so on:
     /// `FUMEN_TEST_STORAGE=… FUMEN_TEST_EXPORT=… FUMEN_PREVIEW_TITLES="FREEDOM DiVE,Ready Steady"
     ///  FUMEN_PREVIEW_CHARTS=../tools/browser-preview/.cache/charts cargo test preview_charts -- --ignored`
@@ -517,6 +528,11 @@ mod tests {
                         .map(|r| (format!("{r:.2}"), serde_json::to_value(dan::rate(&chart, r)).unwrap()))
                         .collect();
                     v["dans"] = dans.into();
+                    let msds: serde_json::Map<String, serde_json::Value> = stars::RATES
+                        .map(|r| r as f64 * stars::RATE_STEP)
+                        .map(|r| (format!("{r:.2}"), serde_json::to_value(crate::msd::rate(&chart, r)).unwrap()))
+                        .collect();
+                    v["msds"] = msds.into();
                 }
                 std::fs::write(file, serde_json::to_vec(&v).unwrap()).unwrap();
                 written += 1;

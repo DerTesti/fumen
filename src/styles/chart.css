@@ -75,6 +75,8 @@
 .cstat-dan { background: var(--accent-soft); }
 .cstat-dan b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--accent-ink); }
 .cstat-dan.is-loading > * { opacity: .45; transition: opacity .2s var(--ease-std); }
+.chart-stats.has-dan.has-msd { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1.25fr) repeat(5, minmax(0, 1fr)); }
+.cstat-msd.is-loading > * { opacity: .45; transition: opacity .2s var(--ease-std); }
 
 /* ---------- Patterns / chords / columns ---------- */
 .chart-cols { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 28px; margin-top: 18px; }
@@ -226,7 +228,7 @@
 .chart-help { font-size: var(--fs-11); color: var(--t3); }
 
 @media (max-width: 1280px) {
-  .chart-stats, .chart-stats.has-dan { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .chart-stats, .chart-stats.has-dan, .chart-stats.has-dan.has-msd { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .chart-cols { grid-template-columns: minmax(0, 1fr); gap: 18px; }
 }
 
