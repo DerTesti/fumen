@@ -267,9 +267,9 @@ sections below is the order of the work.
       2026-11-22: plays Fumen saw happen (`live_plays`) join the history until lazer's scores
       have them (same difficulty, within 2 min and 0.05% accuracy), and the history reloads on
       every `live-play`, so a pass counts at once; the score page shows the skills it raised
-      (just before against just after); "Over time" on the Skills page: overall and every
+      (just before against just after); a graph per row on the Skills page (its button, closed by default): overall or a
       skillset day by day (`skillHistory`, sorted values kept as plays come in), 90 days / year /
-      all, one crosshair through all eight charts
+      all
 - [x] Compare skills with another player (0.4.10, `src-tauri/src/player.rs`, `lib/compare.ts`):
       osu! API with the logged-in token (user by name, top 200, firsts, recent passes, most
       played → up to 60 best-score lookups; one request at a time, 350 ms apart), charts from the

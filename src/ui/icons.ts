@@ -49,6 +49,7 @@ const ICONS = {
   similar: `<rect ${D} x="4" y="9" width="11" height="11" rx="2.6"/><rect ${S} x="4" y="9" width="11" height="11" rx="2.6"/><path ${S} d="M9 9V6.6A2.6 2.6 0 0 1 11.6 4h5.8A2.6 2.6 0 0 1 20 6.6v5.8a2.6 2.6 0 0 1-2.6 2.6H15"/>`,
   drive: `<rect ${S} x="3.8" y="13.2" width="16.4" height="6.3" rx="2"/><path ${S} d="M5.4 13.2 7.6 6a1.9 1.9 0 0 1 1.8-1.3h5.2A1.9 1.9 0 0 1 16.4 6l2.2 7.2"/><circle ${F} cx="16.6" cy="16.35" r="1"/>`,
   compass: `<circle ${S} cx="12" cy="12" r="8.5"/><path ${D} d="M15.6 8.4l-2.1 5.1-5.1 2.1 2.1-5.1z"/><path ${S} d="M15.6 8.4l-2.1 5.1-5.1 2.1 2.1-5.1z"/>`,
+  trend: `<path ${S} d="M4 19.5h16"/><path ${S} d="M5 16l4.2-4.6 3.4 2.8L19 7"/><path ${S} d="M15 7h4v4"/>`,
   clock: `<circle ${S} cx="12" cy="12" r="8"/><path ${S} d="M12 7.8V12l2.8 1.8"/>`,
   calendar: `<rect ${S} x="4.5" y="5.5" width="15" height="14" rx="2.2"/><path ${S} d="M4.5 10h15M8.5 3.5v4M15.5 3.5v4"/>`,
   metronome: `<path ${S} d="M9.4 3.8h5.2l3.9 16.4h-13z"/><path ${S} d="M12 15.6l4.6-8.6M6.9 14.6h10.2"/>`,

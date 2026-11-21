@@ -14,7 +14,7 @@ import {
   bestPerChart, FEW_PLAYS, keyModes, MORE_SUGGESTIONS, practice, rateOf, SKILL_LABEL, skillHistory, SKILLSETS, skills, suggest, SUGGESTIONS, TOP,
   type Aim, type Counted, type MsdRows, type Practice, type SkillPoint, type SkillSheet, type Suggestion,
 } from "../lib/skills";
-import { renderTrends, type TrendRange } from "./skill-trends";
+import { renderTrend, type TrendRange } from "./skill-trends";
 import { similarTo } from "../lib/similar";
 import { events, store } from "../lib/store";
 import type { MapRow, MsdSkill, PatternName, Play } from "../lib/types";
@@ -44,6 +44,9 @@ interface Line {
   value: number | null;
   top: (Counted & { worth: number })[];
 }
+
+/** a line's place: 0 overall, then the skillsets */
+const lineIndex = (key: GoalSkill): number => (key === "overall" ? 0 : SKILLSETS.indexOf(key) + 1);
 
 const linesOf = (sheet: SkillSheet, charts: Counted[]): Line[] => [
   { key: "overall", value: sheet.overall, top: charts.slice(0, TOP).map((c) => ({ ...c, worth: c.ssr[0] })) },
@@ -83,6 +86,8 @@ export class SkillsView {
   private planMemo: { plays: Play[]; maps: MapRow[]; rows: Map<number, MsdRows>; keys: number; more: string; plan: Practice[] } | null = null;
   /** "Over time": the range shown, and the skills day by day (worked out once per plays) */
   private range: TrendRange = "all";
+  /** lines whose graph is open */
+  private graphs = new Set<string>();
   private trendMemo: { plays: Play[]; maps: MapRow[]; keys: number; points: SkillPoint[] } | null = null;
 
   constructor() {
@@ -240,16 +245,24 @@ export class SkillsView {
         <section class="panel skills-radar">${radar(now, then, this.goalMarks(keys), versus && { name: versus.name, sheet: versus.sheet })}</section>
         <section class="panel skills-list">${lines.map((l, i) => this.row(l, before[i], now.plays, then.plays, versus && { name: versus.name, line: versus.lines[i], plays: versus.sheet.plays, charts: versus.charts })).join("")}</section>
       </div>
-      <section class="skill-trends"></section>
       ${this.goalsHtml(ctx)}
       ${this.practiceHtml(plan, rows, played, passed, theirPractice)}
       <p class="skills-how">
         ${t("Every pass is rated with Etterna's calculator, MinaCalc: the chart at the rate you played it, for your accuracy as Etterna counts it (Wife, worked out from your judgements). That's what the play is worth in each skillset. A skillset blends all your plays there the way Etterna does: your best count the most, and it takes a fair number of good plays to get up to your level. Overall blends the seven. Each chart counts once per rate, passes only, and not with mods that change what you play, like Hold Off.")}
       </p>`;
-    renderTrends(body.querySelector<HTMLElement>(".skill-trends")!, this.trendFor(h.plays, snap.maps, keys), this.range, (r) => {
-      this.range = r;
-      this.rerender(`.trend-range [data-range="${r}"]`);
-    });
+    // the graphs that are open, worked out only then
+    const graphs = body.querySelectorAll<HTMLElement>(".skill-graph[data-line]");
+    if (graphs.length) {
+      const points = this.trendFor(h.plays, snap.maps, keys);
+      for (const g of graphs) {
+        const line = Number(g.dataset.line);
+        const key = lines[line].key;
+        renderTrend(g, points, line, skillName(key), this.range, (r) => {
+          this.range = r;
+          this.rerender(`.skill[data-skill="${key}"] .trend-range [data-range="${r}"]`);
+        });
+      }
+    }
   }
 
   private row(l: Line, before: Line, plays: number, playsBefore: number, vs: { name: string; line: Line; plays: number; charts: ComparedChart[] } | null): string {
@@ -271,6 +284,7 @@ export class SkillsView {
       delta = `<span class="skill-them num" data-tip="${esc(tip)}">${th.value !== null ? fixed(th.value, 2) : "–"}</span>`;
     }
     const open = this.open.has(l.key);
+    const graph = this.graphs.has(l.key) && l.value !== null;
     const any = l.value !== null || (vs !== null && vs.line.value !== null);
     const best = l.top[0];
     const theirList =
@@ -278,14 +292,18 @@ export class SkillsView {
         ? `<div class="skill-them-head">${t("{name}'s best in {skill}", { name: esc(vs.name), skill: label })}</div>${vs.line.top.map((c) => theirRow(c, l.key, vs.charts)).join("")}`
         : "";
     return `
-      <div class="skill${overall ? " skill-overall" : ""}${open ? " open" : ""}${l.value === null ? " empty" : ""}" data-skill="${l.key}"${l.value !== null ? ` data-value="${l.value}"` : ""}>
-        <button class="skill-head" type="button" aria-expanded="${open}"${any ? "" : " disabled"}>
-          <span class="skill-name">${label}</span>
-          <span class="skill-charts">${best ? t("best play {value}", { value: fixed(best.worth, 2) }) : t("no passes yet")}</span>
-          ${delta}
-          <b class="skill-value num">${l.value !== null ? fixed(l.value, 2) : "–"}</b>
-          ${any ? icon("chevron-down", "skill-chev") : `<span></span>`}
-        </button>
+      <div class="skill${overall ? " skill-overall" : ""}${open || graph ? " open" : ""}${l.value === null ? " empty" : ""}" data-skill="${l.key}"${l.value !== null ? ` data-value="${l.value}"` : ""}>
+        <div class="skill-top">
+          <button class="skill-head" type="button" aria-expanded="${open}"${any ? "" : " disabled"}>
+            <span class="skill-name">${label}</span>
+            <span class="skill-charts">${best ? t("best play {value}", { value: fixed(best.worth, 2) }) : t("no passes yet")}</span>
+            ${delta}
+            <b class="skill-value num">${l.value !== null ? fixed(l.value, 2) : "–"}</b>
+            ${any ? icon("chevron-down", "skill-chev") : `<span></span>`}
+          </button>
+          <button class="icon-btn sm skill-graph-btn${graph ? " active" : ""}" type="button" aria-pressed="${graph}" data-tip="${graph ? t("Hide the graph") : t("Graph over time")}" aria-label="${t("Graph over time")}"${l.value === null ? " disabled" : ""}>${icon("trend")}</button>
+        </div>
+        ${graph ? `<div class="skill-graph" data-line="${lineIndex(l.key)}"></div>` : ""}
         ${
           open
             ? `<div class="skill-charts-list">${vs && l.top.length ? `<div class="skill-them-head">${t("Yours")}</div>` : ""}${l.top.map((c) => chartRow(c, l.key)).join("")}${theirList}<button class="btn btn-ghost btn-sm skill-goal" type="button">${icon("flag")}<span>${t("Set a goal for {skill}", { skill: label })}</span></button></div>`
@@ -624,9 +642,17 @@ export class SkillsView {
       if (k) {
         this.keys = +k.dataset.keys!;
         this.open.clear();
+        this.graphs.clear();
         this.more.clear();
         this.allSkills = false;
         return this.render();
+      }
+      const graphBtn = target.closest<HTMLElement>(".skill-graph-btn");
+      if (graphBtn) {
+        const s = graphBtn.closest<HTMLElement>(".skill")!.dataset.skill!;
+        if (this.graphs.has(s)) this.graphs.delete(s);
+        else this.graphs.add(s);
+        return this.rerender(`.skill[data-skill="${s}"] .skill-graph-btn`);
       }
       const head = target.closest<HTMLElement>(".skill-head");
       if (head) {

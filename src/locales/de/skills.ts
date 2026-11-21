@@ -91,9 +91,12 @@ export const skills: Record<string, string> = {
   "A pass at {wife} Wife here takes {skill} from {from} to {to}": "Ein Pass mit {wife} Wife hier bringt {skill} von {from} auf {to}",
   "A pass at {wife} Wife here starts {skill} at {to}": "Ein Pass mit {wife} Wife hier startet {skill} bei {to}",
 
-  // over time
-  "Over time": "Verlauf",
-  "How your skills grew, a step for every day your plays raised one.": "Wie deine Skills gewachsen sind, ein Schritt für jeden Tag, an dem deine Plays einen angehoben haben.",
+  // a skill's graph
+  "Graph over time": "Verlauf als Graph",
+  "Hide the graph": "Graph ausblenden",
+  "Nothing to show yet.": "Noch nichts zu zeigen.",
+  "{change} in this time": "{change} in dieser Zeit",
+  "About the same in this time": "In dieser Zeit etwa gleich",
   "Nothing moved in this time.": "In dieser Zeit hat sich nichts bewegt.",
   "Time range": "Zeitraum",
   "90 days": "90 Tage",

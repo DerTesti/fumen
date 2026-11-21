@@ -107,16 +107,18 @@
 .skill-chart-acc { text-align: right; color: var(--t2); }
 .skill-chart-worth { text-align: right; color: var(--t1); }
 
-/* ---------- Over time ---------- */
-.skill-trends { margin-top: 32px; }
-.trend-range > button { padding: 0 12px; }
-.trends-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
-.skill-trend { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px 12px 16px; }
-.skill-trend-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.skill-trend-head .skill-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.skill-trend-now { font-size: var(--fs-15); color: var(--t1); }
-.skill-trend.is-overall .skill-trend-now { color: var(--accent-ink); }
-.trend-plot { position: relative; height: 84px; border-radius: var(--r-xs); outline-offset: 3px; }
+/* ---------- A skill's graph (opened from its row) ---------- */
+.skill-top { display: flex; align-items: center; gap: 2px; padding-right: 8px; }
+.skill-top .skill-head { flex: 1; min-width: 0; }
+.skill-graph-btn { flex: none; color: var(--t3); }
+.skill-graph-btn.active { background: var(--accent-soft); color: var(--accent-ink); }
+.skill-graph { padding: 4px 16px 14px 12px; animation: fade-in .2s var(--ease-std); }
+.trend-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.trend-sum { font-size: var(--fs-12); color: var(--t3); }
+.trend-sum.up { color: var(--success); font-weight: 600; }
+.trend-range > button { padding: 0 10px; }
+.trend-none { padding: 4px 0; font-size: var(--fs-12); color: var(--t3); }
+.trend-plot { position: relative; height: 110px; border-radius: var(--r-xs); outline-offset: 3px; }
 .trend-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .trend-grid line { stroke: var(--stroke-dim); stroke-width: 1; }
 .trend-area { fill: color-mix(in srgb, var(--accent) 14%, transparent); }
@@ -137,21 +139,24 @@
   position: absolute;
   top: calc(100% + 4px);
   z-index: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   padding: 3px 8px;
   border-radius: var(--r-md);
   background: var(--bg-elevated);
   box-shadow: var(--elevation-2), 0 0 0 .5px var(--stroke);
   font-size: var(--fs-11);
-  color: var(--t2);
+  color: var(--t3);
   white-space: nowrap;
   transform: translateX(-50%);
   pointer-events: none;
 }
-/* pointing at a day: the heads show that day, not the range */
-.skill-trends.is-pointing .skill-delta:not(.trend-step) { display: none; }
-.skill-trends.is-pointing .skill-trend-now { color: var(--accent-ink); }
-.trend-x { display: flex; justify-content: space-between; margin: 8px 2px 0; font-size: var(--fs-11); color: var(--t3); }
-.trend-cross[hidden], .trend-dot[hidden], .trend-tip[hidden], .trend-step[hidden] { display: none; }
+.trend-tip b { color: var(--t1); font-size: var(--fs-12); }
+.trend-tip-d { color: var(--success); font-weight: 700; }
+.trend-tip-d.down { color: var(--danger); }
+.trend-x { display: flex; justify-content: space-between; margin: 6px 2px 0; font-size: var(--fs-11); color: var(--t3); }
+.trend-cross[hidden], .trend-dot[hidden], .trend-tip[hidden] { display: none; }
 
 /* ---------- Goals ---------- */
 .goals { margin-top: 32px; }
