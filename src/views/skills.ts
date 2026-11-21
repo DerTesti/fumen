@@ -1,44 +1,60 @@
-/* skills.ts — how good you are at each osu!mania pattern (see lib/skills.ts for how it's worked
- * out): a radar now and 90 days ago, per pattern the charts behind the number, the player's goals,
- * and charts from the library to practice the weakest ones on. Another player's skills can be put
- * next to yours (lib/compare.ts): their polygon on the radar, their value and best charts per
- * pattern.
+/* skills.ts — how good you are at osu!mania, the way Etterna measures it (see lib/skills.ts): your
+ * overall and the seven skillsets on a radar, now and 90 days ago, per skillset the plays behind
+ * the number, the player's goals, and charts from the library to practice the weakest ones on, by
+ * their MSD. Another player's skills can be put next to yours (lib/compare.ts): their polygon on
+ * the radar, their value and best plays per skillset, their charts to practice on.
  */
-import { asApiError, thumbUrl } from "../lib/api";
+import { api, asApiError, thumbUrl } from "../lib/api";
 import { compareEvents, compareNow, compareWith, endCompare, progressShare, progressText, recentPlayers, type ComparedChart } from "../lib/compare";
-import { goalNow, goalTarget, goalTitle, goalValue, progress, type Goal, type GoalContext } from "../lib/goals";
+import { goalNow, goalTarget, goalTitle, goalValue, progress, skillName, type Goal, type GoalContext, type GoalSkill } from "../lib/goals";
 import { currentContext, goalEvents, goalsNow, loadGoals, removeGoal } from "../lib/goals-store";
-import { displayTitle, esc, fixed, num, pct, relativeTime, srChip } from "../lib/format";
+import { displayTitle, esc, fixed, num, pct, relativeTime } from "../lib/format";
 import { historyEvents, historyNow, loadHistory, mapIndexOf, modsText, playWhen } from "../lib/history";
 import {
-  bestPerChart, chartStars, keyModes, MIN_CHARTS, MIN_SHARE, MORE_SUGGESTIONS, PATTERN_LABEL, PATTERNS, practice, rateOf, REF_ACC, skills,
-  suggest, SUGGESTIONS, TOP, type Aim, type Counted, type Practice, type Skill, type SkillPattern, type Suggestion,
+  bestPerChart, FEW_PLAYS, keyModes, MORE_SUGGESTIONS, practice, rateOf, SKILL_LABEL, SKILLSETS, skills, suggest, SUGGESTIONS, TOP,
+  type Aim, type Counted, type MsdRows, type Practice, type SkillSheet, type Suggestion,
 } from "../lib/skills";
 import { similarTo } from "../lib/similar";
 import { events, store } from "../lib/store";
-import type { MapRow, PatternName, Play } from "../lib/types";
+import type { MapRow, MsdSkill, PatternName, Play } from "../lib/types";
 import { attachSegIndicator, openMenu, toast, type MenuEntry } from "../ui/controls";
 import { icon } from "../ui/icons";
 import { openSet, setMenu } from "./actions";
 import { openGoalDialog } from "./goal-dialog";
 import { openImport } from "./import";
-import { lower, t, tn } from "../lib/i18n";
+import { t, tn } from "../lib/i18n";
 
 /** the comparison polygon: skills as they were this long ago */
 const THEN_MS = 90 * 86_400_000;
-/** patterns with practice suggestions before "All patterns" */
+/** skillsets with practice suggestions before "All skillsets" */
 const PRACTICE_GROUPS = 3;
 /** their charts per practice group, comparing */
 const THEIR_PICKS = 3;
 /** library charts offered as like one of theirs */
 const LIKE_THEIRS = 5;
+/** Etterna's reference accuracy: a chart's MSD is what a pass at this Wife% is worth */
+const REF_WIFE = 0.93;
+/** the hardest part to practice, for skillsets the analysis has a pattern for */
+const PATTERN_OF: Partial<Record<MsdSkill, PatternName>> = { stream: "stream", jumpstream: "jumpstream", handstream: "handstream", chordjack: "chordjack", jackspeed: "jacks" };
 
-/** The compared player's charts that practise your patterns (their indices, into `maps`). */
+/** One line of the list: overall or a skillset, with its best plays (and what each is worth in it). */
+interface Line {
+  key: GoalSkill;
+  value: number | null;
+  top: (Counted & { worth: number })[];
+}
+
+const linesOf = (sheet: SkillSheet, charts: Counted[]): Line[] => [
+  { key: "overall", value: sheet.overall, top: charts.slice(0, TOP).map((c) => ({ ...c, worth: c.ssr[0] })) },
+  ...sheet.skills.map((s): Line => ({ key: s.skillset, value: s.value, top: s.top })),
+];
+
+/** The compared player's charts that practise your skillsets (their indices, into `maps`). */
 interface TheirPractice {
   name: string;
   charts: ComparedChart[];
   maps: MapRow[];
-  picks: Map<SkillPattern, Suggestion[]>;
+  picks: Map<MsdSkill, Suggestion[]>;
 }
 
 export class SkillsView {
@@ -46,10 +62,10 @@ export class SkillsView {
   private offs: (() => void)[] = [];
   /** key mode shown (null: the most played) */
   private keys: number | null = null;
-  /** patterns whose charts are open */
+  /** lines whose plays are open */
   private open = new Set<string>();
-  /** practice: every pattern, not just the weakest; patterns showing more suggestions */
-  private allPatterns = false;
+  /** practice: every skillset, not just the weakest; skillsets showing more suggestions */
+  private allSkills = false;
   private more = new Set<string>();
   /** goals reached, listed */
   private showReached = false;
@@ -57,10 +73,17 @@ export class SkillsView {
   private entering = false;
   /** what the compare bar shows, so progress only updates its line */
   private barKey = "";
+  /** the library's MSD at every rate per key mode (for practice), and the snapshot it indexes */
+  private msd = new Map<number, Map<number, MsdRows>>();
+  private msdAsked = new Set<number>();
+  private msdFor: MapRow[] | null = null;
+  /** the last practice plan and what it was worked out from (it takes a moment, and opening a
+   * skillset's plays doesn't change it) */
+  private planMemo: { plays: Play[]; maps: MapRow[]; rows: Map<number, MsdRows>; keys: number; more: string; plan: Practice[] } | null = null;
 
   constructor() {
     this.el = document.createElement("section");
-    this.el.className = "view skills-view is-rework";
+    this.el.className = "view skills-view";
     this.el.innerHTML = `
       <header class="view-head skills-head">
         <div>
@@ -72,11 +95,8 @@ export class SkillsView {
           <button class="btn btn-sm skills-compare" type="button">${icon("user")}<span>${t("Compare")}</span></button>
         </div>
       </header>
-      <div class="skills-rework" role="note">${icon("alert", "skills-rework-ic")}<div><b>${t("Skills are being reworked")}</b><span>${t("The numbers here can be off until then, and goals and comparisons may change. Everything else in Fumen works as usual.")}</span></div></div>
       <div class="compare-bar" hidden></div>
       <div class="skills-body"></div>`;
-    // under rework: greyed (skills.css) and out of reach for the keyboard too
-    for (const part of this.el.querySelectorAll<HTMLElement>(".skills-tools, .compare-bar, .skills-body")) part.inert = true;
     this.bind();
     this.offs.push(
       historyEvents.on("history", () => this.render()),
@@ -97,6 +117,45 @@ export class SkillsView {
       () => this.render(),
       () => this.render(),
     );
+  }
+
+  /** The library's MSD at every rate in a key mode, by library index; undefined while it loads. */
+  private msdRows(keys: number, maps: MapRow[]): Map<number, MsdRows> | undefined {
+    if (this.msdFor !== maps) {
+      this.msdFor = maps;
+      this.msd.clear();
+      this.msdAsked.clear();
+    }
+    const rows = this.msd.get(keys);
+    if (rows || this.msdAsked.has(keys)) return rows;
+    this.msdAsked.add(keys);
+    api.msdRates(keys).then(
+      (byId) => {
+        if (this.msdFor !== maps) return;
+        const out = new Map<number, MsdRows>();
+        for (const [id, r] of Object.entries(byId)) {
+          const i = mapIndexOf(id);
+          if (i !== undefined && r.length >= 14) out.set(i, r);
+        }
+        this.msd.set(keys, out);
+        this.render();
+      },
+      () => {
+        if (this.msdFor !== maps) return;
+        this.msd.set(keys, new Map());
+        this.render();
+      },
+    );
+    return undefined;
+  }
+
+  private planFor(plays: Play[], maps: MapRow[], rows: Map<number, MsdRows>, keys: number, work: () => Practice[]): Practice[] {
+    const more = [...this.more].sort().join();
+    const m = this.planMemo;
+    if (m && m.plays === plays && m.maps === maps && m.rows === rows && m.keys === keys && m.more === more) return m.plan;
+    const plan = work();
+    this.planMemo = { plays, maps, rows, keys, more, plan };
+    return plan;
   }
 
   private render(): void {
@@ -123,7 +182,7 @@ export class SkillsView {
       body.innerHTML = `
         <div class="empty-state skills-empty">${icon("radar")}
           <div class="empty-title">${t("Skills come from your osu!mania plays")}</div>
-          <div class="empty-sub">${t("Fumen reads the patterns of osu!mania charts. Once you've passed some that are in your library, you'll see here what you're good at.")}</div>
+          <div class="empty-sub">${t("Fumen rates your osu!mania passes the way Etterna does. Once you've passed some 4K to 7K charts that are in your library, you'll see here what you're good at.")}</div>
         </div>
         ${this.goalsHtml(ctx)}`;
       return;
@@ -139,8 +198,8 @@ export class SkillsView {
 
     const charts = bestPerChart(h.plays, mapIndexOf, snap.maps, keys);
     const now = skills(charts);
-    const then = skills(bestPerChart(h.plays, mapIndexOf, snap.maps, keys, Date.now() - THEN_MS));
-    const plays = charts.length;
+    const thenCharts = bestPerChart(h.plays, mapIndexOf, snap.maps, keys, Date.now() - THEN_MS);
+    const then = skills(thenCharts);
     // charts touched at all, and passed at all (with mods that don't count too)
     const played = new Set<number>();
     const passed = new Set<number>();
@@ -150,62 +209,69 @@ export class SkillsView {
       played.add(i);
       if (!p.failed) passed.add(i);
     }
-    const plan = practice(now, charts, snap.maps, keys, { played, shown: (p) => (this.more.has(p) ? MORE_SUGGESTIONS : SUGGESTIONS) });
+    const rows = this.msdRows(keys, snap.maps);
+    const plan = rows ? this.planFor(h.plays, snap.maps, rows, keys, () => practice(now.skills, charts, snap.maps, keys, (i) => rows.get(i), { played, shown: (s) => (this.more.has(s) ? MORE_SUGGESTIONS : SUGGESTIONS) })) : null;
     // theirs, worked out the same way on their charts
-    const theirs = them ? skills(bestPerChart(them.data.plays, theirIndex, them.maps, keys)) : null;
-    const versus = them && theirs ? { name: them.data.player.name, skills: theirs, charts: them.data.charts } : null;
-    const theirPractice = them ? this.theirPractice(plan, charts, them, keys, played) : null;
-    sub.innerHTML = [`osu!mania ${keys}K`, tn(plays, "{n} chart passed", "{n} charts passed")]
+    const theirCharts = them ? bestPerChart(them.data.plays, theirIndex, them.maps, keys) : null;
+    const theirs = theirCharts ? skills(theirCharts) : null;
+    const versus = them && theirs && theirCharts ? { name: them.data.player.name, sheet: theirs, lines: linesOf(theirs, theirCharts), charts: them.data.charts } : null;
+    const theirPractice = them && plan ? this.theirPractice(plan, charts, them, keys, played) : null;
+    const few = now.plays < FEW_PLAYS;
+    sub.innerHTML = [`osu!mania ${keys}K`, tn(now.plays, "{n} pass rated", "{n} passes rated"), few ? t("still filling up") : ""]
+      .filter(Boolean)
       .map((w) => `<span>${w}</span>`)
       .join("");
+    const lines = linesOf(now, charts);
+    const before = linesOf(then, thenCharts);
     body.innerHTML = `
       <div class="skills-grid">
-        <section class="panel skills-radar">${radar(now, then, this.goalMarks(keys), versus)}</section>
-        <section class="panel skills-list">${now.map((s, i) => this.row(s, then[i], versus && { name: versus.name, skill: versus.skills[i], charts: versus.charts })).join("")}</section>
+        <section class="panel skills-radar">${radar(now, then, this.goalMarks(keys), versus && { name: versus.name, sheet: versus.sheet })}</section>
+        <section class="panel skills-list">${lines.map((l, i) => this.row(l, before[i], now.plays, then.plays, versus && { name: versus.name, line: versus.lines[i], plays: versus.sheet.plays, charts: versus.charts })).join("")}</section>
       </div>
       ${this.goalsHtml(ctx)}
-      ${this.practiceHtml(plan, played, passed, theirPractice)}
+      ${this.practiceHtml(plan, rows, played, passed, theirPractice)}
       <p class="skills-how">
-        ${t("A play is worth the chart's star rating at the rate you played it, at {acc} accuracy along osu!'s own osu!mania pp curve: a 5★ chart at 92% counts as about 4.4★. A pattern's skill is the average of your {top} best charts with that pattern (at least {share}% of the chart), weighted by how much of each chart it is. Passes only, each chart once, and not with mods that change what you play, like Hold Off.", { acc: pct(REF_ACC, 0), top: TOP, share: MIN_SHARE })}
+        ${t("Every pass is rated with Etterna's calculator, MinaCalc: the chart at the rate you played it, for your accuracy as Etterna counts it (Wife, worked out from your judgements). That's what the play is worth in each skillset. A skillset blends all your plays there the way Etterna does: your best count the most, and it takes a fair number of good plays to get up to your level. Overall blends the seven. Each chart counts once per rate, passes only, and not with mods that change what you play, like Hold Off.")}
       </p>`;
   }
 
-  private row(s: Skill, before: Skill, vs: { name: string; skill: Skill; charts: ComparedChart[] } | null): string {
-    const label = PATTERN_LABEL[s.pattern];
-    const guess = s.charts > 0 && s.charts < MIN_CHARTS;
-    // a guess can move either way; a settled skill only grows
-    const change = s.value !== null && before.value !== null && s.charts >= MIN_CHARTS && before.charts >= MIN_CHARTS ? s.value - before.value : null;
+  private row(l: Line, before: Line, plays: number, playsBefore: number, vs: { name: string; line: Line; plays: number; charts: ComparedChart[] } | null): string {
+    const label = skillName(l.key);
+    const overall = l.key === "overall";
+    // while it's filling up it moves with every play; past that it says how far you've come
+    const change = l.value !== null && before.value !== null && plays >= FEW_PLAYS && playsBefore >= FEW_PLAYS ? l.value - before.value : null;
     let delta =
       change !== null && Math.abs(change) >= 0.01
         ? `<span class="skill-delta ${change > 0 ? "up" : "down"}" data-tip="${t("Since {when}", { when: playWhen(Date.now() - THEN_MS) })}">${change > 0 ? "+" : "−"}${fixed(Math.abs(change), 2)}</span>`
         : "";
     // comparing: their value where the change since 90 days ago was
     if (vs) {
-      const th = vs.skill;
+      const th = vs.line;
       const tip =
         th.value === null
-          ? t("{name} has no {pattern} charts", { name: vs.name, pattern: lower(label) })
-          : `${t("{name}: {sr}★ from {charts}", { name: vs.name, sr: fixed(th.value, 2), charts: tn(th.charts, "{n} chart", "{n} charts") })}${th.charts < MIN_CHARTS ? `, ${t("a guess")}` : ""}`;
-      delta = `<span class="skill-them num" data-tip="${esc(tip)}">${th.value !== null ? `${fixed(th.value, 2)}★` : "–"}</span>`;
+          ? t("{name} has no passes rated here", { name: vs.name })
+          : t("{name}: {value} from {plays}", { name: vs.name, value: fixed(th.value, 2), plays: tn(vs.plays, "{n} pass", "{n} passes") });
+      delta = `<span class="skill-them num" data-tip="${esc(tip)}">${th.value !== null ? fixed(th.value, 2) : "–"}</span>`;
     }
-    const open = this.open.has(s.pattern);
-    const any = s.value !== null || (vs !== null && vs.skill.value !== null);
+    const open = this.open.has(l.key);
+    const any = l.value !== null || (vs !== null && vs.line.value !== null);
+    const best = l.top[0];
     const theirList =
-      vs && vs.skill.top.length
-        ? `<div class="skill-them-head">${t("{name}'s best with {pattern}", { name: esc(vs.name), pattern: lower(label) })}</div>${vs.skill.top.map((c) => theirRow(c, s, vs.charts)).join("")}`
+      vs && vs.line.top.length
+        ? `<div class="skill-them-head">${t("{name}'s best in {skill}", { name: esc(vs.name), skill: label })}</div>${vs.line.top.map((c) => theirRow(c, l.key, vs.charts)).join("")}`
         : "";
     return `
-      <div class="skill${open ? " open" : ""}${s.value === null ? " empty" : ""}" data-pattern="${s.pattern}"${s.value !== null ? ` data-value="${s.value}"` : ""}>
+      <div class="skill${overall ? " skill-overall" : ""}${open ? " open" : ""}${l.value === null ? " empty" : ""}" data-skill="${l.key}"${l.value !== null ? ` data-value="${l.value}"` : ""}>
         <button class="skill-head" type="button" aria-expanded="${open}"${any ? "" : " disabled"}>
           <span class="skill-name">${label}</span>
-          <span class="skill-charts">${s.charts ? `${tn(s.charts, "{n} chart", "{n} charts")}${guess ? ` · ${t("a guess so far")}` : ""}` : t("no charts yet")}</span>
+          <span class="skill-charts">${best ? t("best play {value}", { value: fixed(best.worth, 2) }) : t("no passes yet")}</span>
           ${delta}
-          <b class="skill-value num">${s.value !== null ? `${fixed(s.value, 2)}★` : "–"}</b>
+          <b class="skill-value num">${l.value !== null ? fixed(l.value, 2) : "–"}</b>
           ${any ? icon("chevron-down", "skill-chev") : `<span></span>`}
         </button>
         ${
           open
-            ? `<div class="skill-charts-list">${vs && s.top.length ? `<div class="skill-them-head">${t("Yours")}</div>` : ""}${s.top.map((c) => chartRow(c, s)).join("")}${theirList}<button class="btn btn-ghost btn-sm skill-goal" type="button">${icon("flag")}<span>${t("Set a goal for {pattern}", { pattern: lower(label) })}</span></button></div>`
+            ? `<div class="skill-charts-list">${vs && l.top.length ? `<div class="skill-them-head">${t("Yours")}</div>` : ""}${l.top.map((c) => chartRow(c, l.key)).join("")}${theirList}<button class="btn btn-ghost btn-sm skill-goal" type="button">${icon("flag")}<span>${t("Set a goal for {skill}", { skill: label })}</span></button></div>`
             : ""
         }
       </div>`;
@@ -291,11 +357,11 @@ export class SkillsView {
     void compareWith(name);
   }
 
-  /** Open skill goals in a key mode, as targets per pattern for the radar. */
+  /** Open skill goals in a key mode, as targets per skillset for the radar. */
   private goalMarks(keys: number): (number | null)[] {
     const goals = (goalsNow() ?? []).filter((g): g is Extract<Goal, { kind: "skill" }> => g.kind === "skill" && !g.done && g.keys === keys);
-    return PATTERNS.map((p) => {
-      const targets = goals.filter((g) => g.pattern === p).map((g) => g.target);
+    return SKILLSETS.map((s) => {
+      const targets = goals.filter((g) => g.skillset === s).map((g) => g.target);
       return targets.length ? Math.min(...targets) : null;
     });
   }
@@ -366,7 +432,7 @@ export class SkillsView {
     openMenu(at, entries, { minWidth: 200 });
   }
 
-  /** What the compared player plays that would practise your patterns: per pattern, their charts
+  /** What the compared player plays that would practise your skillsets: per skillset, their charts
    * in its aim (at a rate, as yours), the ones already suggested from your library left out. */
   private theirPractice(
     plan: Practice[],
@@ -379,7 +445,7 @@ export class SkillsView {
     const lib = them.data.charts.map((c) => (c.library !== undefined ? mapIndexOf(c.library) : undefined));
     const mine = new Map(charts.map((c) => [c.mapIdx, c]));
     const shown = new Set<number>();
-    for (const g of plan) for (const p of g.picks.slice(0, this.more.has(g.skill.pattern) ? MORE_SUGGESTIONS : SUGGESTIONS)) shown.add(p.mapIdx);
+    for (const g of plan) for (const p of g.picks.slice(0, this.more.has(g.skill.skillset) ? MORE_SUGGESTIONS : SUGGESTIONS)) shown.add(p.mapIdx);
     const exclude = new Set<number>();
     const playedThem = new Set<number>();
     lib.forEach((i, j) => {
@@ -387,40 +453,52 @@ export class SkillsView {
       if (shown.has(i)) exclude.add(j);
       if (played.has(i)) playedThem.add(j);
     });
-    const picks = new Map<SkillPattern, Suggestion[]>();
+    const msdOf = (j: number) => them.data.charts[j]?.msdRates;
+    const picks = new Map<MsdSkill, Suggestion[]>();
     for (const g of plan) {
-      const k = PATTERNS.indexOf(g.skill.pattern);
+      const k = SKILLSETS.indexOf(g.skill.skillset);
       const bestOf = (j: number) => (lib[j] !== undefined ? mine.get(lib[j]!) : undefined);
-      const list = suggest(k, g.aim, charts, them.maps, keys, { played: playedThem, exclude, limit: THEIR_PICKS, bestOf });
+      const list = suggest(k, g.aim, charts, them.maps, keys, msdOf, { played: playedThem, exclude, limit: THEIR_PICKS, bestOf });
       list.forEach((s) => exclude.add(s.mapIdx));
-      picks.set(g.skill.pattern, list);
+      picks.set(g.skill.skillset, list);
     }
     return { name: them.data.player.name, charts: them.data.charts, maps: them.maps, picks };
   }
 
-  /** Practice next: the weakest patterns (or all), each with charts a little above its skill. */
-  private practiceHtml(plan: Practice[], played: Set<number>, passed: Set<number>, theirs: TheirPractice | null): string {
-    if (!plan.length) return "";
-    const groups = this.allPatterns ? plan : plan.slice(0, PRACTICE_GROUPS);
-    return `
-      <section class="practice">
+  /** Practice next: the weakest skillsets (or all), each with charts a little above it. */
+  private practiceHtml(plan: Practice[] | null, rows: Map<number, MsdRows> | undefined, played: Set<number>, passed: Set<number>, theirs: TheirPractice | null): string {
+    const head = (extra = "") => `
         <div class="practice-head">
           <div>
             <h2 class="section-title">${t("Practice next")}</h2>
-            <div class="practice-sub">${t("Charts in your library a little above your weakest skills: hard enough to move them, close enough to pass. Where 1× doesn't land there, a rate does.")}</div>
+            <div class="practice-sub">${t("Charts in your library a little above your best plays in your weakest skillsets, and mostly about them: hard enough to move them, close enough to pass. Where 1× doesn't land there, a rate does.")}</div>
           </div>
-          ${plan.length > PRACTICE_GROUPS ? `<button class="btn btn-ghost btn-sm practice-all" type="button">${this.allPatterns ? t("Weakest only") : t("All {n} patterns", { n: plan.length })}</button>` : ""}
-        </div>
+          ${extra}
+        </div>`;
+    if (plan === null) return `<section class="practice">${head()}<div class="skeleton practice-loading" style="height:160px"></div></section>`;
+    if (!plan.length) return "";
+    if (!rows?.size)
+      return `<section class="practice">${head()}<div class="panel practice-none">${t("Fumen is still working out the MSD of your charts. Suggestions show up here once that's done.")}</div></section>`;
+    const groups = this.allSkills ? plan : plan.slice(0, PRACTICE_GROUPS);
+    const toggle = plan.length > PRACTICE_GROUPS ? `<button class="btn btn-ghost btn-sm practice-all" type="button">${this.allSkills ? t("Weakest only") : t("All {n} skillsets", { n: plan.length })}</button>` : "";
+    return `
+      <section class="practice">
+        ${head(toggle)}
         <div class="practice-groups">${groups.map((g) => this.practiceGroup(g, played, passed, theirs)).join("")}</div>
       </section>`;
   }
 
+  /** the key mode on screen */
+  private keysShown(): number {
+    return +(this.el.querySelector<HTMLElement>(".skills-keys .active")?.dataset.keys ?? this.keys ?? 4) || 4;
+  }
+
   private practiceGroup({ skill, aim, picks }: Practice, played: Set<number>, passed: Set<number>, theirs: TheirPractice | null): string {
-    const name = PATTERN_LABEL[skill.pattern];
-    const more = this.more.has(skill.pattern);
+    const name = SKILL_LABEL[skill.skillset];
+    const more = this.more.has(skill.skillset);
     const shown = picks.slice(0, more ? MORE_SUGGESTIONS : SUGGESTIONS);
-    const from = aim.from !== null ? `${t("{sr}★ now", { sr: fixed(aim.from, 2) })}${skill.charts < MIN_CHARTS ? `, ${t("a guess")}` : ""}` : t("No charts yet");
-    const band = `${fixed(aim.lo, 2)}–${fixed(aim.hi, 2)}★`;
+    const from = aim.from !== null ? t("{value} now", { value: fixed(aim.from, 2) }) : t("No passes yet");
+    const band = t("{lo} to {hi}", { lo: fixed(aim.lo, 2), hi: fixed(aim.hi, 2) });
     const state = (s: Suggestion): string => {
       if (s.best) {
         const rate = rateOf(s.best.play);
@@ -429,28 +507,28 @@ export class SkillsView {
       return played.has(s.mapIdx) ? (passed.has(s.mapIdx) ? t("played") : t("not passed yet")) : "";
     };
     return `
-      <section class="panel practice-group${theirs?.picks.get(skill.pattern)?.length ? " has-them" : ""}" data-pattern="${skill.pattern}">
+      <section class="panel practice-group${theirs?.picks.get(skill.skillset)?.length ? " has-them" : ""}" data-skill="${skill.skillset}">
         <div class="practice-group-head">
           <span class="skill-name">${name}</span>
           <span class="practice-aim num">${from} · ${t("aiming at {band}", { band })}</span>
         </div>
         ${
           shown.length
-            ? `<div class="practice-list">${shown.map((s) => suggestionRow(s, skill.pattern, aim, state(s))).join("")}</div>`
-            : `<div class="practice-none">${t("Nothing in your library with at least {share}% {pattern} reaches {band}, not even at 0.75× to 1.5×.", { share: MIN_SHARE, pattern: lower(name), band })}</div>`
+            ? `<div class="practice-list">${shown.map((s) => suggestionRow(s, skill.skillset, aim, state(s))).join("")}</div>`
+            : `<div class="practice-none">${t("Nothing in your library that's mostly {skill} reaches {band}, not even at 0.75× to 1.5×.", { skill: name, band })}</div>`
         }
         ${picks.length > SUGGESTIONS ? `<button class="btn btn-ghost btn-sm practice-more" type="button">${more ? t("Show fewer") : t("Show more")}</button>` : ""}
-        ${this.theirGroup(skill.pattern, aim, theirs)}
+        ${this.theirGroup(skill.skillset, aim, theirs)}
       </section>`;
   }
 
-  /** Their charts for a pattern of yours, under yours. */
-  private theirGroup(pattern: SkillPattern, aim: Aim, theirs: TheirPractice | null): string {
-    const list = theirs?.picks.get(pattern);
+  /** Their charts for a skillset of yours, under yours. */
+  private theirGroup(skill: MsdSkill, aim: Aim, theirs: TheirPractice | null): string {
+    const list = theirs?.picks.get(skill);
     if (!theirs || !list?.length) return "";
     return `
       <div class="practice-them-head">${t("From {name}'s plays", { name: esc(theirs.name) })}</div>
-      <div class="practice-list">${list.map((s) => theirSuggestionRow(s, theirs.charts[s.mapIdx], pattern, aim)).join("")}</div>`;
+      <div class="practice-list">${list.map((s) => theirSuggestionRow(s, theirs.charts[s.mapIdx], skill, aim)).join("")}</div>`;
   }
 
   /** What in your library is like one of their charts (not in it), and a way to add it. */
@@ -482,13 +560,13 @@ export class SkillsView {
     openMenu(at, entries, { minWidth: 300 });
   }
 
-  /** The weakest pattern in the key mode shown, for a new goal. */
-  private weakest(): SkillPattern | undefined {
-    const shown = [...this.el.querySelectorAll<HTMLElement>(".skill[data-pattern]")]
-      .map((el) => ({ p: el.dataset.pattern as SkillPattern, v: parseFloat(el.dataset.value ?? "") }))
+  /** The weakest skillset in the key mode shown, for a new goal. */
+  private weakest(): MsdSkill | undefined {
+    const shown = [...this.el.querySelectorAll<HTMLElement>(".skill[data-skill]:not(.skill-overall)")]
+      .map((el) => ({ s: el.dataset.skill as MsdSkill, v: parseFloat(el.dataset.value ?? "") }))
       .filter((x) => Number.isFinite(x.v))
       .sort((a, b) => a.v - b.v);
-    return shown[0]?.p;
+    return shown[0]?.s;
   }
 
   /** Re-renders and puts the focus back on the control that asked for it (now a new element). */
@@ -530,17 +608,17 @@ export class SkillsView {
         this.keys = +k.dataset.keys!;
         this.open.clear();
         this.more.clear();
-        this.allPatterns = false;
+        this.allSkills = false;
         return this.render();
       }
       const head = target.closest<HTMLElement>(".skill-head");
       if (head) {
-        const p = head.closest<HTMLElement>(".skill")!.dataset.pattern!;
-        if (this.open.has(p)) this.open.delete(p);
-        else this.open.add(p);
-        return this.rerender(`.skill[data-pattern="${p}"] .skill-head`);
+        const s = head.closest<HTMLElement>(".skill")!.dataset.skill!;
+        if (this.open.has(s)) this.open.delete(s);
+        else this.open.add(s);
+        return this.rerender(`.skill[data-skill="${s}"] .skill-head`);
       }
-      if (target.closest(".goal-new")) return openGoalDialog({ kind: "skill", keys: this.keys ?? undefined, pattern: this.weakest() });
+      if (target.closest(".goal-new")) return openGoalDialog({ kind: "skill", keys: this.keys ?? undefined, skillset: this.weakest() });
       const goalMore = target.closest<HTMLElement>(".goal-more");
       if (goalMore) return this.goalMenu(goalMore.closest<HTMLElement>("[data-goal]")!.dataset.goal!, goalMore);
       if (target.closest(".goals-reached-toggle")) {
@@ -548,22 +626,19 @@ export class SkillsView {
         return this.rerender(".goals-reached-toggle");
       }
       const skillGoal = target.closest<HTMLElement>(".skill-goal");
-      if (skillGoal) {
-        const keys = +this.el.querySelector<HTMLElement>(".skills-keys .active")?.dataset.keys! || undefined;
-        return openGoalDialog({ kind: "skill", keys, pattern: skillGoal.closest<HTMLElement>(".skill")!.dataset.pattern as SkillPattern });
-      }
+      if (skillGoal) return openGoalDialog({ kind: "skill", keys: this.keysShown(), skillset: skillGoal.closest<HTMLElement>(".skill")!.dataset.skill as GoalSkill });
       const goalCard = target.closest<HTMLElement>(".goal[data-map]");
       if (goalCard) return openSet(store.snap!.maps[+goalCard.dataset.map!].set, +goalCard.dataset.map!);
       if (target.closest(".practice-all")) {
-        this.allPatterns = !this.allPatterns;
+        this.allSkills = !this.allSkills;
         return this.rerender(".practice-all");
       }
       const more = target.closest<HTMLElement>(".practice-more");
       if (more) {
-        const p = more.closest<HTMLElement>(".practice-group")!.dataset.pattern!;
-        if (this.more.has(p)) this.more.delete(p);
-        else this.more.add(p);
-        return this.rerender(`.practice-group[data-pattern="${p}"] .practice-more`);
+        const s = more.closest<HTMLElement>(".practice-group")!.dataset.skill!;
+        if (this.more.has(s)) this.more.delete(s);
+        else this.more.add(s);
+        return this.rerender(`.practice-group[data-skill="${s}"] .practice-more`);
       }
       const row = target.closest<HTMLElement>(".skill-chart[data-map]");
       if (row) openSet(store.snap!.maps[+row.dataset.map!].set, +row.dataset.map!);
@@ -586,9 +661,9 @@ export class SkillsView {
       e.preventDefault();
       const mapIdx = +row.dataset.map!;
       const rate = row.dataset.rate ? +row.dataset.rate : undefined;
-      const pattern = row.closest<HTMLElement>(".practice-group")?.dataset.pattern as PatternName | undefined;
+      const skill = row.closest<HTMLElement>(".practice-group")?.dataset.skill as MsdSkill | undefined;
       setMenu({ x: e.clientX, y: e.clientY }, store.snap!.maps[mapIdx].set, mapIdx, {
-        practice: { rate, pattern },
+        practice: { rate, pattern: skill ? PATTERN_OF[skill] : undefined },
         extra: [{ label: t("Set a goal…"), icon: "flag", action: () => openGoalDialog({ kind: "chart", mapIdx, rate }) }],
       });
     });
@@ -629,35 +704,36 @@ export class SkillsView {
   }
 }
 
-/** One chart behind a skill: what it is, how it was played, what it's worth. */
-function chartRow(c: Skill["top"][number], s: Skill): string {
+/** A play's accuracy, with its Wife% in the tip. */
+function accCell(c: Counted): string {
+  return `<span class="num skill-chart-acc" data-tip="${t("{wife} as Etterna counts it", { wife: pct(c.wife) })}">${pct(c.play.acc)}</span>`;
+}
+
+/** One play behind a skill: what it is, how it was played, what it's worth there. */
+function chartRow(c: Line["top"][number], skill: GoalSkill): string {
   const snap = store.snap!;
   const set = snap.sets[c.map.set];
   const bg = c.map.bg ?? set.bg;
-  const rate = rateOf(c.play);
-  const mods = modsText(c.play as Play);
   return `
     <div class="skill-chart" data-map="${c.mapIdx}" role="button" tabindex="0">
       <span class="t-art${bg ? "" : " img-missing"}">${bg ? `<img src="${thumbUrl(bg, 160)}" alt="" loading="lazy" decoding="async" />` : ""}</span>
       <div class="prow-text">
         <div class="t-title">${esc(displayTitle(set, store.prefs.unicode))}</div>
-        <div class="t-sub">${esc(c.map.version)} · ${t("{pct}% {pattern}", { pct: c.share, pattern: lower(PATTERN_LABEL[s.pattern]) })}</div>
+        <div class="t-sub">${esc(c.map.version)}</div>
       </div>
-      <span class="skill-chart-sr" data-tip="${rate !== 1 ? t("Star rating at {rate}×", { rate: fixed(rate, 2) }) : t("Star rating")}">${srChip(chartStars(c.play, c.map))}</span>
-      <span class="skill-chart-mods">${esc(mods)}</span>
-      <span class="num skill-chart-acc">${pct(c.play.acc)}</span>
-      <b class="num skill-chart-worth" data-tip="${t("What this play is worth at {acc} accuracy", { acc: pct(REF_ACC, 0) })}">${fixed(c.stars, 2)}★</b>
+      <span class="skill-chart-mods">${esc(modsText(c.play as Play))}</span>
+      ${accCell(c)}
+      <b class="num skill-chart-worth" data-tip="${t("What this play is worth in {skill}", { skill: skillName(skill) })}">${fixed(c.worth, 2)}</b>
     </div>`;
 }
 
-/** One of the other player's charts behind a skill: like yours, with osu!'s cover; a click opens
- * it in the library, or offers to add it. */
-function theirRow(c: Skill["top"][number], s: Skill, charts: ComparedChart[]): string {
+/** One of the other player's plays behind a skill: like yours, with osu!'s cover; a click opens it
+ * in the library, or offers to add it. */
+function theirRow(c: Line["top"][number], skill: GoalSkill, charts: ComparedChart[]): string {
   const chart = charts.find((x) => x.id === c.map.id);
   const unicode = store.prefs.unicode;
   const title = chart ? `${(unicode && chart.artistUnicode) || chart.artist} - ${(unicode && chart.titleUnicode) || chart.title}` : c.map.version;
   const lib = chart?.library !== undefined ? mapIndexOf(chart.library) : undefined;
-  const rate = rateOf(c.play);
   const cover = chart?.setId ? `https://assets.ppy.sh/beatmaps/${chart.setId}/covers/list.jpg` : "";
   const where = lib !== undefined ? ` data-map="${lib}"` : chart?.setId ? ` data-add="${chart.setId}" data-tip="${t("Not in your library: add it")}"` : "";
   return `
@@ -665,12 +741,11 @@ function theirRow(c: Skill["top"][number], s: Skill, charts: ComparedChart[]): s
       <span class="t-art${cover ? "" : " img-missing"}">${cover ? `<img src="${cover}" alt="" loading="lazy" decoding="async" />` : ""}</span>
       <div class="prow-text">
         <div class="t-title">${esc(title)}</div>
-        <div class="t-sub">${esc(c.map.version)} · ${t("{pct}% {pattern}", { pct: c.share, pattern: lower(PATTERN_LABEL[s.pattern]) })}${lib === undefined ? ` · ${t("not in your library")}` : ""}</div>
+        <div class="t-sub">${esc(c.map.version)}${lib === undefined ? ` · ${t("not in your library")}` : ""}</div>
       </div>
-      <span class="skill-chart-sr" data-tip="${rate !== 1 ? t("Star rating at {rate}×", { rate: fixed(rate, 2) }) : t("Star rating")}">${srChip(chartStars(c.play, c.map))}</span>
       <span class="skill-chart-mods">${esc(modsText(c.play as Play))}</span>
-      <span class="num skill-chart-acc">${pct(c.play.acc)}</span>
-      <b class="num skill-chart-worth" data-tip="${t("What this play is worth at {acc} accuracy", { acc: pct(REF_ACC, 0) })}">${fixed(c.stars, 2)}★</b>
+      ${accCell(c)}
+      <b class="num skill-chart-worth" data-tip="${t("What this play is worth in {skill}", { skill: skillName(skill) })}">${fixed(c.worth, 2)}</b>
     </div>`;
 }
 
@@ -684,15 +759,24 @@ function rateTip(rate: number): string {
   return rate === 0.75 || rate === 1.5 ? `${mod}, ${num(rate)}×` : t("{mod} with its speed set to {rate}×", { mod, rate: fixed(rate, 2) });
 }
 
+/** A suggestion's MSD in the skillset, at the rate it's suggested at. */
+function msdCell(s: Suggestion, skill: MsdSkill): string {
+  const tip = s.rate !== 1 ? t("MSD in {skill} at {rate}×", { skill: SKILL_LABEL[skill], rate: fixed(s.rate, 2) }) : t("MSD in {skill}", { skill: SKILL_LABEL[skill] });
+  return `<span class="num skill-chart-msd" data-tip="${tip}">${fixed(s.msd, 2)}</span>`;
+}
+
+const gainText = (aim: Aim, s: Suggestion): string => {
+  const gain = aim.from !== null ? s.after - aim.from : null;
+  return gain === null ? t("new") : gain < 0.005 ? `+&lt;${fixed(0.01, 2)}` : `+${fixed(gain, 2)}`;
+};
+
 /** One of their charts to practice on, like yours: osu!'s cover; a click opens it in the library or
  * offers to add it, and one you don't have can show what's like it in yours. */
-function theirSuggestionRow(s: Suggestion, chart: ComparedChart, pattern: SkillPattern, aim: Aim): string {
+function theirSuggestionRow(s: Suggestion, chart: ComparedChart, skill: MsdSkill, aim: Aim): string {
   const unicode = store.prefs.unicode;
   const title = `${(unicode && chart.artistUnicode) || chart.artist} - ${(unicode && chart.titleUnicode) || chart.title}`;
   const lib = chart.library !== undefined ? mapIndexOf(chart.library) : undefined;
   const cover = chart.setId ? `https://assets.ppy.sh/beatmaps/${chart.setId}/covers/list.jpg` : "";
-  const name = lower(PATTERN_LABEL[pattern]);
-  const gain = aim.from !== null ? s.after - aim.from : null;
   const where = lib !== undefined ? ` data-map="${lib}" data-rate="${s.rate}"` : chart.setId ? ` data-add="${chart.setId}" data-tip="${t("Not in your library: add it")}"` : "";
   const state = s.best ? t("your best {acc}", { acc: pct(s.best.play.acc) }) : lib !== undefined ? t("in your library") : t("not in your library");
   return `
@@ -700,53 +784,53 @@ function theirSuggestionRow(s: Suggestion, chart: ComparedChart, pattern: SkillP
       <span class="t-art${cover ? "" : " img-missing"}">${cover ? `<img src="${cover}" alt="" loading="lazy" decoding="async" />` : ""}</span>
       <div class="prow-text">
         <div class="t-title">${esc(title)}</div>
-        <div class="t-sub">${[esc(chart.version), t("{pct}% {pattern}", { pct: s.share, pattern: name }), state].join(" · ")}</div>
+        <div class="t-sub">${[esc(chart.version), state].join(" · ")}</div>
       </div>
-      <span class="skill-chart-sr" data-tip="${s.rate !== 1 ? t("Star rating at {rate}×", { rate: fixed(s.rate, 2) }) : t("Star rating")}">${srChip(s.stars)}</span>
+      ${msdCell(s, skill)}
       <span class="skill-chart-mods"${s.rate !== 1 ? ` data-tip="${rateTip(s.rate)}"` : ""}>${rateMods(s.rate)}</span>
-      <b class="num practice-gain" data-tip="${gainTip(aim, s, name)}">${gain === null ? t("new") : gain < 0.005 ? `+&lt;${fixed(0.01, 2)}` : `+${fixed(gain, 2)}`}</b>
+      <b class="num practice-gain" data-tip="${gainTip(aim, s, skill)}">${gainText(aim, s)}</b>
       ${lib === undefined ? `<button class="icon-btn like-btn" type="button" data-tip="${t("Like it in your library")}" aria-label="${t("Like it in your library")}">${icon("similar")}</button>` : "<span></span>"}
     </div>`;
 }
 
-/** One chart to practice on: what it is, the rate to play it at, its star rating there, and what a
- * pass at REF_ACC would make of the skill. */
-function suggestionRow(s: Suggestion, pattern: SkillPattern, aim: Aim, state: string): string {
+/** One chart to practice on: what it is, the rate to play it at, its MSD there, and what a pass at
+ * Etterna's reference accuracy would make of the skill. */
+function suggestionRow(s: Suggestion, skill: MsdSkill, aim: Aim, state: string): string {
   const snap = store.snap!;
   const set = snap.sets[s.map.set];
   const bg = s.map.bg ?? set.bg;
-  const name = lower(PATTERN_LABEL[pattern]);
-  const gain = aim.from !== null ? s.after - aim.from : null;
   return `
     <div class="skill-chart practice-chart" data-map="${s.mapIdx}" data-rate="${s.rate}" role="button" tabindex="0">
       <span class="t-art${bg ? "" : " img-missing"}">${bg ? `<img src="${thumbUrl(bg, 160)}" alt="" loading="lazy" decoding="async" />` : ""}</span>
       <div class="prow-text">
         <div class="t-title">${esc(displayTitle(set, store.prefs.unicode))}</div>
-        <div class="t-sub">${[esc(s.map.version), t("{pct}% {pattern}", { pct: s.share, pattern: name }), state].filter(Boolean).join(" · ")}</div>
+        <div class="t-sub">${[esc(s.map.version), state].filter(Boolean).join(" · ")}</div>
       </div>
-      <span class="skill-chart-sr" data-tip="${s.rate !== 1 ? t("Star rating at {rate}×", { rate: fixed(s.rate, 2) }) : t("Star rating")}">${srChip(s.stars)}</span>
+      ${msdCell(s, skill)}
       <span class="skill-chart-mods"${s.rate !== 1 ? ` data-tip="${rateTip(s.rate)}"` : ""}>${rateMods(s.rate)}</span>
-      <b class="num practice-gain" data-tip="${gainTip(aim, s, name)}">${gain === null ? t("new") : gain < 0.005 ? `+&lt;${fixed(0.01, 2)}` : `+${fixed(gain, 2)}`}</b>
+      <b class="num practice-gain" data-tip="${gainTip(aim, s, skill)}">${gainText(aim, s)}</b>
     </div>`;
 }
 
-/** What a pass at REF_ACC on a suggestion would make of the skill. */
-function gainTip(aim: Aim, s: Suggestion, pattern: string): string {
-  const vars = { acc: pct(REF_ACC, 0), pattern, from: aim.from !== null ? fixed(aim.from, 2) : "", to: fixed(s.after, 2) };
-  return aim.from !== null ? t("A {acc} pass here takes {pattern} from {from}★ to {to}★", vars) : t("A {acc} pass here starts {pattern} at {to}★", vars);
+/** What a pass at Etterna's reference accuracy on a suggestion would make of the skill. */
+function gainTip(aim: Aim, s: Suggestion, skill: MsdSkill): string {
+  const vars = { wife: pct(REF_WIFE, 0), skill: SKILL_LABEL[skill], from: aim.from !== null ? fixed(aim.from, 2) : "", to: fixed(s.after, 2) };
+  return aim.from !== null ? t("A pass at {wife} Wife here takes {skill} from {from} to {to}", vars) : t("A pass at {wife} Wife here starts {skill} at {to}", vars);
 }
 
-/** The six patterns around a hexagon: now (filled) and 90 days ago (dashed). The centre isn't
- * zero: rings are labelled in stars, so small differences show. */
-function radar(now: Skill[], then: Skill[], goals: (number | null)[], vs: { name: string; skills: Skill[] } | null = null): string {
-  const values = [...[...now, ...(vs ? vs.skills : then)].map((s) => s.value), ...goals].filter((v): v is number => v !== null);
-  const max = values.length ? Math.max(...values) : 1;
+/** The seven skillsets around a heptagon: now (filled) and 90 days ago (dashed), or the compared
+ * player. The centre isn't zero, so small differences show. */
+function radar(now: SkillSheet, then: SkillSheet, goals: (number | null)[], vs: { name: string; sheet: SkillSheet } | null = null): string {
+  const other = vs ? vs.sheet : then;
+  const values = [...[...now.skills, ...other.skills].map((s) => s.value), ...goals].filter((v): v is number => v !== null);
+  const max = values.length ? Math.max(...values) : 10;
   const min = values.length ? Math.min(...values) : 0;
-  const step = max - min > 3 ? 1 : 0.5;
+  const span = max - min;
+  const step = span > 16 ? 5 : span > 6 ? 2 : 1;
   const lo = Math.max(0, Math.floor((min - step) / step) * step);
   const hi = Math.max(lo + step, Math.ceil((max + step * 0.25) / step) * step);
   const R = 100;
-  const n = PATTERNS.length;
+  const n = SKILLSETS.length;
   const angle = (i: number) => -Math.PI / 2 + (i * 2 * Math.PI) / n;
   const at = (i: number, v: number | null): [number, number] => {
     const r = v === null ? 0 : (Math.max(0, v - lo) / (hi - lo)) * R;
@@ -756,50 +840,50 @@ function radar(now: Skill[], then: Skill[], goals: (number | null)[], vs: { name
   const rings: string[] = [];
   for (let v = lo + step; v <= hi + 1e-6; v += step) {
     const r = ((v - lo) / (hi - lo)) * R;
-    const pts = PATTERNS.map((_, i) => [Math.cos(angle(i)) * r, Math.sin(angle(i)) * r] as [number, number]);
+    const pts = SKILLSETS.map((_, i) => [Math.cos(angle(i)) * r, Math.sin(angle(i)) * r] as [number, number]);
     rings.push(`<polygon class="ring" points="${poly(pts)}" />`);
-    // whole stars get a label, beside the top spoke
-    if (Math.abs(v - Math.round(v)) < 1e-6) rings.push(`<text class="ring-label" x="4" y="${(-r + 3).toFixed(1)}">${Math.round(v)}★</text>`);
+    rings.push(`<text class="ring-label" x="4" y="${(-r + 3).toFixed(1)}">${Math.round(v)}</text>`);
   }
-  const spokes = PATTERNS.map((_, i) => {
+  const spokes = SKILLSETS.map((_, i) => {
     const [x, y] = at(i, hi);
     return `<line class="spoke" x1="0" y1="0" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" />`;
   }).join("");
-  const nowPts = now.map((s, i) => at(i, s.value));
+  const nowPts = now.skills.map((s, i) => at(i, s.value));
   // comparing: their polygon instead of 90 days ago
-  const hasThen = !vs && then.some((s) => s.value !== null) && then.some((s, i) => s.value !== now[i].value);
-  const thenPoly = hasThen ? `<polygon class="then" points="${poly(then.map((s, i) => at(i, s.value)))}" />` : "";
-  const themPoly = vs && vs.skills.some((s) => s.value !== null) ? `<polygon class="them" points="${poly(vs.skills.map((s, i) => at(i, s.value)))}" />` : "";
-  const dots = now
+  const hasThen = !vs && then.skills.some((s) => s.value !== null) && then.skills.some((s, i) => s.value !== now.skills[i].value);
+  const thenPoly = hasThen ? `<polygon class="then" points="${poly(then.skills.map((s, i) => at(i, s.value)))}" />` : "";
+  const themPoly = vs && vs.sheet.skills.some((s) => s.value !== null) ? `<polygon class="them" points="${poly(vs.sheet.skills.map((s, i) => at(i, s.value)))}" />` : "";
+  const few = now.plays < FEW_PLAYS;
+  const dots = now.skills
     .map((s, i) => {
       if (s.value === null) return "";
       const [x, y] = nowPts[i];
-      return `<circle class="dot${s.charts < MIN_CHARTS ? " guess" : ""}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2" />`;
+      return `<circle class="dot${few ? " guess" : ""}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2" />`;
     })
     .join("");
   const marks = goals
     .map((v, i) => {
       if (v === null) return "";
       const [x, y] = at(i, v);
-      return `<path class="goal-mark" d="M${x.toFixed(1)} ${(y - 4.2).toFixed(1)}l4.2 4.2-4.2 4.2-4.2-4.2z"><title>${t("Goal: {sr}★", { sr: fixed(v, 2) })}</title></path>`;
+      return `<path class="goal-mark" d="M${x.toFixed(1)} ${(y - 4.2).toFixed(1)}l4.2 4.2-4.2 4.2-4.2-4.2z"><title>${t("Goal: {value}", { value: fixed(v, 2) })}</title></path>`;
     })
     .join("");
-  const labels = now
+  const labels = now.skills
     .map((s, i) => {
       const [x, y] = at(i, hi);
       const k = 1.17;
       const anchor = Math.abs(x) < 1 ? "middle" : x > 0 ? "start" : "end";
       const dy = y < -1 ? -4 : y > 1 ? 14 : 4;
-      const theirs = vs ? vs.skills[i].value : undefined;
+      const theirs = vs ? vs.sheet.skills[i].value : undefined;
       const value =
         theirs === undefined
-          ? `<tspan class="axis-value" x="${(x * k).toFixed(1)}" dy="13">${s.value !== null ? `${fixed(s.value, 2)}★` : "–"}</tspan>`
+          ? `<tspan class="axis-value" x="${(x * k).toFixed(1)}" dy="13">${s.value !== null ? fixed(s.value, 2) : "–"}</tspan>`
           : `<tspan class="axis-value" x="${(x * k).toFixed(1)}" dy="13">${s.value !== null ? fixed(s.value, 2) : "–"}</tspan><tspan class="axis-them"> · ${theirs !== null ? fixed(theirs, 2) : "–"}</tspan>`;
-      return `<text class="axis-label" x="${(x * k).toFixed(1)}" y="${(y * k + dy).toFixed(1)}" text-anchor="${anchor}">${PATTERN_LABEL[s.pattern]}${value}</text>`;
+      return `<text class="axis-label" x="${(x * k).toFixed(1)}" y="${(y * k + dy).toFixed(1)}" text-anchor="${anchor}">${SKILL_LABEL[s.skillset]}${value}</text>`;
     })
     .join("");
   return `
-    <svg class="radar" viewBox="-170 -140 340 290" role="img" aria-label="${t("Skill per pattern")}">
+    <svg class="radar" viewBox="-170 -140 340 290" role="img" aria-label="${t("Skill per skillset")}">
       ${rings.join("")}${spokes}${thenPoly}${themPoly}
       <polygon class="now" points="${poly(nowPts)}" />
       ${dots}${marks}${labels}

@@ -225,6 +225,9 @@ struct ChartOut {
     sr_dt: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     shares: Option<[u8; 6]>,
+    /// Etterna's MSD at 0.7× … 2.0×, a tenth apart: [overall, the seven skillsets] each (msd.rs)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    msd_rates: Option<Vec<[f32; 8]>>,
     version: String,
     title: String,
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -260,6 +263,11 @@ struct PlayOut {
     /// the star rating at a rate other than 0.75×, 1× and 1.5×
     #[serde(skip_serializing_if = "Option::is_none")]
     sr: Option<f64>,
+    /// the play's Wife% and SSR as Etterna would count them (see osu_scores::Play)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wife: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ssr: Option<[f32; 8]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     top: Option<i64>,
     id: i64,
@@ -364,11 +372,22 @@ fn off_grid(rate: Option<f64>) -> Option<u32> {
     (key > 0.0 && ![75.0, 100.0, 150.0].contains(&key)).then_some(key as u32)
 }
 
-/// One chart analysed: the chart's row and its star ratings at the rates (× 100) played.
-fn analyse(beatmap: i64, text: &str, api: Option<&ApiBeatmap>, rates: &[u32], library: Option<String>) -> Option<(ChartOut, HashMap<u32, f64>)> {
+/// What a chart's plays are worth in Etterna's eyes: their Wife% and SSR, by score id.
+type Rated = HashMap<i64, (f64, Option<[f32; 8]>)>;
+
+/// One chart analysed: the chart's row, its star ratings at the rates (× 100) played and its
+/// passes' Wife% and SSR.
+fn analyse(beatmap: i64, text: &str, api: Option<&ApiBeatmap>, rates: &[u32], library: Option<String>, scores: &[&ApiScore]) -> Option<(ChartOut, HashMap<u32, f64>, Rated)> {
     let chart = crate::chart::parse(text);
     if chart.mode != 3 || chart.keys == 0 {
         return None;
+    }
+    let mut worth: Rated = HashMap::new();
+    for s in scores.iter().filter(|s| s.passed && s.rank >= 0) {
+        let (mods, rate) = mods_of(&s.mods);
+        let Some(wife) = crate::wife::estimate(&crate::osu_scores::hits_of(&s.statistics), chart.od, &mods, false) else { continue };
+        let ssr = crate::msd::ssr(&chart, rate.unwrap_or(1.0), wife).map(|m| m.to_array());
+        worth.insert(s.id, (wife, ssr));
     }
     let a = crate::analysis::analyse(&chart);
     let shares = serde_json::to_string(&a.patterns).ok().and_then(|j| crate::analysis::shares_percent(&j));
@@ -386,6 +405,7 @@ fn analyse(beatmap: i64, text: &str, api: Option<&ApiBeatmap>, rates: &[u32], li
         sr_ht: rated(0.75),
         sr_dt: rated(1.5),
         shares,
+        msd_rates: crate::msd::all_rates(&chart).map(|a| a.iter().map(|m| m.to_array()).collect()),
         version: pick(api.map(|b| &b.version), "Version"),
         title: pick(api.map(|b| &b.title), "Title"),
         title_unicode: pick(api.map(|b| &b.title_unicode), "TitleUnicode"),
@@ -395,7 +415,7 @@ fn analyse(beatmap: i64, text: &str, api: Option<&ApiBeatmap>, rates: &[u32], li
         library,
     };
     let at = rates.iter().map(|&r| (r, rated(r as f64 / 100.0))).collect();
-    Some((out, at))
+    Some((out, at, worth))
 }
 
 /// The comparison as JSON for the Skills page: the player, the charts analysed, their plays.
@@ -431,11 +451,15 @@ pub fn build(
     let queue = Mutex::new(VecDeque::from(jobs));
     let done = AtomicUsize::new(0);
     let unreadable = AtomicUsize::new(0);
-    let results: Mutex<Vec<(ChartOut, HashMap<u32, f64>)>> = Mutex::new(Vec::new());
+    let results: Mutex<Vec<(ChartOut, HashMap<u32, f64>, Rated)>> = Mutex::new(Vec::new());
+    let mut by_beatmap: HashMap<i64, Vec<&ApiScore>> = HashMap::new();
+    for s in &f.scores {
+        by_beatmap.entry(s.beatmap_id).or_default().push(s);
+    }
     progress(Progress { stage: "charts", done: 0, total });
     std::thread::scope(|scope| {
         for worker in 0..CHART_WORKERS.min(total) {
-            let (queue, done, unreadable, results, rates, lib, f, progress) = (&queue, &done, &unreadable, &results, &rates, &lib, &f, &progress);
+            let (queue, done, unreadable, results, rates, lib, f, progress, by_beatmap) = (&queue, &done, &unreadable, &results, &rates, &lib, &f, &progress, &by_beatmap);
             scope.spawn(move || {
                 let agent = crate::downloads::chart_agent();
                 loop {
@@ -468,7 +492,7 @@ pub fn build(
                             }
                         }
                     });
-                    let analysed = text.and_then(|t| analyse(beatmap, &t, api, &rates[&beatmap], found.map(|(id, _)| id.clone())));
+                    let analysed = text.and_then(|t| analyse(beatmap, &t, api, &rates[&beatmap], found.map(|(id, _)| id.clone()), by_beatmap.get(&beatmap).map_or(&[][..], Vec::as_slice)));
                     match analysed {
                         Some(r) => results.lock().unwrap_or_else(|e| e.into_inner()).push(r),
                         None => {
@@ -485,15 +509,16 @@ pub fn build(
         return Err(Error::known("cancelled", "Cancelled"));
     }
     let mut charts = results.into_inner().unwrap_or_else(|e| e.into_inner());
-    charts.sort_by_key(|(c, _)| c.beatmap_id);
-    let by_id: HashMap<i64, &HashMap<u32, f64>> = charts.iter().map(|(c, r)| (c.beatmap_id, r)).collect();
+    charts.sort_by_key(|(c, _, _)| c.beatmap_id);
+    let by_id: HashMap<i64, (&HashMap<u32, f64>, &Rated)> = charts.iter().map(|(c, r, s)| (c.beatmap_id, (r, s))).collect();
 
     let mut plays: Vec<PlayOut> = f
         .scores
         .iter()
         .filter_map(|s| {
-            let at = by_id.get(&s.beatmap_id)?;
+            let (at, worth) = by_id.get(&s.beatmap_id)?;
             let (mods, rate) = mods_of(&s.mods);
+            let (wife, ssr) = worth.get(&s.id).map_or((None, None), |&(w, ssr)| (Some(w), ssr));
             Some(PlayOut {
                 map: format!("o{}", s.beatmap_id),
                 beatmap_id: s.beatmap_id,
@@ -505,6 +530,8 @@ pub fn build(
                 pp: s.pp,
                 combo: s.max_combo,
                 sr: off_grid(rate).and_then(|r| at.get(&r).copied()),
+                wife,
+                ssr,
                 mods,
                 rate,
                 failed: !s.passed || s.rank < 0,
@@ -530,7 +557,7 @@ pub fn build(
             accuracy: s["hit_accuracy"].as_f64().map(|a| a / 100.0),
             play_count: s["play_count"].as_i64(),
         },
-        charts: charts.into_iter().map(|(c, _)| c).collect(),
+        charts: charts.into_iter().map(|(c, _, _)| c).collect(),
         plays,
         counts: f.counts.clone(),
         unreadable: unreadable.into_inner(),

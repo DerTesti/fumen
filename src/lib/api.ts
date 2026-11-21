@@ -73,6 +73,13 @@ export const api = {
   getDan: (id: string, rate: number) => invoke<DanRating | null>("get_dan", { id, rate }),
   /** Etterna's MSD at a rate (osu!mania 4K to 7K) */
   getMsd: (id: string, rate: number) => invoke<Msd | null>("get_msd", { id, rate }),
+  /** Etterna's MSD at 0.7× … 2.0× (a tenth apart, [overall, the seven skillsets] each) for the
+   * library's osu!mania difficulties in a key mode, by difficulty id */
+  async msdRates(keys: number): Promise<Record<string, number[][]>> {
+    const raw = await invoke<ArrayBuffer | Record<string, number[][]>>("msd_rates", { keys });
+    if (raw instanceof ArrayBuffer) return JSON.parse(new TextDecoder().decode(raw)) as Record<string, number[][]>;
+    return raw;
+  },
   getPools: () => invoke<Pool[]>("get_pools"),
   createPool: (name: string, mode: number, keys: number | null, categories: PoolKind[]) => invoke<string>("create_pool", { name, mode, keys, categories }),
   updatePool: (id: string, patch: { name?: string; categories?: PoolKind[]; note?: string }) => invoke<void>("update_pool", { id, patch }),

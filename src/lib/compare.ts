@@ -38,6 +38,8 @@ export interface ComparedChart {
   srHt: number;
   srDt: number;
   shares?: number[];
+  /** Etterna's MSD at 0.7× … 2.0×, a tenth apart: [overall, the seven skillsets] each */
+  msdRates?: number[][];
   version: string;
   title: string;
   titleUnicode?: string;

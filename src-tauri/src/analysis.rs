@@ -13,7 +13,8 @@ use crate::chart::{Chart, Kind};
 /// 2: osu!mania star ratings at HT and DT joined the cached summary.
 /// 3: the dan rating and pattern category (ManiaMapAnalyser port, `mma`) too.
 /// 4: Etterna's MSD (`msd`) too.
-pub const VERSION: i64 = 4;
+/// 5: the MSD at 0.7× to 2.0× too (the Skills page's practice).
+pub const VERSION: i64 = 5;
 
 const WINDOW: i32 = 1000;
 /// rows per window below which a window counts as light

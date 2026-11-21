@@ -391,12 +391,23 @@ fn ensure_chart_columns(conn: &Connection) -> Result<()> {
     if cols.is_empty() {
         return Ok(());
     }
-    // Etterna's MSD at 1× (msd.rs) and the skillset it asks most of
-    for (name, kind) in [("msd", "REAL"), ("msd_skill", "TEXT")] {
+    // Etterna's MSD at 1× (msd.rs) and the skillset it asks most of; at 0.7× to 2.0× (1.5)
+    for (name, kind) in [("msd", "REAL"), ("msd_skill", "TEXT"), ("msd_rates", "TEXT")] {
         if !cols.iter().any(|c| c == name) {
             conn.execute_batch(&format!("ALTER TABLE chart_stats ADD COLUMN {name} {kind}"))?;
         }
     }
+    // what plays are worth in Etterna's eyes (osu_scores.rs: Wife% × 10000, rate × 100), 1.5
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS play_ssr (
+            hash    TEXT NOT NULL,
+            rate    INTEGER NOT NULL,
+            wife    INTEGER NOT NULL,
+            version INTEGER NOT NULL,
+            ssr     TEXT,
+            PRIMARY KEY (hash, rate, wife)
+        )",
+    )?;
     Ok(())
 }
 

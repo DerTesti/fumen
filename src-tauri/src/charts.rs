@@ -337,6 +337,8 @@ pub struct Summary {
     category: Option<String>,
     msd: Option<f32>,
     msd_skill: Option<&'static str>,
+    /// the MSD at 0.7× … 2.0×, a tenth apart: 14 × [overall, the seven skillsets], as JSON
+    msd_rates: Option<String>,
 }
 
 fn summarize(hash: &str, chart: &Chart) -> Summary {
@@ -344,7 +346,9 @@ fn summarize(hash: &str, chart: &Chart) -> Summary {
     let rated = |rate: f64| (chart.mode == 3).then(|| stars::round2(stars::mania(chart, rate)));
     let d = dan::rate(chart, 1.0);
     let report = patterns::report(chart);
-    let msd = crate::msd::rate(chart, 1.0);
+    let all = crate::msd::all_rates(chart);
+    // 1× is the fourth of 0.7× … 2.0×
+    let msd = all.as_ref().map(|a| a[3]).filter(|m| m.overall > 0.0);
     Summary {
         hash: hash.to_owned(),
         nps_avg: a.nps_avg,
@@ -362,6 +366,7 @@ fn summarize(hash: &str, chart: &Chart) -> Summary {
         category: report.map(|r| if r.sv() { format!("{} SV", r.category) } else { r.category }),
         msd: msd.map(|m| m.overall),
         msd_skill: msd.map(|m| m.top_skill()),
+        msd_rates: all.map(|a| serde_json::to_string(&a.iter().map(|m| m.to_array()).collect::<Vec<_>>()).unwrap_or_default()),
     }
 }
 
@@ -397,8 +402,8 @@ pub fn store(conn: &mut Connection, rows: &[Summary]) -> Result<()> {
     {
         let mut st = tx.prepare(
             "INSERT OR REPLACE INTO chart_stats
-               (hash, version, nps_avg, nps_peak, ln_time, jack_ratio, longest_burst, tags, patterns, sr_ht, sr_dt, dan, dan_value, category, sr, msd, msd_skill)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+               (hash, version, nps_avg, nps_peak, ln_time, jack_ratio, longest_burst, tags, patterns, sr_ht, sr_dt, dan, dan_value, category, sr, msd, msd_skill, msd_rates)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         )?;
         for r in rows {
             st.execute(params![
@@ -418,7 +423,8 @@ pub fn store(conn: &mut Connection, rows: &[Summary]) -> Result<()> {
                 r.category,
                 r.sr,
                 r.msd,
-                r.msd_skill
+                r.msd_skill,
+                r.msd_rates
             ])?;
         }
     }

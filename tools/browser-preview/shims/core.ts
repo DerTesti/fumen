@@ -86,6 +86,11 @@ export async function invoke<T>(cmd: string, args: Record<string, unknown> = {},
       const chart = (await res.json()) as { dans?: Record<string, unknown> };
       return (chart.dans?.[(args.rate as number).toFixed(2)] ?? null) as T;
     }
+    case "msd_rates": {
+      const snap = (await fetch("/__fumen/snapshot").then((r) => r.json())) as { maps: PreviewMap[] };
+      const keys = (args as { keys: number }).keys;
+      return Object.fromEntries(snap.maps.filter((m) => m.mode === 3 && Math.round(m.cs) === keys).map((m) => [m.id, fakeRates(m.sr, m.shares)])) as T;
+    }
     case "get_msd": {
       // preview chart files carry the MSD at every rate the panel offers (see preview_charts)
       const res = await fetch(`/__fumen/chart/${args.id as string}`);
@@ -233,7 +238,15 @@ export async function invoke<T>(cmd: string, args: Record<string, unknown> = {},
       return undefined as T;
     case "get_history": {
       const res = await fetch("/__fumen/history");
-      const history = (await res.json()) as { syncedAt?: number };
+      const history = (await res.json()) as { syncedAt?: number; plays: { map?: string; mode: number; failed?: boolean; rate?: number; acc: number; wife?: number; ssr?: number[] }[] };
+      // osu!mania passes get made-up SSRs from their chart
+      const snap = (await fetch("/__fumen/snapshot").then((r) => r.json())) as { maps: PreviewMap[] };
+      const byId = new Map(snap.maps.map((m) => [m.id, m]));
+      for (const p of history.plays) {
+        const m = p.map ? byId.get(p.map) : undefined;
+        if (p.mode !== 3 || p.failed || !m || m.mode !== 3 || Math.round(m.cs) < 4 || Math.round(m.cs) > 7) continue;
+        Object.assign(p, fakeSsr(m.sr, m.shares, p.rate ?? 1, p.acc));
+      }
       // a sync in this preview moves the time on
       const synced = Number(localStorage.getItem("fumen-preview-synced") ?? 0);
       if (synced) history.syncedAt = synced;
@@ -275,6 +288,7 @@ export async function invoke<T>(cmd: string, args: Record<string, unknown> = {},
           srHt: m.srHt ?? m.sr * 0.8,
           srDt: m.srDt ?? m.sr * 1.4,
           shares: m.shares,
+          msdRates: fakeRates(m.sr, m.shares),
           version: m.version,
           title: set.title,
           artist: set.artist,
@@ -301,6 +315,7 @@ export async function invoke<T>(cmd: string, args: Record<string, unknown> = {},
         source: "osu",
         id: 5000 + i,
         top: i + 1,
+        ...fakeSsr(c.sr, c.shares, i % 5 === 0 ? 1.5 : 1, 0.99 - (i % 7) * 0.008),
       }));
       return {
         player: { id: 7, name: name || "Preview Rival", avatar: undefined, country: "KR", rank: 1234, countryRank: 56, pp: 9876.5, accuracy: 0.9812, playCount: 45678 },
@@ -666,6 +681,28 @@ export async function invoke<T>(cmd: string, args: Record<string, unknown> = {},
       throw { code: "preview", message: `${cmd} isn't available in the browser preview` };
   }
 }
+
+/* ---------- made-up Etterna numbers (the preview has no MinaCalc) ---------- */
+
+/** an MSD row from a chart's star rating and pattern shares at a rate: [overall, stream,
+ * jumpstream, handstream, stamina, jackspeed, chordjack, technical] */
+function fakeMsd(sr: number, shares: number[] | undefined, rate: number): number[] {
+  const s = shares ?? [40, 30, 10, 10, 10, 0];
+  const top = Math.max(1, ...s);
+  // about 22 at 4★, 30 at 6★, slower above
+  const base = (6 + 4 * Math.min(sr, 6) + 1.5 * Math.max(0, sr - 6)) * rate;
+  const at = (share: number) => Math.round(base * (0.72 + 0.28 * (share / top)) * 100) / 100;
+  const skills = [at(s[0]), at(s[1]), at(s[2]), Math.round(base * 0.97 * 100) / 100, at(s[4]), at(s[3]), at(s[5] * 0.6 + s[0] * 0.4)];
+  return [Math.round(base * 100) / 100, ...skills];
+}
+const fakeRates = (sr: number, shares: number[] | undefined) => Array.from({ length: 14 }, (_, i) => fakeMsd(sr, shares, 0.7 + i * 0.1));
+/** what a pass is worth: its MSD at the rate, scaled by a Wife% made from the accuracy */
+function fakeSsr(sr: number, shares: number[] | undefined, rate: number, acc: number): { wife: number; ssr: number[] } {
+  const wife = Math.max(0, acc - 0.012);
+  const f = 1 + (Math.min(wife, 0.965) - 0.93) * 1.6;
+  return { wife, ssr: fakeMsd(sr, shares, rate).map((v) => Math.round(v * f * 100) / 100) };
+}
+type PreviewMap = { id: string; mode: number; cs: number; sr: number; shares?: number[] };
 
 let heartTimer: ReturnType<typeof setInterval> | null = null;
 /** The preview's strap: connects after a moment, then a reading a second (part `heart` too). */

@@ -712,6 +712,11 @@ export interface Play {
   /** osu!mania at a rate the library has no star rating for: the star rating at it (Fumen's
    * calculator) */
   sr?: number;
+  /** osu!mania passes: the accuracy as Etterna would count it (Wife3, from the judgements), 0–1 */
+  wife?: number;
+  /** osu!mania passes: what the play is worth in Etterna's eyes (its SSR): overall, then stream,
+   * jumpstream, handstream, stamina, jackspeed, chordjack, technical */
+  ssr?: number[];
 }
 
 /** A difficulty that isn't in the library, as osu! described it. */

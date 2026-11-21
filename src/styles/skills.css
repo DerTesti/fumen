@@ -1,29 +1,10 @@
 /* ===========================================================================
-   Skills — osu!mania skill per pattern: radar, list, the charts behind it
+   Skills — osu!mania skill per Etterna skillset: radar, list, the plays behind it
    =========================================================================== */
 
 .skills-view { container-type: inline-size; }
 .skills-head { padding: 22px 0 18px; }
 
-/* under rework: a note on top, the rest greyed and out of reach */
-.skills-rework {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 18px;
-  padding: 12px 16px;
-  border-radius: var(--r-xl);
-  background: var(--warning-soft);
-  font-size: var(--fs-12);
-  line-height: 1.45;
-}
-.skills-rework-ic { flex: none; width: 18px; height: 18px; margin-top: 1px; color: var(--warning); }
-.skills-rework div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.skills-rework b { color: var(--t1); font-size: var(--fs-13); font-weight: 600; }
-.skills-rework span { color: var(--t2); }
-.is-rework .skills-tools,
-.is-rework .compare-bar,
-.is-rework .skills-body { opacity: .4; filter: grayscale(1); pointer-events: none; user-select: none; }
 .skills-keys > button { padding: 0 12px; font-variant-numeric: tabular-nums; }
 .skills-loading { padding-top: 4px; }
 .skills-empty { padding-top: 72px; }
@@ -68,7 +49,7 @@
 .radar-legend > span::before { content: ""; width: 14px; height: 0; border-top: 2px solid var(--accent); }
 .radar-legend > .lg-then::before { border-top: 1.5px dashed var(--t3); }
 
-/* ---------- Pattern list ---------- */
+/* ---------- Skillset list ---------- */
 .skills-list { display: flex; flex-direction: column; gap: 2px; padding: 8px; }
 .skill { border-radius: var(--r-lg); transition: background .12s var(--ease-std); }
 .skill.open { background: rgb(var(--ink) / .035); }
@@ -94,13 +75,20 @@
 .skill-delta.down { color: var(--danger); }
 .skill-value { text-align: right; font-size: var(--fs-15); color: var(--t1); }
 .skill.empty .skill-value { color: var(--t4); }
+/* overall on top, a step bigger, a line under it */
+.skill-overall { margin-bottom: 4px; }
+.skill-overall::after { content: ""; display: block; height: 1px; margin: 0 12px; background: var(--stroke-dim); }
+.skill-overall.open::after { display: none; }
+.skill-overall .skill-head { min-height: 54px; }
+.skill-overall .skill-name { font-size: var(--fs-15); }
+.skill-overall .skill-value { font-size: var(--fs-20); }
 .skill-chev { width: 16px; height: 16px; color: var(--t3); transition: transform .22s var(--ease-out); }
 .skill.open .skill-chev { transform: rotate(180deg); color: var(--t1); }
 
 .skill-charts-list { display: flex; flex-direction: column; padding: 0 4px 8px; animation: fade-in .2s var(--ease-std); }
 .skill-chart {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr) 50px minmax(0, 76px) 58px 56px;
+  grid-template-columns: 52px minmax(0, 1fr) minmax(0, 76px) 58px 56px;
   column-gap: 10px;
   align-items: center;
   min-height: 42px;
@@ -114,7 +102,7 @@
 .skill-chart:hover { background: var(--tint-hover); }
 .skill-chart .t-art { width: 52px; height: 30px; }
 .skill-chart .t-art img { opacity: 1; }
-.skill-chart-sr { display: flex; justify-content: flex-end; }
+.skill-chart-msd { text-align: right; font-weight: 600; color: var(--t2); }
 .skill-chart-mods { font-size: var(--fs-11); font-weight: 700; letter-spacing: .03em; color: var(--accent-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .skill-chart-acc { text-align: right; color: var(--t2); }
 .skill-chart-worth { text-align: right; color: var(--t1); }
@@ -177,6 +165,7 @@
 .practice-chart { grid-template-columns: 52px minmax(0, 1fr) 50px minmax(0, 60px) 56px; }
 .practice-gain { text-align: right; color: var(--success); }
 .practice-none { padding: 4px 8px 10px; font-size: var(--fs-12); line-height: 1.5; color: var(--t3); }
+.panel.practice-none { padding: 14px 16px; }
 .practice-more { align-self: flex-start; margin: 4px 0 0 4px; }
 .practice-them-head { margin: 10px 8px 4px; font-size: var(--fs-11); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--t3); }
 /* with their charts, every row keeps room for "like it" */
@@ -187,7 +176,7 @@
 @container (max-width: 560px) {
   .practice-groups { grid-template-columns: minmax(0, 1fr); }
   .skill-chart .t-art { display: none; }
-  .skill-chart { grid-template-columns: minmax(0, 1fr) 50px minmax(0, 76px) 58px 56px; }
+  .skill-chart { grid-template-columns: minmax(0, 1fr) minmax(0, 76px) 58px 56px; }
   .practice-chart { grid-template-columns: minmax(0, 1fr) 50px minmax(0, 60px) 56px; }
   .practice-group.has-them .practice-chart { grid-template-columns: minmax(0, 1fr) 50px minmax(0, 60px) 56px 28px; }
   .practice-head { flex-direction: column; align-items: flex-start; gap: 10px; }

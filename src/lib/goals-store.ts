@@ -2,7 +2,7 @@
  * and checked whenever the plays or the library change. A goal that's been reached is marked with
  * the time and stays done, whatever happens to the numbers after. */
 import { api, asApiError } from "./api";
-import { goalContext, goalNow, goalTarget, goalTitle, isReached, type Goal, type GoalContext, type GoalSpec } from "./goals";
+import { goalContext, goalNow, goalTarget, goalTitle, isReached, isRetired, type Goal, type GoalContext, type GoalSpec } from "./goals";
 import { historyEvents, historyNow, loadHistory, mapIndexOf } from "./history";
 import { Emitter, events, store } from "./store";
 import { toast } from "../ui/controls";
@@ -19,10 +19,11 @@ export const goalsNow = (): Goal[] | null => goals;
 export function loadGoals(): Promise<Goal[]> {
   loading ??= api.getGoals().then(
     (g) => {
-      goals = g;
-      goalEvents.emit("goals", g);
+      const kept = g.filter((x) => !isRetired(x));
+      goals = kept;
+      goalEvents.emit("goals", kept);
       check();
-      return g;
+      return kept;
     },
     (e) => {
       loading = null;

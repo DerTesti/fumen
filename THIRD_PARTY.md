@@ -46,6 +46,10 @@ Etterna's difficulty calculator (version 527) is in `src-tauri/minacalc` as it i
 sources and their small C bridge (`API.cpp`, `API.h`) come as the
 [minacalc-sys](https://crates.io/crates/minacalc-sys) crate (MIT) vendors them.
 
+Ported from Etterna as well: Wife3, its accuracy curve, in `src-tauri/src/wife.rs` (the
+constants and the curve; turning osu!'s judgement counts into a Wife% is Fumen's own), and
+`aggregate_skill`, how Etterna blends plays into a skill, in `src/lib/skills.ts`.
+
 ## ManiaMapAnalyser (Leo_Black, MIT)
 
 [github.com/LeoBlackMT/osumania_map_analyser](https://github.com/LeoBlackMT/osumania_map_analyser),

@@ -39,6 +39,14 @@ extern "C" {
     fn destroy_calc(calc: *mut c_void);
     /// mode 0: MSD (the chart's difficulty), 1: SSR (a score's rating)
     fn calc_at_rate(calc: *mut c_void, rows: *mut NoteInfo, num_rows: usize, music_rate: c_float, score_goal: c_float, keycount: c_uint, mode: c_int) -> Ssr;
+    fn calc_all_rates(calc: *mut c_void, rows: *const NoteInfo, num_rows: usize, keycount: c_uint, mode: c_int) -> AllRates;
+}
+
+/// MinaCalc's MSD at 0.7× to 2.0×, a tenth apart
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct AllRates {
+    msds: [Ssr; 14],
 }
 
 /// A chart's MSD at a rate.
@@ -116,32 +124,70 @@ fn rows(chart: &Chart) -> Vec<NoteInfo> {
     out
 }
 
-/// A mania chart's MSD at `rate` (0.7 to 2.0 is what Etterna lists); None for other modes, key
-/// counts outside 4K to 7K and charts too short to rate.
-pub fn rate(chart: &Chart, rate: f64) -> Option<Msd> {
+/// The rows of a chart MinaCalc can rate: osu!mania, 4K to 7K, two rows or more.
+fn rateable(chart: &Chart) -> Option<Vec<NoteInfo>> {
     if chart.mode != 3 || !(4..=7).contains(&chart.keys) {
         return None;
     }
-    let mut rows = rows(chart);
-    if rows.len() < 2 {
-        return None;
+    let rows = rows(chart);
+    (rows.len() >= 2).then_some(rows)
+}
+
+impl From<Ssr> for Msd {
+    fn from(s: Ssr) -> Msd {
+        let r2 = |v: f32| if v.is_finite() { (v * 100.0).round() / 100.0 } else { 0.0 };
+        Msd {
+            overall: r2(s.overall),
+            stream: r2(s.stream),
+            jumpstream: r2(s.jumpstream),
+            handstream: r2(s.handstream),
+            stamina: r2(s.stamina),
+            jackspeed: r2(s.jackspeed),
+            chordjack: r2(s.chordjack),
+            technical: r2(s.technical),
+        }
     }
-    let ssr = CALC.with(|c| {
+}
+
+impl Msd {
+    /// Overall, then the skillsets in `SKILLS`' order.
+    pub fn to_array(self) -> [f32; 8] {
+        [self.overall, self.stream, self.jumpstream, self.handstream, self.stamina, self.jackspeed, self.chordjack, self.technical]
+    }
+}
+
+/// MinaCalc at one rate: MSD (`ssr` off) or a score's SSR at `goal` (Wife%, 0–1).
+fn at_rate(chart: &Chart, rate: f64, goal: f64, ssr: bool) -> Option<Msd> {
+    let mut rows = rateable(chart)?;
+    let out = CALC.with(|c| {
         // SAFETY: the rows live through the call, the calculator is this thread's own
-        unsafe { calc_at_rate(c.0, rows.as_mut_ptr(), rows.len(), rate.clamp(0.5, 3.0) as f32, 0.93, chart.keys as c_uint, 0) }
+        unsafe { calc_at_rate(c.0, rows.as_mut_ptr(), rows.len(), rate.clamp(0.5, 3.0) as f32, goal.clamp(0.0, 1.0) as f32, chart.keys as c_uint, ssr as c_int) }
     });
-    let r2 = |v: f32| if v.is_finite() { (v * 100.0).round() / 100.0 } else { 0.0 };
-    let msd = Msd {
-        overall: r2(ssr.overall),
-        stream: r2(ssr.stream),
-        jumpstream: r2(ssr.jumpstream),
-        handstream: r2(ssr.handstream),
-        stamina: r2(ssr.stamina),
-        jackspeed: r2(ssr.jackspeed),
-        chordjack: r2(ssr.chordjack),
-        technical: r2(ssr.technical),
-    };
+    let msd = Msd::from(out);
     (msd.overall > 0.0).then_some(msd)
+}
+
+/// A mania chart's MSD at `rate` (0.7 to 2.0 is what Etterna lists); None for other modes, key
+/// counts outside 4K to 7K and charts too short to rate.
+pub fn rate(chart: &Chart, rate: f64) -> Option<Msd> {
+    at_rate(chart, rate, 0.93, false)
+}
+
+/// What a play scores in Etterna's eyes (its SSR): the chart at the rate played, rated for the
+/// Wife% it got (`wife`, 0–1; above 96.5% counts as 96.5%, as in Etterna).
+pub fn ssr(chart: &Chart, rate: f64, wife: f64) -> Option<Msd> {
+    at_rate(chart, rate, wife, true)
+}
+
+/// The MSD at every rate from 0.7× to 2.0×, a tenth apart, in one go.
+pub fn all_rates(chart: &Chart) -> Option<Vec<Msd>> {
+    let rows = rateable(chart)?;
+    let all = CALC.with(|c| {
+        // SAFETY: as above
+        unsafe { calc_all_rates(c.0, rows.as_ptr(), rows.len(), chart.keys as c_uint, 0) }
+    });
+    let out: Vec<Msd> = all.msds.iter().map(|s| Msd::from(*s)).collect();
+    out.iter().any(|m| m.overall > 0.0).then_some(out)
 }
 
 #[cfg(test)]
@@ -166,6 +212,28 @@ mod tests {
         let r = rows(&c);
         assert_eq!(r.iter().map(|r| r.notes).collect::<Vec<_>>(), vec![0b0101, 0b0010, 0b1000]);
         assert_eq!(r[1].row_time, 0.125);
+    }
+
+    #[test]
+    fn all_rates_and_ssr_agree_with_one_rate() {
+        let notes: Vec<(i32, u8)> = (0..720).flat_map(|i| {
+            let t = i * 83;
+            let a = (i % 4) as u8;
+            if i % 2 == 0 { vec![(t, a), (t, (a + 2) % 4)] } else { vec![(t, a)] }
+        }).collect();
+        let c = chart(4, &notes);
+        let all = all_rates(&c).unwrap();
+        assert_eq!(all.len(), 14);
+        let one = rate(&c, 1.0).unwrap();
+        assert!((all[3].overall - one.overall).abs() < 0.05, "{} {}", all[3].overall, one.overall);
+        assert!(all[13].overall > all[3].overall);
+        // a 96.5% play is worth the MSD at 93% and more; a worse one less
+        let good = ssr(&c, 1.0, 0.965).unwrap();
+        let poor = ssr(&c, 1.0, 0.85).unwrap();
+        assert!(good.overall > one.overall, "{good:?} {one:?}");
+        assert!(poor.overall < good.overall);
+        // above the cap counts as the cap
+        assert_eq!(ssr(&c, 1.0, 0.99).unwrap(), good);
     }
 
     #[test]

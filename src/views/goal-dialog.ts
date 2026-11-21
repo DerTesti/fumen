@@ -4,9 +4,9 @@
 import { asApiError } from "../lib/api";
 import { displayTitle, esc, fixed, pct } from "../lib/format";
 import { addGoal, currentContext } from "../lib/goals-store";
-import { goalNow, goalValue, isReached, RULESET_LABEL, RULESETS, suggestTarget, type GoalSpec, type Ruleset } from "../lib/goals";
+import { goalNow, goalValue, isReached, RULESET_LABEL, RULESETS, skillName, suggestTarget, type GoalSkill, type GoalSpec, type Ruleset } from "../lib/goals";
 import { historyNow, mapIndexOf } from "../lib/history";
-import { keyModes, MIN_CHARTS, PATTERN_LABEL, PATTERNS, type SkillPattern } from "../lib/skills";
+import { FEW_PLAYS, keyModes, SKILLSETS } from "../lib/skills";
 import { store } from "../lib/store";
 import { RATE_MAX, RATE_MIN, RATE_STEP } from "../player";
 import { attachSegIndicator, closeAnimated, createSelect, toast } from "../ui/controls";
@@ -18,7 +18,7 @@ type Kind = GoalSpec["kind"];
 export interface GoalPreset {
   kind?: Kind;
   keys?: number;
-  pattern?: SkillPattern;
+  skillset?: GoalSkill;
   /** a chart: the library difficulty, and the rate to aim at */
   mapIdx?: number;
   rate?: number;
@@ -34,7 +34,7 @@ export function openGoalDialog(preset: GoalPreset = {}): void {
 
   let kind: Kind = preset.kind ?? (chartMap ? "chart" : "skill");
   let keys = preset.keys !== undefined && modes.includes(preset.keys) ? preset.keys : modes[0];
-  let pattern: SkillPattern = preset.pattern ?? "jacks";
+  let skillset: GoalSkill = preset.skillset ?? "overall";
   let ruleset: Ruleset = rulesets.includes("mania") ? "mania" : (rulesets[0] ?? "mania");
   let metric: "pp" | "rank" = "pp";
   let rate = preset.rate ?? 1;
@@ -65,7 +65,7 @@ export function openGoalDialog(preset: GoalPreset = {}): void {
 
   /** the goal as it stands, with the target as typed (or suggested) */
   const spec = (target: number): GoalSpec => {
-    if (kind === "skill") return { kind, keys, pattern, target };
+    if (kind === "skill") return { kind, keys, skillset, target };
     if (kind === "profile") return { kind, ruleset, metric, target };
     const set = snap!.sets[chartMap!.set];
     return {
@@ -109,7 +109,7 @@ export function openGoalDialog(preset: GoalPreset = {}): void {
     row.className = "goal-row";
     if (kind === "skill") {
       row.append(
-        select(PATTERNS.map((p) => ({ value: p, label: PATTERN_LABEL[p] })), pattern, (v) => (pattern = v), t("Pattern")),
+        select((["overall", ...SKILLSETS] as GoalSkill[]).map((s) => ({ value: s, label: skillName(s) })), skillset, (v) => (skillset = v), t("Skillset")),
         select(modes.map((k) => ({ value: String(k), label: `${k}K` })), String(keys), (v) => (keys = +v), t("Keys")),
       );
     } else if (kind === "profile") {
@@ -128,7 +128,7 @@ export function openGoalDialog(preset: GoalPreset = {}): void {
           <button class="icon-btn sm" type="button" data-rate-step="1" aria-label="${t("Faster")}"${rate >= RATE_MAX - 1e-6 ? " disabled" : ""}>${icon("plus")}</button>
         </div>`;
     }
-    const unit = kind === "skill" ? "★" : kind === "chart" ? "%" : metric === "pp" ? "pp" : "";
+    const unit = kind === "chart" ? "%" : kind === "profile" && metric === "pp" ? "pp" : "";
     const input = document.createElement("label");
     input.className = "goal-target";
     input.innerHTML = `<span class="goal-target-label">${t("Target")}</span>${kind === "profile" && metric === "rank" ? `<span class="goal-unit">#</span>` : ""}<input type="text" inputmode="decimal" spellcheck="false" autocomplete="off" aria-label="${t("Target")}" /><span class="goal-unit">${unit}</span>`;
@@ -152,13 +152,13 @@ export function openGoalDialog(preset: GoalPreset = {}): void {
     let note = "";
     let error = "";
     if (kind === "skill") {
-      const skill = currentContext()?.skillsFor(keys)[PATTERNS.indexOf(pattern)];
-      note = now !== null ? (skill && skill.charts < MIN_CHARTS ? t("Now {value}, a guess so far", { value: goalValue(spec(0), now) }) : t("Now {value}", { value: goalValue(spec(0), now) })) : t("No {keys}K {pattern} charts passed yet", { keys, pattern: PATTERN_LABEL[pattern].toLowerCase() });
+      const few = (currentContext()?.skillsFor(keys).plays ?? 0) < FEW_PLAYS;
+      note = now !== null ? (few ? t("Now {value}, still filling up", { value: goalValue(spec(0), now) }) : t("Now {value}", { value: goalValue(spec(0), now) })) : t("No {keys}K passes rated yet", { keys });
     } else if (kind === "chart") note = now !== null ? t("Your best at {rate}× or faster: {acc}", { rate: fixed(rate, 2), acc: pct(now) }) : t("Not passed at {rate}× or faster yet", { rate: fixed(rate, 2) });
     else note = now !== null ? t("Now {value}", { value: goalValue(spec(0), now) }) : t("Nothing from osu! yet");
     if (v === null) error = t("Type a target.");
     else if (kind === "chart" && (v <= 0.5 || v > 1)) error = t("An accuracy between 50% and 100%.");
-    else if (kind === "skill" && (v <= 0 || v > 20)) error = t("A star rating between 0 and 20.");
+    else if (kind === "skill" && (v <= 0 || v > 50)) error = t("A skill between 0 and 50.");
     else if (kind === "profile" && v < 1) error = metric === "rank" ? t("A rank from #1.") : t("Some pp above 0.");
     else if (sp && isReached(sp, now)) error = t("You're there already: aim higher.");
     nowEl.innerHTML = `<span>${esc(note)}</span>${error ? `<span class="goal-error">${esc(error)}</span>` : ""}`;

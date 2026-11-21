@@ -229,7 +229,7 @@ pub fn mods_of(json: &str) -> (Vec<String>, Option<f64>) {
 }
 
 /// The judgement counts a play shows (the ones above zero).
-fn hits_of(json: &str) -> Map<String, Value> {
+pub(crate) fn hits_of(json: &str) -> Map<String, Value> {
     let v: Value = serde_json::from_str(json).unwrap_or_default();
     JUDGEMENTS
         .iter()
@@ -728,6 +728,13 @@ pub struct Play {
     /// osu!mania at a rate the library snapshot doesn't carry a star rating for: the one at it
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sr: Option<f64>,
+    /// osu!mania: the play's Wife% as Etterna would count it, 0–1 (wife.rs)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wife: Option<f64>,
+    /// osu!mania: what the play is worth in Etterna's eyes (its SSR: overall, then stream,
+    /// jumpstream, handstream, stamina, jackspeed, chordjack, technical; msd.rs)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ssr: Option<[f32; 8]>,
     /// the difficulty's md5 (the library snapshot's best scores go by it)
     #[serde(skip)]
     md5: Option<String>,
@@ -806,14 +813,16 @@ struct Library {
     by_online: HashMap<i64, (String, Option<String>)>,
     /// osu!mania difficulties' chart files (difficulty id → file hash)
     mania: HashMap<String, String>,
+    /// osu!mania difficulties' OD (difficulty id → OD)
+    mania_od: HashMap<String, f64>,
 }
 
 impl Library {
     fn read(conn: &Connection) -> Result<Library> {
-        let mut lib = Library { by_md5: HashMap::new(), by_online: HashMap::new(), mania: HashMap::new() };
+        let mut lib = Library { by_md5: HashMap::new(), by_online: HashMap::new(), mania: HashMap::new(), mania_od: HashMap::new() };
         // lazer's first: a difficulty in both games is lazer's
         let mut st = conn.prepare(
-            "SELECT m.id, m.md5, m.online_id, m.hash, m.ruleset_id FROM maps m JOIN sets s ON s.id = m.set_id
+            "SELECT m.id, m.md5, m.online_id, m.hash, m.ruleset_id, m.od FROM maps m JOIN sets s ON s.id = m.set_id
              ORDER BY s.source = 'stable', m.set_id, m.id",
         )?;
         let mut rows = st.query([])?;
@@ -822,6 +831,9 @@ impl Library {
             let md5: Option<String> = r.get(1)?;
             if let (Some(hash), Some(3)) = (r.get::<_, Option<String>>(3)?, r.get::<_, Option<i64>>(4)?) {
                 lib.mania.insert(id.clone(), hash);
+                if let Some(od) = r.get::<_, Option<f64>>(5)? {
+                    lib.mania_od.insert(id.clone(), od);
+                }
             }
             if let Some(online) = r.get::<_, Option<i64>>(2)?.filter(|v| *v > 0) {
                 lib.by_online.entry(online).or_insert_with(|| (id.clone(), md5.clone()));
@@ -949,6 +961,8 @@ fn merge(conn: &Connection) -> Result<Merged> {
             top: None,
             id: None,
             sr: None,
+            wife: None,
+            ssr: None,
             md5,
         });
     }
@@ -1013,6 +1027,8 @@ fn merge(conn: &Connection) -> Result<Merged> {
                 top,
                 id: Some(id),
                 sr: None,
+                wife: None,
+                ssr: None,
                 md5,
             });
         }
@@ -1065,6 +1081,119 @@ fn rate_missing(conn: &Connection, files: &crate::paths::Files, lib: &Library, p
     Ok(())
 }
 
+/// Bump when Wife% or SSRs come out differently: MinaCalc's version, then the Wife% estimate's.
+const SSR_VERSION: i64 = 527_01;
+
+/// Mods that change what's played beyond the rate: such plays get no SSR.
+const CHANGES_CHART: [&str; 16] = ["HO", "IN", "NR", "RD", "CS", "DS", "AT", "CN", "1K", "2K", "3K", "4K", "5K", "6K", "7K", "8K"];
+
+/// (chart file, rate × 100, Wife% × 10000) of an osu!mania pass MinaCalc can rate, its Wife% from
+/// the judgements.
+fn ssr_key(lib: &Library, p: &Play) -> Option<(String, u32, u32)> {
+    if p.mode != 3 || p.failed || p.mods.iter().any(|m| CHANGES_CHART.contains(&m.as_str())) {
+        return None;
+    }
+    let map = p.map.as_ref()?;
+    let hash = lib.mania.get(map)?;
+    let wife = crate::wife::estimate(&p.hits, *lib.mania_od.get(map)?, &p.mods, p.stable)?;
+    let rate = (p.rate.unwrap_or(1.0) * 100.0).round();
+    (rate > 0.0).then(|| (hash.clone(), rate as u32, (wife * 10_000.0).round() as u32))
+}
+
+/// The SSRs of charts at rates and Wife%s, worked out with MinaCalc a chart at a time on a few
+/// threads. Charts that can't be read are left out (and asked for again next time).
+pub fn work_out_ssrs(files: &crate::paths::Files, wanted: HashMap<String, Vec<(u32, u32)>>) -> Vec<((String, u32, u32), Option<[f32; 8]>)> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let jobs: Vec<(String, Vec<(u32, u32)>)> = wanted.into_iter().collect();
+    let next = AtomicUsize::new(0);
+    let results = std::sync::Mutex::new(Vec::new());
+    let workers = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(1, 8);
+    std::thread::scope(|s| {
+        for _ in 0..workers {
+            s.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some((hash, asks)) = jobs.get(i) else { break };
+                let one = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let chart = crate::charts::load(files, hash).ok()?;
+                    Some(
+                        asks.iter()
+                            .map(|&(rate, wife)| ((hash.clone(), rate, wife), crate::msd::ssr(&chart, rate as f64 / 100.0, wife as f64 / 10_000.0).map(|m| m.to_array())))
+                            .collect::<Vec<_>>(),
+                    )
+                }));
+                if let Ok(Some(out)) = one {
+                    results.lock().unwrap_or_else(|e| e.into_inner()).extend(out);
+                }
+            });
+        }
+    });
+    results.into_inner().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Every osu!mania pass's Wife% and SSR (wife.rs, msd.rs): from `play_ssr` where it was worked out
+/// before, the rest worked out now and kept.
+fn ssr_missing(conn: &Connection, files: &crate::paths::Files, lib: &Library, plays: &mut [Play]) -> Result<()> {
+    let keys: Vec<Option<(String, u32, u32)>> = plays.iter().map(|p| ssr_key(lib, p)).collect();
+    let mut st = conn.prepare("SELECT hash, rate, wife, ssr FROM play_ssr WHERE version = ?1")?;
+    let mut known: HashMap<(String, u32, u32), Option<[f32; 8]>> = st
+        .query_map([SSR_VERSION], |r| Ok(((r.get::<_, String>(0)?, r.get::<_, u32>(1)?, r.get::<_, u32>(2)?), r.get::<_, Option<String>>(3)?)))?
+        .filter_map(|r| r.ok())
+        .map(|(k, s)| (k, s.and_then(|s| serde_json::from_str(&s).ok())))
+        .collect();
+    let mut wanted: HashMap<String, Vec<(u32, u32)>> = HashMap::new();
+    for k in keys.iter().flatten() {
+        if !known.contains_key(k) {
+            let asks = wanted.entry(k.0.clone()).or_default();
+            if !asks.contains(&(k.1, k.2)) {
+                asks.push((k.1, k.2));
+            }
+        }
+    }
+    if !wanted.is_empty() {
+        let worked = work_out_ssrs(files, wanted);
+        let mut put = conn.prepare("INSERT OR REPLACE INTO play_ssr (hash, rate, wife, version, ssr) VALUES (?1, ?2, ?3, ?4, ?5)")?;
+        for (k, v) in worked {
+            put.execute(params![k.0, k.1, k.2, SSR_VERSION, v.map(|a| serde_json::to_string(&a).unwrap_or_default())])?;
+            known.insert(k, v);
+        }
+    }
+    for (p, k) in plays.iter_mut().zip(keys) {
+        if let Some(k) = k {
+            p.wife = Some(k.2 as f64 / 10_000.0);
+            p.ssr = known.get(&k).copied().flatten();
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod ssr_tests {
+    /// Every osu!mania pass's SSR on a copy of a real library, timed twice (the second from the cache):
+    /// `FUMEN_TEST_DB=<copy of library.db> FUMEN_TEST_STORAGE=<lazer folder> cargo test ssr_tests -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs a copy of a real library"]
+    fn real_history() {
+        let (Some(db), Some(storage)) = (std::env::var_os("FUMEN_TEST_DB"), std::env::var_os("FUMEN_TEST_STORAGE")) else { return };
+        let conn = crate::db::open(std::path::Path::new(&db)).unwrap();
+        let files = crate::paths::Files::lazer(storage);
+        for round in 0..2 {
+            let t = std::time::Instant::now();
+            let Merged { mut plays, lib, .. } = super::merge(&conn).unwrap();
+            super::ssr_missing(&conn, &files, &lib, &mut plays).unwrap();
+            let rated: Vec<_> = plays.iter().filter(|p| p.ssr.is_some()).collect();
+            eprintln!("round {round}: {} of {} plays rated in {:?}", rated.len(), plays.iter().filter(|p| p.mode == 3).count(), t.elapsed());
+            if round == 1 {
+                let mut best: Vec<_> = rated.iter().map(|p| (p.ssr.unwrap(), p.wife.unwrap(), p.acc, p.rate.unwrap_or(1.0))).collect();
+                best.sort_by(|a, b| b.0[0].total_cmp(&a.0[0]));
+                for (ssr, wife, acc, rate) in best.iter().take(8) {
+                    eprintln!("ssr {:5.2}  wife {:.2}%  osu! {:.2}%  {rate}x  {:?}", ssr[0], wife * 100.0, acc * 100.0, &ssr[1..]);
+                }
+            }
+        }
+    }
+    use super::Merged;
+}
+
 /// A difficulty's best pass (by score) and how often it was played (fails too).
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -1102,6 +1231,7 @@ pub fn history_json(conn: &Connection, account: Option<&Account>, files: Option<
     let Merged { player, mut plays, lib, mut online } = merge(conn)?;
     if let Some(files) = files.filter(|f| !f.is_empty()) {
         rate_missing(conn, files, &lib, &mut plays)?;
+        ssr_missing(conn, files, &lib, &mut plays)?;
     }
     let mut most_played = Vec::new();
     if matches!(player, Player::Id(_)) {

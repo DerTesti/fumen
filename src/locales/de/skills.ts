@@ -7,28 +7,26 @@ export const skills: Record<string, string> = {
   Chordjack: "Chordjack",
   Jacks: "Jacks",
 
-  "Skills are being reworked": "Skills werden gerade überarbeitet",
-  "The numbers here can be off until then, and goals and comparisons may change. Everything else in Fumen works as usual.":
-    "Bis dahin können die Zahlen hier danebenliegen, und Ziele und Vergleiche können sich ändern. Alles andere in Fumen funktioniert wie gewohnt.",
-
   Compare: "Vergleichen",
   "Skills come from your osu!mania plays": "Skills kommen aus deinen osu!mania-Plays",
-  "Fumen reads the patterns of osu!mania charts. Once you've passed some that are in your library, you'll see here what you're good at.":
-    "Fumen liest die Patterns von osu!mania-Charts. Sobald du welche aus deiner Bibliothek gepasst hast, siehst du hier, was du gut kannst.",
+  "Fumen rates your osu!mania passes the way Etterna does. Once you've passed some 4K to 7K charts that are in your library, you'll see here what you're good at.":
+    "Fumen bewertet deine osu!mania-Passes so, wie Etterna es tut. Sobald du ein paar 4K- bis 7K-Charts aus deiner Bibliothek gepasst hast, siehst du hier, was du gut kannst.",
+  "{n} pass rated|{n} passes rated": "{n} Pass bewertet|{n} Passes bewertet",
+  "still filling up": "füllt sich noch",
   "{n} chart passed|{n} charts passed": "{n} Chart gepasst|{n} Charts gepasst",
-  "A play is worth the chart's star rating at the rate you played it, at {acc} accuracy along osu!'s own osu!mania pp curve: a 5★ chart at 92% counts as about 4.4★. A pattern's skill is the average of your {top} best charts with that pattern (at least {share}% of the chart), weighted by how much of each chart it is. Passes only, each chart once, and not with mods that change what you play, like Hold Off.":
-    "Ein Play ist so viel wert wie die Sternebewertung des Charts bei der Rate, mit der du es gespielt hast, umgerechnet auf {acc} Accuracy entlang der osu!mania-pp-Kurve von osu!: Ein 5★-Chart mit 92 % zählt etwa 4,4★. Der Skill eines Patterns ist der Schnitt deiner {top} besten Charts mit diesem Pattern (mindestens {share} % des Charts), gewichtet danach, wie viel vom Chart es ausmacht. Nur Passes, jedes Chart einmal, und nicht mit Mods, die ändern, was du spielst, wie Hold Off.",
+  "Every pass is rated with Etterna's calculator, MinaCalc: the chart at the rate you played it, for your accuracy as Etterna counts it (Wife, worked out from your judgements). That's what the play is worth in each skillset. A skillset blends all your plays there the way Etterna does: your best count the most, and it takes a fair number of good plays to get up to your level. Overall blends the seven. Each chart counts once per rate, passes only, and not with mods that change what you play, like Hold Off.":
+    "Jeder Pass wird mit Etternas Rechner MinaCalc bewertet: das Chart bei der Rate, mit der du es gespielt hast, für deine Accuracy, wie Etterna sie zählt (Wife, aus deinen Judgements berechnet). Das ist, was das Play in jedem Skillset wert ist. Ein Skillset fasst alle deine Plays darin so zusammen, wie Etterna es tut: Deine besten zählen am meisten, und es braucht eine ordentliche Zahl guter Plays, bis es auf deinem Niveau ist. Overall fasst die sieben zusammen. Jedes Chart zählt einmal pro Rate, nur Passes, und nicht mit Mods, die ändern, was du spielst, wie Hold Off.",
   "Since {when}": "Seit {when}",
-  "{n} chart|{n} charts": "{n} Chart|{n} Charts",
-  "a guess": "geschätzt",
-  "a guess so far": "bisher geschätzt",
-  "no charts yet": "noch keine Charts",
-  "Set a goal for {pattern}": "Ziel für {pattern} setzen",
+  "best play {value}": "bestes Play {value}",
+  "Set a goal for {skill}": "Ziel für {skill} setzen",
+  "{wife} as Etterna counts it": "{wife}, wie Etterna es zählt",
+  "What this play is worth in {skill}": "Was dieses Play in {skill} wert ist",
 
   // comparing
-  "{name} has no {pattern} charts": "{name} hat keine {pattern}-Charts",
-  "{name}: {sr}★ from {charts}": "{name}: {sr}★ aus {charts}",
-  "{name}'s best with {pattern}": "Das Beste von {name} bei {pattern}",
+  "{name} has no passes rated here": "{name} hat hier keine bewerteten Passes",
+  "{name}: {value} from {plays}": "{name}: {value} aus {plays}",
+  "{n} pass|{n} passes": "{n} Pass|{n} Passes",
+  "{name}'s best in {skill}": "Das Beste von {name} in {skill}",
   Yours: "Deine",
   "Comparing with {name}": "Vergleiche mit {name}",
   Stop: "Stopp",
@@ -70,31 +68,32 @@ export const skills: Record<string, string> = {
 
   // practice
   "Practice next": "Als Nächstes üben",
-  "Charts in your library a little above your weakest skills: hard enough to move them, close enough to pass. Where 1× doesn't land there, a rate does.":
-    "Charts aus deiner Bibliothek knapp über deinen schwächsten Skills: schwer genug, um sie zu verbessern, nah genug, um sie zu passen. Wo 1× nicht passt, tut es eine Rate.",
+  "Charts in your library a little above your best plays in your weakest skillsets, and mostly about them: hard enough to move them, close enough to pass. Where 1× doesn't land there, a rate does.":
+    "Charts aus deiner Bibliothek knapp über deinen besten Plays in deinen schwächsten Skillsets, und vor allem genau darin: schwer genug, um sie zu verbessern, nah genug, um sie zu passen. Wo 1× nicht passt, tut es eine Rate.",
+  "Fumen is still working out the MSD of your charts. Suggestions show up here once that's done.":
+    "Fumen berechnet gerade noch die MSD deiner Charts. Vorschläge erscheinen hier, sobald das fertig ist.",
   "Weakest only": "Nur die schwächsten",
-  "All {n} patterns": "Alle {n} Patterns",
-  "{sr}★ now": "jetzt {sr}★",
-  "No charts yet": "Noch keine Charts",
+  "All {n} skillsets": "Alle {n} Skillsets",
+  "No passes yet": "Noch keine Passes",
+  "{lo} to {hi}": "{lo} bis {hi}",
   "your best {acc} at {rate}×": "dein Bestes {acc} bei {rate}×",
   "your best {acc}": "dein Bestes {acc}",
   played: "gespielt",
   "not passed yet": "noch nicht gepasst",
   "aiming at {band}": "Ziel {band}",
-  "Nothing in your library with at least {share}% {pattern} reaches {band}, not even at 0.75× to 1.5×.":
-    "Nichts in deiner Bibliothek mit mindestens {share} % {pattern} erreicht {band}, nicht mal bei 0,75× bis 1,5×.",
-  "{pct}% {pattern}": "{pct} % {pattern}",
-  "Star rating at {rate}×": "Sternebewertung bei {rate}×",
+  "Nothing in your library that's mostly {skill} reaches {band}, not even at 0.75× to 1.5×.":
+    "Nichts in deiner Bibliothek, das vor allem {skill} ist, erreicht {band}, nicht mal bei 0,75× bis 1,5×.",
+  "MSD in {skill} at {rate}×": "MSD in {skill} bei {rate}×",
+  "MSD in {skill}": "MSD in {skill}",
   "Star rating": "Sternebewertung",
-  "What this play is worth at {acc} accuracy": "Was dieses Play bei {acc} Accuracy wert ist",
   "{mod} with its speed set to {rate}×": "{mod} mit Geschwindigkeit auf {rate}×",
   new: "neu",
-  "A {acc} pass here takes {pattern} from {from}★ to {to}★": "Ein Pass mit {acc} hier bringt {pattern} von {from}★ auf {to}★",
-  "A {acc} pass here starts {pattern} at {to}★": "Ein Pass mit {acc} hier startet {pattern} bei {to}★",
+  "A pass at {wife} Wife here takes {skill} from {from} to {to}": "Ein Pass mit {wife} Wife hier bringt {skill} von {from} auf {to}",
+  "A pass at {wife} Wife here starts {skill} at {to}": "Ein Pass mit {wife} Wife hier startet {skill} bei {to}",
 
   // radar
-  "Goal: {sr}★": "Ziel: {sr}★",
-  "Skill per pattern": "Skill pro Pattern",
+  "Goal: {value}": "Ziel: {value}",
+  "Skill per skillset": "Skill pro Skillset",
   You: "Du",
   Now: "Jetzt",
   "90 days ago": "Vor 90 Tagen",

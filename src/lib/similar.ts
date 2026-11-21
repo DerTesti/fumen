@@ -1,7 +1,7 @@
 /* similar.ts — the charts in the library most like one chart.
  *
  * A chart's fingerprint is what you feel playing it: its star rating, how dense it is, how long,
- * its speed and, in osu!mania, its pattern mix (lib/skills' pattern shares) and how much of it is
+ * its speed and, in osu!mania, its pattern mix (the analysis' pattern shares) and how much of it is
  * long notes; in the other rulesets the approach rate and circle size, and how much of it is
  * sliders. Every part is a difference in "units" (one unit is a difference you'd notice: 0.4★,
  * 30 % of the pattern mix moved, a third denser …), weighted by how much it matters, and the
@@ -11,9 +11,20 @@
  * Only the same ruleset counts (osu!mania: the same key count), never the chart's own set, and a
  * difficulty that's in the library twice (lazer and stable, or uploaded again) once.
  */
-import { PATTERN_LABEL, PATTERNS } from "./skills";
 import type { MapRow } from "./types";
 import { t } from "./i18n";
+
+/** The patterns of a chart's shares, in their order (the analysis', see MapRow.shares) */
+const PATTERNS = ["stream", "jumpstream", "handstream", "chordjack", "jacks", "ln"] as const;
+const patternLabels = (): Record<(typeof PATTERNS)[number], string> => ({
+  stream: t("Stream"),
+  jumpstream: t("Jumpstream"),
+  handstream: t("Handstream"),
+  chordjack: t("Chordjack"),
+  jacks: t("Jacks"),
+  ln: t("Long notes"),
+});
+const patternName = (i: number): string => patternLabels()[PATTERNS[i]].toLowerCase();
 
 /** One part of the fingerprint: its name, what a unit of it is, and its weight per ruleset
  * (osu!, osu!taiko, osu!catch, osu!mania; 0 = left out). */
@@ -201,7 +212,7 @@ export function differences(a: Pick<MapRow, "mode" | "shares">, b: Pick<MapRow, 
       const g = (b.shares[i] ?? 0) - (a.shares[i] ?? 0);
       if (g > gain) [best, gain] = [i, g];
     }
-    if (best >= 0 && gain >= 15) words.push({ units: d.patterns, text: t("more {pattern}", { pattern: PATTERN_LABEL[PATTERNS[best]].toLowerCase() }) });
+    if (best >= 0 && gain >= 15) words.push({ units: d.patterns, text: t("more {pattern}", { pattern: patternName(best) }) });
   }
   return words
     .sort((x, y) => y.units - x.units)
@@ -215,5 +226,5 @@ export function mainPattern(m: MapRow): string {
   let best = 0;
   for (let i = 1; i < PATTERNS.length; i++) if ((m.shares[i] ?? 0) > (m.shares[best] ?? 0)) best = i;
   const share = Math.round(m.shares[best] ?? 0);
-  return share > 0 ? `${share}% ${PATTERN_LABEL[PATTERNS[best]].toLowerCase()}` : "";
+  return share > 0 ? `${share}% ${patternName(best)}` : "";
 }

@@ -27,6 +27,7 @@ mod mirror_search;
 mod mma;
 mod mods;
 mod msd;
+mod wife;
 mod osu;
 mod osu_auth;
 mod osu_scores;
@@ -2240,6 +2241,36 @@ fn get_skin_files(state: State<'_, AppState>, id: String) -> Result<tauri::ipc::
     Ok(tauri::ipc::Response::new(files.into_bytes()))
 }
 
+/// Etterna's MSD at 0.7× … 2.0× for the library's osu!mania difficulties in a key mode, as raw
+/// JSON: `{"<difficulty id>": [[overall, seven skillsets] × 14]}` (the Skills page's practice).
+#[tauri::command]
+async fn msd_rates(app: AppHandle, keys: u32) -> Result<tauri::ipc::Response> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let conn = state.db();
+        let mut st = conn.prepare(
+            "SELECT m.id, c.msd_rates FROM maps m JOIN chart_stats c ON c.hash = m.hash AND c.version = ?1
+             WHERE m.ruleset_id = 3 AND CAST(ROUND(m.cs) AS INTEGER) = ?2 AND c.msd_rates IS NOT NULL",
+        )?;
+        let mut out = String::from("{");
+        let mut rows = st.query(rusqlite::params![analysis::VERSION, keys])?;
+        while let Some(r) = rows.next()? {
+            let id: String = r.get(0)?;
+            let json: String = r.get(1)?;
+            if out.len() > 1 {
+                out.push(',');
+            }
+            out.push_str(&serde_json::to_string(&id)?);
+            out.push(':');
+            out.push_str(&json);
+        }
+        out.push('}');
+        Ok(tauri::ipc::Response::new(out.into_bytes()))
+    })
+    .await
+    .map_err(|e| Error::known("internal", e.to_string()))?
+}
+
 /// The full library snapshot as raw JSON (see `library.rs`).
 #[tauri::command]
 async fn get_library(app: AppHandle) -> Result<tauri::ipc::Response> {
@@ -2353,6 +2384,7 @@ pub fn run() {
             get_chart,
             get_dan,
             get_msd,
+            msd_rates,
             get_pp,
             get_hitsounds,
             get_skins,
