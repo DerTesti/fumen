@@ -13,7 +13,7 @@
   },
   {
     "version": "1.4.1",
-    "date": "2026-11-16",
+    "date": "2026-11-21",
     "en": [
       "New: MSD, Etterna's difficulty rating, for osu!mania 4K to 7K. It shows next to the dan at any rate, and you can search with msd>25 or skillset=jackspeed and sort by it.",
       "Fix: Background videos play on maps that name them only in their storyboard file."
