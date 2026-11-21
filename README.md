@@ -276,8 +276,11 @@ docs/PLAN.md      roadmap
 
 ## Credits
 
-- [osu!](https://github.com/ppy/osu) (MIT, ppy Pty Ltd): the star rating calculator and the mania
-  skin components Fumen's ports follow
+- [osu!](https://github.com/ppy/osu) (MIT, ppy Pty Ltd): Fumen's ports of lazer's mania star rating,
+  beatmap decoding and conversion (osu!, taiko, catch), replay judgements, skin.ini, the playfields'
+  skin components and storyboards (the full list in [THIRD_PARTY.md](THIRD_PARTY.md))
+- [osu-framework](https://github.com/ppy/osu-framework) (MIT, ppy Pty Ltd): slider path
+  approximation and the easing functions
 - Beatmap mirrors [osu.direct](https://osu.direct), [nekoha.moe](https://mirror.nekoha.moe),
   [catboy.best](https://catboy.best), [beatconnect.io](https://beatconnect.io),
   [sayobot.cn](https://osu.sayobot.cn) and [nerinyan.moe](https://nerinyan.moe) for the downloads
@@ -293,8 +296,9 @@ docs/PLAN.md      roadmap
 
 Fumen is free software under the [GNU General Public License v3.0](LICENSE) or later: use it,
 change it and pass it on, as long as what you pass on stays under the same licence, with its
-source. The parts that came from other projects keep their own licences (MIT, see Credits;
-`src-tauri/src/mma` has its licence alongside).
+source. The parts that came from other projects keep their own licences (MIT, see Credits and
+[THIRD_PARTY.md](THIRD_PARTY.md); the licence texts are in [LICENSES](LICENSES), and
+`src-tauri/src/mma` has its own alongside).
 
 "Fumen" is the name of this project: a fork is welcome, under another name.
 
