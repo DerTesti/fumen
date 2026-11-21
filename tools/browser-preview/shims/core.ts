@@ -242,6 +242,11 @@ export async function invoke<T>(cmd: string, args: Record<string, unknown> = {},
       // osu!mania passes get made-up SSRs from their chart
       const snap = (await fetch("/__fumen/snapshot").then((r) => r.json())) as { maps: PreviewMap[] };
       const byId = new Map(snap.maps.map((m) => [m.id, m]));
+      // the plays that just happened are in the history too (as live_plays in the app)
+      for (const lp of await previewPlays()) {
+        if (!lp.map) continue;
+        history.plays.unshift({ map: lp.map, mode: lp.mode as number, date: lp.date as number, rank: 4, acc: lp.accuracy, score: lp.score, combo: lp.combo, mods: lp.mods, rate: lp.rate ?? undefined, source: "lazer" } as never);
+      }
       for (const p of history.plays) {
         const m = p.map ? byId.get(p.map) : undefined;
         if (p.mode !== 3 || p.failed || !m || m.mode !== 3 || Math.round(m.cs) < 4 || Math.round(m.cs) > 7) continue;
@@ -743,6 +748,7 @@ async function lazerCollectionIds(id: string): Promise<string[]> {
 }
 
 type PreviewPlay = { id: string; map: string | null; accuracy: number } & Record<string, unknown>;
+const previewStarted = Date.now();
 
 /** the tries kept in the preview (newest first) */
 function previewAttempts(): Record<string, unknown>[] {
@@ -756,7 +762,8 @@ function previewAttempts(): Record<string, unknown>[] {
 /** the cached replays as plays of the last few minutes, newest first */
 async function previewPlays(): Promise<PreviewPlay[]> {
   const [live, snap] = await Promise.all([fetch("/__fumen/live").then((r) => r.json()), fetch("/__fumen/snapshot").then((r) => r.json())]);
-  const now = Date.now();
+  // the same moment for every call, so a play is the same play in the history and on its score page
+  const now = previewStarted;
   return (live as { mapId: string; entry: Record<string, unknown> }[]).map(({ mapId, entry }, i) => {
     const m = snap.maps.find((x: { id: string }) => x.id === mapId);
     const s = m ? snap.sets[m.set] : null;

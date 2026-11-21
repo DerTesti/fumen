@@ -1,6 +1,6 @@
 /* history.ts — the player's plays (lazer's local scores plus osu!'s), loaded when first needed
  * and kept until they change, and the syncs with osu! that feed them. */
-import { api, asApiError, onHistoryChanged } from "./api";
+import { api, asApiError, onHistoryChanged, onLivePlay } from "./api";
 import { esc, fixed, num } from "./format";
 import { Emitter, events, reloadLibrary, store } from "./store";
 import type { ApiError, History, MapRow, OnlineMap, Play, Snapshot, SyncSummary } from "./types";
@@ -23,6 +23,8 @@ export const historyEvents = new Emitter<{
 }>();
 
 export const historyNow = (): History | null => current;
+/** the plays are being (re)loaded */
+export const historyLoading = (): boolean => loading !== null;
 export const isSyncing = (): boolean => syncing;
 
 /** The plays; loaded once, then from memory until they change. */
@@ -112,7 +114,8 @@ export function syncMap(map: MapRow): void {
 
 let started = false;
 
-/** Keeps the plays current: osu!'s side changed (sync, login, logout) or lazer's (a rescan). */
+/** Keeps the plays current: osu!'s side changed (sync, login, logout), lazer's (a rescan), or a
+ * play just happened (it's in the history from its replay until lazer's scores have it). */
 export function initHistory(): void {
   if (started) return;
   started = true;
@@ -124,6 +127,9 @@ export function initHistory(): void {
   events.on("library", () => {
     mapIndex = null;
     if (current) void loadHistory(true);
+  });
+  void onLivePlay(() => {
+    if (current || loading) void loadHistory(true);
   });
 }
 

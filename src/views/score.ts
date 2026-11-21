@@ -1,13 +1,17 @@
 /* score.ts — a play that just happened, looked at: the result against the best before it, where
  * the accuracy went (the song's density with the losses over it, the worst stretches with their
  * patterns), how the timing leaned, and what to do next (watch the replay, practise a stretch,
- * put the map in a collection, find similar ones). The other plays of the session sit below.
+ * put the map in a collection, find similar ones). An osu!mania pass also says which skills it
+ * raised and by how much (lib/skills). The other plays of the session sit below.
  *
  * The play comes from the replay lazer saved (src-tauri/src/live.rs); it's judged here the way
  * lazer judges it (lib/score-review), on the difficulty as the library has it. */
 import { api, asApiError, thumbUrl } from "../lib/api";
 import { duration, esc, fixed, num, pct, rankInfo, relativeTime, srChip } from "../lib/format";
 import { isBest, playMods, rankNumber, sessionStart } from "../lib/live";
+import { historyEvents, historyLoading, historyNow, loadHistory, mapIndexOf } from "../lib/history";
+import { skillName, type GoalSkill } from "../lib/goals";
+import { bestPerChart, keysOf, SKILLSETS, skills } from "../lib/skills";
 import { chartMods, type Mod } from "../lib/mods";
 import { back, canGoBack, go } from "../lib/router";
 import { judge, rateHint, review, type LossStretch, type Review } from "../lib/score-review";
@@ -59,12 +63,15 @@ export class ScoreView {
   /** this pass as a try (lib/attempts), for the pulse during it */
   private attempt: Attempt | null = null;
   private job = 0;
+  private offHistory: () => void;
 
   constructor(private id: string) {
     this.el = document.createElement("section");
     this.el.className = "view score-view";
     this.el.innerHTML = `<div class="score-loading"><div class="skeleton" style="height:260px"></div></div>`;
     this.el.addEventListener("click", (e) => this.click(e.target as Element));
+    // the play joins the history a moment after it's here (lib/history reloads on a new play)
+    this.offHistory = historyEvents.on("history", () => this.fillSkills());
     void this.load();
   }
 
@@ -173,6 +180,7 @@ export class ScoreView {
             <span><i>${t("Score")}</i><b>${num(p.score)}</b></span>
           </div>
         </div>
+        <section class="section score-skills" hidden></section>
         ${this.actions(map)}
         ${this.lossSection(map)}
         ${this.timingSection()}
@@ -180,6 +188,66 @@ export class ScoreView {
         ${this.sessionSection()}
       </div>`;
     claimContentArt(set?.bg ? thumbUrl(set.bg, 640) : null);
+    this.fillSkills();
+  }
+
+  /** osu!mania 4K to 7K: the skills this pass raised, and by how much (the skills just before it
+   * against just after, as the Skills page works them out), with what the pass is worth. */
+  private fillSkills(): void {
+    const el = this.el.querySelector<HTMLElement>(".score-skills");
+    const p = this.play;
+    const snap = store.snap;
+    if (!el || !p || !snap) return;
+    const mi = this.mapIdx();
+    const map = mi >= 0 ? snap.maps[mi] : null;
+    const keys = map ? keysOf(map) : 0;
+    if (!map || p.mode !== 3 || map.mode !== 3 || keys < 4 || keys > 7 || p.rank === "F") {
+      el.hidden = true;
+      return;
+    }
+    const h = historyNow();
+    const mine = h?.plays.find((x) => x.mode === 3 && x.map === map.id && Math.abs(x.date - p.date) < 5000 && Math.abs(x.acc - p.accuracy) < 0.0005);
+    if (!h || !mine) {
+      if (!h) void loadHistory().catch(() => {});
+      // still on its way, or not among your plays (another player's replay)
+      el.hidden = !!h && !historyLoading();
+      el.innerHTML = `<h2 class="section-title">${t("Skills")}</h2><div class="skeleton" style="height:58px"></div>`;
+      return;
+    }
+    // not rated: mods that change the chart (Hold Off, Random …)
+    if (!mine.ssr || mine.wife === undefined) {
+      el.hidden = true;
+      return;
+    }
+    const before = skills(bestPerChart(h.plays, mapIndexOf, snap.maps, keys, mine.date - 1));
+    const after = skills(bestPerChart(h.plays, mapIndexOf, snap.maps, keys, mine.date));
+    const lines: { key: GoalSkill; was: number | null; now: number | null }[] = [
+      { key: "overall", was: before.overall, now: after.overall },
+      ...SKILLSETS.map((s, k) => ({ key: s as GoalSkill, was: before.skills[k].value, now: after.skills[k].value })),
+    ];
+    const up = lines.filter((l) => l.now !== null && l.now - (l.was ?? 0) >= 0.005);
+    const worth = t("This pass is worth {value} overall, at {wife} as Etterna counts it.", { value: fixed(mine.ssr[0], 2), wife: pct(mine.wife) });
+    el.hidden = false;
+    el.innerHTML = `
+      <div class="score-skills-head">
+        <h2 class="section-title">${t("Skills")} <span class="section-count num">${keys}K</span></h2>
+        <button class="btn btn-ghost btn-sm score-skills-open" type="button">${icon("radar")}<span>${t("Open Skills")}</span></button>
+      </div>
+      ${
+        up.length
+          ? `<div class="score-skill-list">${up
+              .map(
+                (l) => `
+                <div class="score-skill${l.key === "overall" ? " is-overall" : ""}">
+                  <span class="score-skill-name">${skillName(l.key)}</span>
+                  <b class="num">${fixed(l.now!, 2)}</b>
+                  <span class="num score-skill-up">${l.was === null ? t("new") : `+${fixed(l.now! - l.was, 2)}`}</span>
+                </div>`,
+              )
+              .join("")}</div>`
+          : ""
+      }
+      <p class="chart-note">${up.length ? worth : `${t("No skill went up this time.")} ${worth}`}</p>`;
   }
 
   /** The judgements as lazer counted them (or as judged here, for a replay without lazer's counts). */
@@ -311,6 +379,7 @@ export class ScoreView {
     const row = target.closest<HTMLElement>(".score-session-row");
     if (row?.dataset.id && row.dataset.id !== this.id) return go({ name: "score", id: row.dataset.id }, { replace: true });
     if (target.closest(".score-tries")) return go({ name: "tries", md5: p.md5 });
+    if (target.closest(".score-skills-open")) return go({ name: "skills" });
     if (mi < 0) return;
     if (target.closest(".score-watch")) {
       watchPlay(mi, {
@@ -347,6 +416,7 @@ export class ScoreView {
 
   destroy(): void {
     this.job++;
+    this.offHistory();
     this.el.remove();
   }
 }

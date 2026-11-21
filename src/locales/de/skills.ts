@@ -91,6 +91,20 @@ export const skills: Record<string, string> = {
   "A pass at {wife} Wife here takes {skill} from {from} to {to}": "Ein Pass mit {wife} Wife hier bringt {skill} von {from} auf {to}",
   "A pass at {wife} Wife here starts {skill} at {to}": "Ein Pass mit {wife} Wife hier startet {skill} bei {to}",
 
+  // over time
+  "Over time": "Verlauf",
+  "How your skills grew, a step for every day your plays raised one.": "Wie deine Skills gewachsen sind, ein Schritt für jeden Tag, an dem deine Plays einen angehoben haben.",
+  "Nothing moved in this time.": "In dieser Zeit hat sich nichts bewegt.",
+  "Time range": "Zeitraum",
+  "90 days": "90 Tage",
+  Year: "Jahr",
+  "{skill}: {from} to {to}": "{skill}: {from} bis {to}",
+
+  // on the score page
+  "This pass is worth {value} overall, at {wife} as Etterna counts it.": "Dieser Pass ist {value} Overall wert, bei {wife}, wie Etterna es zählt.",
+  "Open Skills": "Skills öffnen",
+  "No skill went up this time.": "Diesmal ist kein Skill gestiegen.",
+
   // radar
   "Goal: {value}": "Ziel: {value}",
   "Skill per skillset": "Skill pro Skillset",

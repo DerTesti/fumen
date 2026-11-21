@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregate, aimFor, bestPerChart, keyModes, MORE_SUGGESTIONS, msdAt, practice, rateFor, skills, SKILLSETS, suggest, type MsdRows, type Skill } from "./skills";
+import { aggregate, aimFor, bestPerChart, keyModes, MORE_SUGGESTIONS, msdAt, practice, rateFor, skillHistory, skills, SKILLSETS, suggest, type MsdRows, type Skill } from "./skills";
 import type { MapRow, MsdSkill, Play } from "./types";
 
 const map = (id: string, extra: Partial<MapRow> = {}): MapRow => ({
@@ -31,6 +31,9 @@ describe("aggregate", () => {
     // an easier play never lowers it
     expect(aggregate([30, 30, 20])).toBeCloseTo(aggregate([30, 30]));
     expect(aggregate([])).toBe(0);
+    // sorted or not, the same
+    const mixed = [12, 31, 25, 7, 28, 30, 19];
+    expect(aggregate(mixed)).toBeCloseTo(aggregate([...mixed].sort((a, b) => b - a), 0.1, 1.05, true), 9);
   });
 });
 
@@ -73,6 +76,32 @@ describe("skills", () => {
     expect(sheet.overall).toBeCloseTo(aggregate(sheet.skills.map((s) => s.value!), 0.1, 1.125));
     expect(skills([]).overall).toBeNull();
     expect(skills([]).skills[0].value).toBeNull();
+  });
+
+  it("follows the skills day by day", () => {
+    const at = (d: number, h = 12) => Date.UTC(2026, 9, 1 + d, h);
+    const plays = [
+      play("a", 20, { date: at(0, 10) }, { jumpstream: 21 }),
+      play("b", 18, { date: at(0, 15) }),
+      // the next day: a worse play on a (nothing moves), then c
+      play("a", 19, { date: at(1) }),
+      play("c", 22, { date: at(3) }, { jackspeed: 25 }),
+      // a better play on a, at another rate too
+      play("a", 24, { date: at(5) }, { jumpstream: 26 }),
+      play("a", 23, { date: at(5, 13), rate: 1.1, mods: ["DT"] }),
+      play("b", 30, { date: at(6), failed: true }),
+    ];
+    const points = skillHistory(plays, index, maps, 4);
+    expect(points.map((p) => p.date)).toEqual([at(0, 15), at(3), at(5, 13)]);
+    expect(points[0].values[1 + K("jumpstream")]).toBeCloseTo(aggregate([21, 18 * 0.8]));
+    // the last point is what the skills say now
+    const now = skills(bestPerChart(plays, index, maps, 4));
+    expect(points[2].values[0]).toBeCloseTo(now.overall!);
+    now.skills.forEach((s, k) => expect(points[2].values[k + 1]).toBeCloseTo(s.value!));
+    // and every point is what they said then
+    const then = skills(bestPerChart(plays, index, maps, 4, at(3)));
+    expect(points[1].values[0]).toBeCloseTo(then.overall!);
+    expect(skillHistory(plays, index, maps, 7)).toEqual([]);
   });
 
   it("lists key modes by rated plays", () => {

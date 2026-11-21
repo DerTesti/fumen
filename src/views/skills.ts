@@ -11,9 +11,10 @@ import { currentContext, goalEvents, goalsNow, loadGoals, removeGoal } from "../
 import { displayTitle, esc, fixed, num, pct, relativeTime } from "../lib/format";
 import { historyEvents, historyNow, loadHistory, mapIndexOf, modsText, playWhen } from "../lib/history";
 import {
-  bestPerChart, FEW_PLAYS, keyModes, MORE_SUGGESTIONS, practice, rateOf, SKILL_LABEL, SKILLSETS, skills, suggest, SUGGESTIONS, TOP,
-  type Aim, type Counted, type MsdRows, type Practice, type SkillSheet, type Suggestion,
+  bestPerChart, FEW_PLAYS, keyModes, MORE_SUGGESTIONS, practice, rateOf, SKILL_LABEL, skillHistory, SKILLSETS, skills, suggest, SUGGESTIONS, TOP,
+  type Aim, type Counted, type MsdRows, type Practice, type SkillPoint, type SkillSheet, type Suggestion,
 } from "../lib/skills";
+import { renderTrends, type TrendRange } from "./skill-trends";
 import { similarTo } from "../lib/similar";
 import { events, store } from "../lib/store";
 import type { MapRow, MsdSkill, PatternName, Play } from "../lib/types";
@@ -80,6 +81,9 @@ export class SkillsView {
   /** the last practice plan and what it was worked out from (it takes a moment, and opening a
    * skillset's plays doesn't change it) */
   private planMemo: { plays: Play[]; maps: MapRow[]; rows: Map<number, MsdRows>; keys: number; more: string; plan: Practice[] } | null = null;
+  /** "Over time": the range shown, and the skills day by day (worked out once per plays) */
+  private range: TrendRange = "all";
+  private trendMemo: { plays: Play[]; maps: MapRow[]; keys: number; points: SkillPoint[] } | null = null;
 
   constructor() {
     this.el = document.createElement("section");
@@ -147,6 +151,14 @@ export class SkillsView {
       },
     );
     return undefined;
+  }
+
+  private trendFor(plays: Play[], maps: MapRow[], keys: number): SkillPoint[] {
+    const m = this.trendMemo;
+    if (m && m.plays === plays && m.maps === maps && m.keys === keys) return m.points;
+    const points = skillHistory(plays, mapIndexOf, maps, keys);
+    this.trendMemo = { plays, maps, keys, points };
+    return points;
   }
 
   private planFor(plays: Play[], maps: MapRow[], rows: Map<number, MsdRows>, keys: number, work: () => Practice[]): Practice[] {
@@ -228,11 +240,16 @@ export class SkillsView {
         <section class="panel skills-radar">${radar(now, then, this.goalMarks(keys), versus && { name: versus.name, sheet: versus.sheet })}</section>
         <section class="panel skills-list">${lines.map((l, i) => this.row(l, before[i], now.plays, then.plays, versus && { name: versus.name, line: versus.lines[i], plays: versus.sheet.plays, charts: versus.charts })).join("")}</section>
       </div>
+      <section class="skill-trends"></section>
       ${this.goalsHtml(ctx)}
       ${this.practiceHtml(plan, rows, played, passed, theirPractice)}
       <p class="skills-how">
         ${t("Every pass is rated with Etterna's calculator, MinaCalc: the chart at the rate you played it, for your accuracy as Etterna counts it (Wife, worked out from your judgements). That's what the play is worth in each skillset. A skillset blends all your plays there the way Etterna does: your best count the most, and it takes a fair number of good plays to get up to your level. Overall blends the seven. Each chart counts once per rate, passes only, and not with mods that change what you play, like Hold Off.")}
       </p>`;
+    renderTrends(body.querySelector<HTMLElement>(".skill-trends")!, this.trendFor(h.plays, snap.maps, keys), this.range, (r) => {
+      this.range = r;
+      this.rerender(`.trend-range [data-range="${r}"]`);
+    });
   }
 
   private row(l: Line, before: Line, plays: number, playsBefore: number, vs: { name: string; line: Line; plays: number; charts: ComparedChart[] } | null): string {

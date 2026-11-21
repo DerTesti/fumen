@@ -62,10 +62,12 @@ function erfc(x: number): number {
  * Etterna's way of turning many ratings into one (MinaCalc's `aggregate_skill`): the highest
  * rating the values still "carry", a binary search where every value above the rating adds more
  * the further above it is, until that passes 2^(rating / 10). Skillsets use it with ×1.05, overall
- * on the seven skillsets with ×1.125, as Etterna does.
+ * on the seven skillsets with ×1.125, as Etterna does. Values at or under the rating add nothing,
+ * so with them sorted highest first (`sorted`) the sum stops there.
  */
-export function aggregate(values: readonly number[], deltaMultiplier = 0.1, resultMultiplier = 1.05): number {
+export function aggregate(values: readonly number[], deltaMultiplier = 0.1, resultMultiplier = 1.05, sorted = false): number {
   if (!values.length) return 0;
+  const vs = sorted ? values : [...values].sort((a, b) => b - a);
   let rating = 0;
   let resolution = 10.24;
   for (let i = 0; i < 11; i++) {
@@ -73,7 +75,10 @@ export function aggregate(values: readonly number[], deltaMultiplier = 0.1, resu
     do {
       rating += resolution;
       sum = 0;
-      for (const v of values) sum += Math.max(0, 2 / erfc(deltaMultiplier * (v - rating)) - 2);
+      for (const v of vs) {
+        if (v <= rating) break;
+        sum += 2 / erfc(deltaMultiplier * (v - rating)) - 2;
+      }
     } while (Math.pow(2, rating * 0.1) < sum);
     rating -= resolution;
     resolution /= 2;
@@ -97,6 +102,16 @@ export interface Counted {
 /** A play's SSR in skillset k (or overall at -1). */
 export const ssrOf = (c: Counted, k: number): number => c.ssr[k + 1] ?? 0;
 
+/** A play's library index when it counts for the skills in a key mode: a rated osu!mania pass on
+ * a difficulty with that many keys, without mods that change the chart. */
+function counting(play: Play, mapIndex: (id: string | undefined) => number | undefined, maps: MapRow[], keys: number): number | undefined {
+  if (play.failed || play.mode !== 3 || !play.ssr || play.wife === undefined || changesChart(play)) return undefined;
+  const mapIdx = mapIndex(play.map);
+  if (mapIdx === undefined) return undefined;
+  const map = maps[mapIdx];
+  return map.mode === 3 && keysOf(map) === keys ? mapIdx : undefined;
+}
+
 /** Each chart's best counting play at each rate in one key mode (as Etterna keeps a best per
  * rate), best first. */
 export function bestPerChart(
@@ -108,11 +123,10 @@ export function bestPerChart(
 ): Counted[] {
   const best = new Map<string, Counted>();
   for (const play of plays) {
-    if (play.date > until || play.failed || play.mode !== 3 || !play.ssr || play.wife === undefined || changesChart(play)) continue;
-    const mapIdx = mapIndex(play.map);
+    if (play.date > until || !play.ssr || play.wife === undefined) continue;
+    const mapIdx = counting(play, mapIndex, maps, keys);
     if (mapIdx === undefined) continue;
     const map = maps[mapIdx];
-    if (map.mode !== 3 || keysOf(map) !== keys) continue;
     const key = `${mapIdx}@${rateOf(play).toFixed(2)}`;
     const had = best.get(key);
     if (!had || play.ssr[0] > had.ssr[0]) best.set(key, { play, map, mapIdx, ssr: play.ssr, wife: play.wife });
@@ -150,6 +164,67 @@ export function skills(charts: Counted[]): SkillSheet {
   });
   const known = list.map((s) => s.value).filter((v): v is number => v !== null);
   return { skills: list, overall: known.length ? aggregate(known, 0.1, 1.125) : null, plays: charts.length };
+}
+
+/* ---------- Over time ---------- */
+
+export interface SkillPoint {
+  /** unix ms: the last play of a day whose plays raised a chart's best */
+  date: number;
+  /** overall, then the skillsets in SKILLSETS' order */
+  values: number[];
+}
+
+/** the local day a time is on */
+const dayOf = (ms: number): number => Math.floor((ms - new Date(ms).getTimezoneOffset() * 60_000) / 86_400_000);
+
+/** Where `v` goes in a list sorted highest first. */
+function slot(list: number[], v: number): number {
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid] > v) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** How the skills grew in a key mode, oldest first: overall and every skillset after each day whose
+ * plays raised a chart's best (what `skills` would have said that evening). */
+export function skillHistory(plays: Play[], mapIndex: (id: string | undefined) => number | undefined, maps: MapRow[], keys: number): SkillPoint[] {
+  const list: { play: Play; ssr: number[]; key: string }[] = [];
+  for (const play of plays) {
+    const mapIdx = counting(play, mapIndex, maps, keys);
+    if (mapIdx !== undefined && play.ssr) list.push({ play, ssr: play.ssr, key: `${mapIdx}@${rateOf(play).toFixed(2)}` });
+  }
+  list.sort((a, b) => a.play.date - b.play.date);
+  const best = new Map<string, number[]>();
+  // each skillset's values, highest first, kept as plays come in
+  const sorted: number[][] = SKILLSETS.map(() => []);
+  const out: SkillPoint[] = [];
+  let moved = false;
+  for (let j = 0; j < list.length; j++) {
+    const { play, ssr, key } = list[j];
+    const had = best.get(key);
+    if (!had || ssr[0] > had[0]) {
+      best.set(key, ssr);
+      for (let k = 0; k < SKILLSETS.length; k++) {
+        const old = had?.[k + 1] ?? 0;
+        if (old > 0) sorted[k].splice(slot(sorted[k], old), 1);
+        const v = ssr[k + 1] ?? 0;
+        if (v > 0) sorted[k].splice(slot(sorted[k], v), 0, v);
+      }
+      moved = true;
+    }
+    const next = list[j + 1];
+    if (moved && (!next || dayOf(next.play.date) !== dayOf(play.date))) {
+      const each = sorted.map((v) => aggregate(v, 0.1, 1.05, true));
+      out.push({ date: play.date, values: [aggregate(each.filter((v) => v > 0), 0.1, 1.125), ...each] });
+      moved = false;
+    }
+  }
+  return out;
 }
 
 /** Key modes with counting plays, most played first. */

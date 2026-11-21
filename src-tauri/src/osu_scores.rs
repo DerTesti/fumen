@@ -909,6 +909,74 @@ struct Merged {
     online: Online,
 }
 
+/// lazer's ranks by name, F first (Play::rank is its index − 1, as osu!'s ScoreRank numbers them)
+const RANK_NAMES: [&str; 9] = ["F", "D", "C", "B", "A", "S", "SH", "X", "XH"];
+
+/// The plays in `live_plays` by this player that aren't among lazer's scores (the same
+/// difficulty, about the same time and accuracy), as lazer's own.
+fn live_plays(conn: &Connection, player: &Player, lib: &Library, plays: &mut Vec<Play>, by_map: &mut HashMap<String, Vec<usize>>) -> Result<()> {
+    // the name lazer shows for the player (replays only have the name)
+    let name: Option<String> = match player {
+        Player::Id(id) => conn.query_row("SELECT user FROM scores WHERE user_id = ?1 ORDER BY date DESC LIMIT 1", [id], |r| r.get(0)).optional()?.flatten(),
+        Player::Name(n) => Some(n.clone()),
+        Player::Anyone => None,
+    };
+    let mut known: HashMap<String, Vec<(i64, f64)>> = HashMap::new();
+    for p in plays.iter() {
+        if let Some(md5) = &p.md5 {
+            known.entry(md5.clone()).or_default().push((p.date, p.acc));
+        }
+    }
+    let mut st = conn.prepare(
+        "SELECT md5, mode, player, date, accuracy, rank, score, combo, mods, rate, statistics FROM live_plays ORDER BY date DESC",
+    )?;
+    let mut rows = st.query([])?;
+    while let Some(r) = rows.next()? {
+        let who: String = r.get(2)?;
+        if name.as_ref().is_some_and(|n| !n.eq_ignore_ascii_case(&who)) {
+            continue;
+        }
+        let md5: String = r.get(0)?;
+        let date: i64 = r.get(3)?;
+        let acc: f64 = r.get(4)?;
+        if known.get(&md5).is_some_and(|l| l.iter().any(|&(d, a)| (d - date).abs() <= SAME_PLAY_MS && (a - acc).abs() < 0.0005)) {
+            continue;
+        }
+        let rank = r.get::<_, Option<String>>(5)?.and_then(|n| RANK_NAMES.iter().position(|x| *x == n)).map_or(-1, |i| i as i64 - 1);
+        let mods: Vec<String> = serde_json::from_str(&r.get::<_, String>(8)?).unwrap_or_default();
+        let map = lib.by_md5.get(&md5).cloned();
+        if let Some(m) = &map {
+            by_map.entry(m.clone()).or_default().push(plays.len());
+        }
+        plays.push(Play {
+            map,
+            beatmap: None,
+            beatmap_id: None,
+            mode: r.get(1)?,
+            ruleset: None,
+            date,
+            rank,
+            acc,
+            score: r.get(6)?,
+            pp: None,
+            combo: r.get(7)?,
+            mods,
+            rate: r.get(9)?,
+            hits: hits_of(&r.get::<_, String>(10)?),
+            failed: rank < 0,
+            source: "lazer",
+            stable: false,
+            top: None,
+            id: None,
+            sr: None,
+            wife: None,
+            ssr: None,
+            md5: Some(md5),
+        });
+    }
+    Ok(())
+}
+
 /// The player's plays, local and from osu!, newest first.
 fn merge(conn: &Connection) -> Result<Merged> {
     let player = Player::detect(conn)?;
@@ -966,6 +1034,10 @@ fn merge(conn: &Connection) -> Result<Merged> {
             md5,
         });
     }
+
+    // plays Fumen saw happen (live.rs) that lazer's scores don't have yet: they're in the library
+    // database after the next scan, until then they come from here
+    live_plays(conn, &player, &lib, &mut plays, &mut by_map)?;
 
     // osu!'s side belongs to the logged-in account
     if let Player::Id(user_id) = player {
@@ -1532,6 +1604,32 @@ mod tests {
         .unwrap();
         let plays = merge(&conn).unwrap().plays;
         assert_eq!(plays.iter().map(|p| (p.acc, p.stable)).collect::<Vec<_>>(), [(0.8, true), (0.9, false)]);
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn live_plays_until_lazers_scores_have_them() {
+        let (dir, conn) = temp_db("live");
+        conn.execute_batch(
+            "DELETE FROM scores;
+             INSERT INTO scores (id, map_md5, ruleset, accuracy, date, user, user_id) VALUES ('a', 'abc', 'mania', 0.9, 1000000, 'Me', 42);
+             INSERT INTO meta (key, value) VALUES ('osu.user', '42');
+             INSERT INTO live_plays (id, md5, mode, player, date, accuracy, rank, score, combo, mods, rate, statistics, maximum_statistics) VALUES
+                -- the same play as lazer's score
+                ('r1', 'abc', 3, 'Me', 1000300, 0.9, 'A', 1, 1, '[]', NULL, '{}', '{}'),
+                -- a new pass at 1.2×, and a fail
+                ('r2', 'abc', 3, 'Me', 9000000, 0.95, 'S', 1, 1, '[\"DT\"]', 1.2, '{\"perfect\": 5, \"great\": 1}', '{}'),
+                ('r3', 'abc', 3, 'Me', 9500000, 0.5, 'F', 1, 1, '[]', NULL, '{}', '{}'),
+                -- someone else's replay
+                ('r4', 'abc', 3, 'Other', 9600000, 0.99, 'X', 1, 1, '[]', NULL, '{}', '{}');",
+        )
+        .unwrap();
+        let plays = merge(&conn).unwrap().plays;
+        let got: Vec<_> = plays.iter().map(|p| (p.date, p.rank, p.failed, p.rate)).collect();
+        assert_eq!(got, [(9500000, -1, true, None), (9000000, 4, false, Some(1.2)), (1000000, -1, true, None)]);
+        assert_eq!(plays[1].mods, ["DT"]);
+        assert_eq!(plays[1].hits.get("perfect").and_then(Value::as_i64), Some(5));
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
     }

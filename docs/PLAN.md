@@ -263,7 +263,13 @@ sections below is the order of the work.
       seven (×1.125; matches mania-tracker's overall to 0.02 on its own numbers). Practice aims
       1–10% above the average of the five best plays in a skillset, with charts whose MSD there
       (0.7×–2.0× in `chart_stats.msd_rates`, analysis version 5) is at least 93% of their hardest
-      skillset. Pattern-share skill goals are kept in the table but no longer shown
+      skillset. Pattern-share skill goals are kept in the table but no longer shown.
+      2026-11-22: plays Fumen saw happen (`live_plays`) join the history until lazer's scores
+      have them (same difficulty, within 2 min and 0.05% accuracy), and the history reloads on
+      every `live-play`, so a pass counts at once; the score page shows the skills it raised
+      (just before against just after); "Over time" on the Skills page: overall and every
+      skillset day by day (`skillHistory`, sorted values kept as plays come in), 90 days / year /
+      all, one crosshair through all eight charts
 - [x] Compare skills with another player (0.4.10, `src-tauri/src/player.rs`, `lib/compare.ts`):
       osu! API with the logged-in token (user by name, top 200, firsts, recent passes, most
       played → up to 60 best-score lookups; one request at a time, 350 ms apart), charts from the

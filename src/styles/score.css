@@ -50,6 +50,17 @@
 
 .score-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
 
+/* the skills a pass raised */
+.score-skills { margin-top: 22px; }
+.score-skills-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.score-skill-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.score-skill { display: flex; align-items: baseline; gap: 8px; padding: 8px 14px; border-radius: var(--r-lg); background: var(--success-soft); }
+.score-skill-name { font-size: var(--fs-12); font-weight: 600; color: var(--t2); }
+.score-skill b { font-size: var(--fs-15); color: var(--t1); }
+.score-skill-up { font-size: var(--fs-12); font-weight: 700; color: var(--success); }
+.score-skill.is-overall .score-skill-name { color: var(--t1); }
+.score-skills .chart-note { margin-top: 10px; }
+
 /* the song's density, the losses over it */
 .score-graph {
   position: relative;
