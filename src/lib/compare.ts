@@ -40,6 +40,8 @@ export interface ComparedChart {
   shares?: number[];
   /** Etterna's MSD at 0.7× … 2.0×, a tenth apart: [overall, the seven skillsets] each */
   msdRates?: number[][];
+  /** the notes whatever the speed (rate edits share it) */
+  notesKey?: string;
   version: string;
   title: string;
   titleUnicode?: string;
@@ -129,6 +131,7 @@ function asMaps(charts: ComparedChart[]): MapRow[] {
         srHt: c.srHt,
         srDt: c.srDt,
         shares: c.shares,
+        notesKey: c.notesKey,
       }) satisfies MapRow,
   );
 }

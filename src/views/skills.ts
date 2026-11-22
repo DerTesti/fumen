@@ -11,7 +11,7 @@ import { currentContext, goalEvents, goalsNow, loadGoals, removeGoal } from "../
 import { displayTitle, esc, fixed, num, pct, relativeTime } from "../lib/format";
 import { historyEvents, historyNow, loadHistory, mapIndexOf, modsText, playWhen } from "../lib/history";
 import {
-  bestPerChart, FEW_PLAYS, keyModes, MORE_SUGGESTIONS, practice, rateOf, SKILL_LABEL, skillHistory, SKILLSETS, skills, suggest, SUGGESTIONS, TOP,
+  bestPerChart, chartKey, FEW_PLAYS, keyModes, MORE_SUGGESTIONS, practice, rateOf, SKILL_LABEL, skillHistory, SKILLSETS, skills, suggest, SUGGESTIONS, TOP,
   type Aim, type Counted, type MsdRows, type Practice, type SkillPoint, type SkillSheet, type Suggestion,
 } from "../lib/skills";
 import { renderTrend, type TrendRange } from "./skill-trends";
@@ -489,7 +489,8 @@ export class SkillsView {
   ): TheirPractice {
     // their charts as your library's difficulties, where you have them
     const lib = them.data.charts.map((c) => (c.library !== undefined ? mapIndexOf(c.library) : undefined));
-    const mine = new Map(charts.map((c) => [c.mapIdx, c]));
+    const mine = new Map(charts.map((c) => [chartKey(c.map), c]));
+    const snapMaps = store.snap!.maps;
     const shown = new Set<number>();
     for (const g of plan) for (const p of g.picks.slice(0, this.more.has(g.skill.skillset) ? MORE_SUGGESTIONS : SUGGESTIONS)) shown.add(p.mapIdx);
     const exclude = new Set<number>();
@@ -503,7 +504,7 @@ export class SkillsView {
     const picks = new Map<MsdSkill, Suggestion[]>();
     for (const g of plan) {
       const k = SKILLSETS.indexOf(g.skill.skillset);
-      const bestOf = (j: number) => (lib[j] !== undefined ? mine.get(lib[j]!) : undefined);
+      const bestOf = (j: number) => (lib[j] !== undefined ? mine.get(chartKey(snapMaps[lib[j]!])) : undefined);
       const list = suggest(k, g.aim, charts, them.maps, keys, msdOf, { played: playedThem, exclude, limit: THEIR_PICKS, bestOf });
       list.forEach((s) => exclude.add(s.mapIdx));
       picks.set(g.skill.skillset, list);

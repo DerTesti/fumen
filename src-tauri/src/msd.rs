@@ -124,6 +124,27 @@ fn rows(chart: &Chart) -> Vec<NoteInfo> {
     out
 }
 
+/// What a chart's notes are, whatever its speed: the key count and the notes row by row (which
+/// columns start at each moment), as 16 hex digits of FNV-1a. Rate edits ("1.1x", "1.05x" …) and
+/// the same chart uploaded twice come out the same, so the skills count them as one chart.
+pub fn notes_key(chart: &Chart) -> Option<String> {
+    if chart.mode != 3 || chart.keys == 0 || chart.objects.is_empty() {
+        return None;
+    }
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut put = |v: u32| {
+        for b in v.to_le_bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+    };
+    put(chart.keys as u32);
+    for r in rows(chart) {
+        put(r.notes);
+    }
+    Some(format!("{h:016x}"))
+}
+
 /// The rows of a chart MinaCalc can rate: osu!mania, 4K to 7K, two rows or more.
 fn rateable(chart: &Chart) -> Option<Vec<NoteInfo>> {
     if chart.mode != 3 || !(4..=7).contains(&chart.keys) {
@@ -204,6 +225,19 @@ mod tests {
     #[test]
     fn version_is_527() {
         assert_eq!(version(), 527);
+    }
+
+    #[test]
+    fn rate_edits_share_their_notes_key() {
+        let notes: Vec<(i32, u8)> = (0..200).map(|i| (1000 + i * 120, ((i * 7) % 4) as u8)).collect();
+        let base = chart(4, &notes);
+        // the same at 1.1×: every time over 1.1, rounded to the ms
+        let fast = chart(4, &notes.iter().map(|&(t, l)| ((t as f64 / 1.1).round() as i32, l)).collect::<Vec<_>>());
+        assert_eq!(notes_key(&base), notes_key(&fast));
+        let mut other = notes.clone();
+        other[50].1 = (other[50].1 + 1) % 4;
+        assert_ne!(notes_key(&base), notes_key(&chart(4, &other)));
+        assert_ne!(notes_key(&base), notes_key(&chart(5, &notes)));
     }
 
     #[test]

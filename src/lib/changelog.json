@@ -5,13 +5,13 @@
     "en": [
       "New: Storyboards in the visualizer. A map's storyboard plays in place of the cover, with its background and video under it. You can turn it off in the visualizer's settings.",
       "New: Your HRV for every try, with a heart rate monitor that sends the spacing of your beats (chest straps like Moofit's do). The pulse graph gets a second curve and marks where your nerves kicked in: your pulse climbing while your HRV drops.",
-      "Changed: The Skills page is back, with Etterna's skillsets. Every osu!mania pass is rated with MinaCalc for the accuracy you got, and your skills, overall, goals and practice suggestions go by those numbers. Skill goals from before don't carry over.",
+      "Changed: The Skills page is back, with Etterna's skillsets. Every osu!mania pass is rated with MinaCalc for the accuracy you got, and your skills, overall, goals and practice suggestions go by those numbers. Skill goals from before don't carry over. Rate edits of a map count as that map, so playing one song at several speeds doesn't add up.",
       "New: After an osu!mania pass, its score page shows which skills went up and by how much. The Skills page updates right after a pass, and every skillset and overall can show its graph over time."
     ],
     "de": [
       "Neu: Storyboards im Visualizer. Das Storyboard einer Map läuft statt des Covers, mit Hintergrund und Video darunter. Abschalten geht in den Einstellungen des Visualizers.",
       "Neu: Deine HRV bei jedem Versuch, wenn dein Pulsmesser den Abstand deiner Herzschläge sendet (Brustgurte wie die von Moofit tun das). Die Pulskurve bekommt eine zweite Linie und zeigt, wo deine Nerven eingesetzt haben: Der Puls steigt, während die HRV fällt.",
-      "Geändert: Die Skills-Seite ist zurück, mit den Skillsets aus Etterna. Jeder osu!mania-Pass wird mit MinaCalc für deine Accuracy bewertet, und deine Skills, Overall, Ziele und Übungsvorschläge richten sich danach. Alte Skill-Ziele werden nicht übernommen.",
+      "Geändert: Die Skills-Seite ist zurück, mit den Skillsets aus Etterna. Jeder osu!mania-Pass wird mit MinaCalc für deine Accuracy bewertet, und deine Skills, Overall, Ziele und Übungsvorschläge richten sich danach. Alte Skill-Ziele werden nicht übernommen. Rate-Edits einer Map zählen als diese Map, dasselbe Lied in mehreren Tempos summiert sich also nicht.",
       "Neu: Nach einem osu!mania-Pass zeigt die Score-Seite, welche Skills gestiegen sind und um wie viel. Die Skills-Seite aktualisiert sich direkt nach einem Pass, und jedes Skillset und Overall kann seinen Verlauf als Graph zeigen."
     ]
   },

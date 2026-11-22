@@ -6,9 +6,11 @@
  * handstream, stamina, jackspeed, chordjack and technical. A skillset's skill is Etterna's own
  * blend of all your plays' SSRs in it (`aggregate`): your best count the most, and it takes a fair
  * number of good plays to get to your level, so one lucky play doesn't make it. Overall blends the
- * seven the same way. Each chart counts once per rate (its best play there), only passes on
- * osu!mania charts in your library, 4K to 7K, one key mode at a time, and not with mods that change
- * what you play (Hold Off, Invert, Random, …).
+ * seven the same way. Each chart counts once, with its best play at any rate, as in Etterna: rate
+ * edits ("1.1x", "1.05x" …) and the same chart uploaded twice are one chart (their notes key, see
+ * msd.rs), so farming one song at several speeds doesn't add up. Only passes on osu!mania charts in
+ * your library, 4K to 7K, one key mode at a time, and not with mods that change what you play
+ * (Hold Off, Invert, Random, …).
  *
  * Practice suggestions aim a little above your best plays in a skillset: charts in the library
  * that are mostly about it and whose MSD there lands in that band, at 1× or at a rate.
@@ -112,8 +114,11 @@ function counting(play: Play, mapIndex: (id: string | undefined) => number | und
   return map.mode === 3 && keysOf(map) === keys ? mapIdx : undefined;
 }
 
-/** Each chart's best counting play at each rate in one key mode (as Etterna keeps a best per
- * rate), best first. */
+/** What makes two difficulties one chart: the same notes at any speed (rate edits), else itself. */
+export const chartKey = (map: MapRow): string => map.notesKey ?? map.id;
+
+/** Each chart's best counting play in one key mode, at any rate (rate edits and copies are one
+ * chart), best first. */
 export function bestPerChart(
   plays: Play[],
   mapIndex: (id: string | undefined) => number | undefined,
@@ -127,7 +132,7 @@ export function bestPerChart(
     const mapIdx = counting(play, mapIndex, maps, keys);
     if (mapIdx === undefined) continue;
     const map = maps[mapIdx];
-    const key = `${mapIdx}@${rateOf(play).toFixed(2)}`;
+    const key = chartKey(map);
     const had = best.get(key);
     if (!had || play.ssr[0] > had.ssr[0]) best.set(key, { play, map, mapIdx, ssr: play.ssr, wife: play.wife });
   }
@@ -201,7 +206,7 @@ export function skillHistory(plays: Play[], mapIndex: (id: string | undefined) =
   const list: { play: Play; ssr: number[]; key: string }[] = [];
   for (const play of plays) {
     const mapIdx = counting(play, mapIndex, maps, keys);
-    if (mapIdx !== undefined && play.ssr) list.push({ play, ssr: play.ssr, key: `${mapIdx}@${rateOf(play).toFixed(2)}` });
+    if (mapIdx !== undefined && play.ssr) list.push({ play, ssr: play.ssr, key: chartKey(maps[mapIdx]) });
   }
   list.sort((a, b) => a.play.date - b.play.date);
   const best = new Map<string, number[]>();
@@ -363,15 +368,15 @@ function poolOf(maps: MapRow[], keys: number): number[] {
   return pool;
 }
 
-/** Skillset k's skill once a chart is passed at a rate at Etterna's reference accuracy (its MSD
- * there), replacing that chart's best at that rate. */
-function skillWith(charts: Counted[], k: number, mapIdx: number, rate: number, msd: number): number {
+/** Skillset k's skill once a chart is passed at Etterna's reference accuracy (worth its MSD
+ * there), in place of that chart's best so far if it's better. */
+function skillWith(charts: Counted[], k: number, key: string, msd: number): number {
   const values: number[] = [];
   let had = 0;
   for (const c of charts) {
     const v = ssrOf(c, k);
     if (v <= 0) continue;
-    if (c.mapIdx === mapIdx && Math.abs(rateOf(c.play) - rate) < 0.005) had = v;
+    if (chartKey(c.map) === key) had = v;
     else values.push(v);
   }
   values.push(Math.max(msd, had));
@@ -397,9 +402,8 @@ export function suggest(
     bestOf?: (mapIdx: number) => Counted | undefined;
   } = {},
 ): Suggestion[] {
-  const byIdx = new Map<number, Counted>();
-  for (const c of charts) if (!byIdx.has(c.mapIdx) || ssrOf(c, k) > ssrOf(byIdx.get(c.mapIdx)!, k)) byIdx.set(c.mapIdx, c);
-  const bestOf = opts.bestOf ?? ((i: number) => byIdx.get(i));
+  const byKey = new Map(charts.map((c) => [chartKey(c.map), c]));
+  const bestOf = (i: number) => byKey.get(chartKey(maps[i])) ?? opts.bestOf?.(i);
   const perSet = new Map<number, { pick: Omit<Suggestion, "after">; score: number }>();
   for (const mapIdx of poolOf(maps, keys)) {
     if (opts.exclude?.has(mapIdx)) continue;
@@ -421,7 +425,7 @@ export function suggest(
   return [...perSet.values()]
     .sort((a, b) => b.score - a.score)
     .slice(0, opts.limit ?? SUGGESTIONS)
-    .map(({ pick }) => ({ ...pick, after: skillWith(charts, k, pick.mapIdx, pick.rate, pick.msd) }));
+    .map(({ pick }) => ({ ...pick, after: skillWith(charts, k, chartKey(pick.map), pick.msd) }));
 }
 
 /** Practice for every skillset the library has charts for, weakest first (those without plays

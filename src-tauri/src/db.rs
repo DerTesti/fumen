@@ -392,7 +392,7 @@ fn ensure_chart_columns(conn: &Connection) -> Result<()> {
         return Ok(());
     }
     // Etterna's MSD at 1× (msd.rs) and the skillset it asks most of; at 0.7× to 2.0× (1.5)
-    for (name, kind) in [("msd", "REAL"), ("msd_skill", "TEXT"), ("msd_rates", "TEXT")] {
+    for (name, kind) in [("msd", "REAL"), ("msd_skill", "TEXT"), ("msd_rates", "TEXT"), ("notes_key", "TEXT")] {
         if !cols.iter().any(|c| c == name) {
             conn.execute_batch(&format!("ALTER TABLE chart_stats ADD COLUMN {name} {kind}"))?;
         }

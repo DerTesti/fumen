@@ -80,6 +80,8 @@ export interface MapRow {
   msd?: number;
   /** the skillset that MSD comes from most ("jackspeed", "technical" …) */
   msdSkill?: MsdSkill;
+  /** osu!mania: the notes whatever the speed, the same for rate edits and copies (msd.rs) */
+  notesKey?: string;
   /** osu!mania: each pattern's share of the chart in percent, in lib/skills' PATTERNS order
    * (stream, jumpstream, handstream, chordjack, jacks, ln) */
   shares?: number[];

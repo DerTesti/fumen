@@ -38,11 +38,19 @@ describe("aggregate", () => {
 });
 
 describe("skills", () => {
-  const maps = [map("a"), map("b"), map("c"), map("seven", { cs: 7 }), map("taiko", { mode: 1 })];
+  const maps = [
+    map("a", { notesKey: "k-a" }),
+    map("b"),
+    map("c"),
+    map("seven", { cs: 7 }),
+    map("taiko", { mode: 1 }),
+    // a rate edit of a: the same notes, faster
+    map("a-1.1x", { notesKey: "k-a" }),
+  ];
   const ids = new Map(maps.map((m, i) => [m.id, i]));
   const index = (id: string | undefined) => (id === undefined ? undefined : ids.get(id));
 
-  it("counts each chart's best pass per rate in the key mode, without mods that change it", () => {
+  it("counts each chart's best pass at any rate in the key mode, without mods that change it", () => {
     const plays = [
       play("a", 20),
       play("a", 22),
@@ -57,11 +65,20 @@ describe("skills", () => {
     const charts = bestPerChart(plays, index, maps, 4);
     expect(charts.map((c) => [c.map.id, c.ssr[0]])).toEqual([
       ["a", 25],
-      ["a", 22],
       ["b", 18],
     ]);
     // a point in time: only what was played by then
-    expect(bestPerChart(plays, index, maps, 4, 1_000).map((c) => c.map.id)).toEqual(["a", "a"]);
+    expect(bestPerChart(plays, index, maps, 4, 1_000).map((c) => c.map.id)).toEqual(["a"]);
+  });
+
+  it("takes rate edits of a chart as that chart", () => {
+    const plays = [play("a", 22), play("a-1.1x", 24), play("a-1.1x", 23), play("b", 18)];
+    const charts = bestPerChart(plays, index, maps, 4);
+    expect(charts.map((c) => [c.map.id, c.ssr[0]])).toEqual([
+      ["a-1.1x", 24],
+      ["b", 18],
+    ]);
+    expect(skills(charts).skills[0].plays).toBe(2);
   });
 
   it("blends each skillset's SSRs and the seven into overall", () => {

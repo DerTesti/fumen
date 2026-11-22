@@ -339,6 +339,8 @@ pub struct Summary {
     msd_skill: Option<&'static str>,
     /// the MSD at 0.7× … 2.0×, a tenth apart: 14 × [overall, the seven skillsets], as JSON
     msd_rates: Option<String>,
+    /// osu!mania: the notes whatever the speed (msd.rs), the same for rate edits
+    notes_key: Option<String>,
 }
 
 fn summarize(hash: &str, chart: &Chart) -> Summary {
@@ -367,6 +369,7 @@ fn summarize(hash: &str, chart: &Chart) -> Summary {
         msd: msd.map(|m| m.overall),
         msd_skill: msd.map(|m| m.top_skill()),
         msd_rates: all.map(|a| serde_json::to_string(&a.iter().map(|m| m.to_array()).collect::<Vec<_>>()).unwrap_or_default()),
+        notes_key: crate::msd::notes_key(chart),
     }
 }
 
@@ -402,8 +405,8 @@ pub fn store(conn: &mut Connection, rows: &[Summary]) -> Result<()> {
     {
         let mut st = tx.prepare(
             "INSERT OR REPLACE INTO chart_stats
-               (hash, version, nps_avg, nps_peak, ln_time, jack_ratio, longest_burst, tags, patterns, sr_ht, sr_dt, dan, dan_value, category, sr, msd, msd_skill, msd_rates)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+               (hash, version, nps_avg, nps_peak, ln_time, jack_ratio, longest_burst, tags, patterns, sr_ht, sr_dt, dan, dan_value, category, sr, msd, msd_skill, msd_rates, notes_key)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         )?;
         for r in rows {
             st.execute(params![
@@ -424,7 +427,8 @@ pub fn store(conn: &mut Connection, rows: &[Summary]) -> Result<()> {
                 r.sr,
                 r.msd,
                 r.msd_skill,
-                r.msd_rates
+                r.msd_rates,
+                r.notes_key
             ])?;
         }
     }

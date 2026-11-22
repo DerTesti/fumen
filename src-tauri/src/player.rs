@@ -228,6 +228,9 @@ struct ChartOut {
     /// Etterna's MSD at 0.7× … 2.0×, a tenth apart: [overall, the seven skillsets] each (msd.rs)
     #[serde(skip_serializing_if = "Option::is_none")]
     msd_rates: Option<Vec<[f32; 8]>>,
+    /// the notes whatever the speed (msd.rs), the same for rate edits
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notes_key: Option<String>,
     version: String,
     title: String,
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -406,6 +409,7 @@ fn analyse(beatmap: i64, text: &str, api: Option<&ApiBeatmap>, rates: &[u32], li
         sr_dt: rated(1.5),
         shares,
         msd_rates: crate::msd::all_rates(&chart).map(|a| a.iter().map(|m| m.to_array()).collect()),
+        notes_key: crate::msd::notes_key(&chart),
         version: pick(api.map(|b| &b.version), "Version"),
         title: pick(api.map(|b| &b.title), "Title"),
         title_unicode: pick(api.map(|b| &b.title_unicode), "TitleUnicode"),

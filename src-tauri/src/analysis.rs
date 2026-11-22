@@ -14,7 +14,8 @@ use crate::chart::{Chart, Kind};
 /// 3: the dan rating and pattern category (ManiaMapAnalyser port, `mma`) too.
 /// 4: Etterna's MSD (`msd`) too.
 /// 5: the MSD at 0.7× to 2.0× too (the Skills page's practice).
-pub const VERSION: i64 = 5;
+/// 6: the notes key (msd.rs), so rate edits count as one chart for the skills.
+pub const VERSION: i64 = 6;
 
 const WINDOW: i32 = 1000;
 /// rows per window below which a window counts as light
