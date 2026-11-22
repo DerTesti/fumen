@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
 
-use crate::downloads::USER_AGENT;
+use crate::downloads::{self, USER_AGENT};
 use crate::error::{Error, Result};
 
 /// sets asked for per page
@@ -168,8 +168,16 @@ enum Asked {
     Failed(String),
 }
 
-fn ask(req: ureq::RequestBuilder<ureq::typestate::WithoutBody>) -> Asked {
+/// Asks `mirror` within its budget (shared with the downloads); a "too many requests" rests it.
+fn ask(mirror: &'static str, req: ureq::RequestBuilder<ureq::typestate::WithoutBody>) -> Asked {
+    if !downloads::book(mirror, downloads::REQUEST, Duration::from_secs(5)) {
+        return Asked::Failed("resting after too many requests".into());
+    }
     match req.call() {
+        Ok(res) if res.status() == 429 => {
+            downloads::rest(mirror, downloads::retry_after(&res));
+            Asked::Failed("HTTP 429".into())
+        }
         Ok(mut res) if res.status() == 200 => {
             let body = res.body_mut().with_config().limit(64 * 1024 * 1024).read_to_string();
             match body.map_err(|e| e.to_string()).and_then(|t| serde_json::from_str::<Value>(&t).map_err(|e| e.to_string())) {
@@ -203,7 +211,7 @@ pub fn search(ep: &Endpoints, q: &Query) -> Result<Page> {
     if let Some(s) = direct_sort(q) {
         req = req.query("sort", s);
     }
-    let direct = match ask(req) {
+    let direct = match ask("osu.direct", req) {
         Asked::Sets(sets) => return Ok(page(sets, q, "osu.direct", false)),
         Asked::Failed(why) => why,
     };
@@ -215,7 +223,7 @@ pub fn search(ep: &Endpoints, q: &Query) -> Result<Page> {
     if let [s] = q.status.as_slice() {
         req = req.query("status", s.to_string());
     }
-    match ask(req) {
+    match ask("catboy.best", req) {
         Asked::Sets(sets) => Ok(page(sets, q, "catboy.best", true)),
         Asked::Failed(why) => Err(Error::known("search-failed", format!("The mirrors couldn't search right now (osu.direct {direct}, catboy.best {why})"))),
     }
