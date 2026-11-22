@@ -111,18 +111,17 @@ function showBlock(b: FumenBlock): void {
     document.addEventListener("keydown", swallowKeys, true);
   }
   page.innerHTML = `
-    <div class="fumen-block-flash"></div>
     <div class="fumen-block-panel" role="alertdialog" aria-modal="true" aria-labelledby="fumen-block-title">
-      <div class="fumen-block-hero" aria-hidden="true">
-        <div class="fumen-block-band"><div class="fumen-block-stripes"></div><div class="fumen-block-shine"></div></div>
-        <div class="fumen-block-word">${t("Blocked")}</div>
+      <div class="fumen-block-badge" aria-hidden="true">
+        <svg viewBox="0 0 48 48"><circle class="ring" cx="24" cy="24" r="17" pathLength="1"/><path class="slash" d="M12 12 36 36" pathLength="1"/></svg>
       </div>
+      <div class="fumen-block-eyebrow">${t("Blocked")}</div>
       <div class="fumen-block-title" id="fumen-block-title">${t("Fumen is blocked on this computer")}</div>
       <p class="fumen-block-msg"></p>
       <p class="fumen-block-note">${t("Your files stay as they are. Fumen hasn't changed or deleted anything.")}</p>
       <div class="fumen-block-actions">
         <button class="btn btn-ghost" type="button" data-act="privacy">${t("Privacy")}</button>
-        <button class="btn btn-primary" type="button" data-act="ask">${t("Ask again")}</button>
+        <button class="btn btn-danger" type="button" data-act="ask">${t("Ask again")}</button>
       </div>
       <p class="fumen-block-small">${store.settings?.online ? t("Asks fumen.dertesti.dev whether the block was lifted.") : t("Asks fumen.dertesti.dev whether the block was lifted, with Fumen's random number only.")}</p>
     </div>`;
