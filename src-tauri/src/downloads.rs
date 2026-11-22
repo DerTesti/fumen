@@ -19,18 +19,22 @@ pub const USER_AGENT: &str = concat!("Fumen/", env!("CARGO_PKG_VERSION"), " (osu
 
 pub struct Mirror {
     pub name: &'static str,
+    /// Only for sets the others don't have, or while they all rest: slow, but it has sets
+    /// nobody else keeps.
+    pub last_resort: bool,
     /// the download URL for a set, without video where the mirror has that
     url: fn(u32) -> String,
 }
 
 /// The mirrors, best first: when all of them are equally busy, the first ones get the next set.
 pub const MIRRORS: [Mirror; 6] = [
-    Mirror { name: "osu.direct", url: |id| format!("https://osu.direct/api/d/{id}") },
-    Mirror { name: "nekoha.moe", url: |id| format!("https://mirror.nekoha.moe/api4/download/{id}") },
-    Mirror { name: "catboy.best", url: |id| format!("https://catboy.best/d/{id}n") },
-    Mirror { name: "beatconnect.io", url: |id| format!("https://beatconnect.io/b/{id}/") },
-    Mirror { name: "sayobot.cn", url: |id| format!("https://dl.sayobot.cn/beatmaps/download/novideo/{id}") },
-    Mirror { name: "nerinyan.moe", url: |id| format!("https://api.nerinyan.moe/d/{id}?nv=1") },
+    Mirror { name: "osu.direct", last_resort: false, url: |id| format!("https://osu.direct/api/d/{id}") },
+    Mirror { name: "nekoha.moe", last_resort: false, url: |id| format!("https://mirror.nekoha.moe/api4/download/{id}") },
+    Mirror { name: "catboy.best", last_resort: false, url: |id| format!("https://catboy.best/d/{id}n") },
+    Mirror { name: "beatconnect.io", last_resort: false, url: |id| format!("https://beatconnect.io/b/{id}/") },
+    Mirror { name: "nerinyan.moe", last_resort: false, url: |id| format!("https://api.nerinyan.moe/d/{id}?nv=1") },
+    // under 1 MB/s where the others manage 4 to 20
+    Mirror { name: "sayobot.cn", last_resort: true, url: |id| format!("https://dl.sayobot.cn/beatmaps/download/novideo/{id}") },
 ];
 
 /// Beatmap lookups (beatmap ID → set) that answer osu!-API-style JSON with `beatmapset_id`.
@@ -105,13 +109,16 @@ enum Tried {
 
 impl Mirrors {
     /// The mirror for the next try: of those not resting and not too busy that may still have the
-    /// set, the least busy one, then the one that's had fewest sets, then the best.
+    /// set, the least busy one, then the one that's had fewest sets, then the best. Last resort
+    /// mirrors only when every other one that may have the set rests (busy ones are free soon).
     fn pick(&self, tried: &[Tried]) -> Option<usize> {
         let now = Instant::now();
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let resting = |m: &MirrorState| m.rest_until.is_some_and(|t| t > now);
+        let others_left = (0..MIRRORS.len()).any(|i| !MIRRORS[i].last_resort && may_have(tried[i]) && !resting(&state[i]));
         let best = (0..MIRRORS.len())
-            .filter(|&i| matches!(tried[i], Tried::No) || matches!(tried[i], Tried::Failed(n) if n < TRIES))
-            .filter(|&i| state[i].rest_until.map_or(true, |t| t <= now) && state[i].active < PER_MIRROR)
+            .filter(|&i| may_have(tried[i]) && !(MIRRORS[i].last_resort && others_left))
+            .filter(|&i| !resting(&state[i]) && state[i].active < PER_MIRROR)
             .min_by_key(|&i| (matches!(tried[i], Tried::Failed(_)), state[i].active, state[i].started, i))?;
         state[best].active += 1;
         state[best].started += 1;
@@ -155,7 +162,7 @@ impl Mirrors {
         let now = Instant::now();
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         (0..MIRRORS.len())
-            .filter(|&i| matches!(tried[i], Tried::No) || matches!(tried[i], Tried::Failed(n) if n < TRIES))
+            .filter(|&i| may_have(tried[i]))
             .map(|i| match state[i].rest_until {
                 Some(t) if t > now => t,
                 // busy with other sets: soon
@@ -163,6 +170,11 @@ impl Mirrors {
             })
             .min()
     }
+}
+
+/// Whether a mirror may still deliver a set after these tries.
+fn may_have(tried: Tried) -> bool {
+    matches!(tried, Tried::No) || matches!(tried, Tried::Failed(n) if n < TRIES)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -496,6 +508,31 @@ mod tests {
         let mut failed = [Tried::Missing; MIRRORS.len()];
         failed[0] = Tried::Failed(TRIES);
         assert_eq!(m.next_free(&failed), None);
+    }
+
+    #[test]
+    fn slow_mirrors_only_as_last_resort() {
+        let slow = MIRRORS.iter().position(|m| m.last_resort).unwrap();
+        let m = Mirrors::default();
+        let fresh = [Tried::No; MIRRORS.len()];
+        // the others all busy: the set waits for them
+        let mut seen = Vec::new();
+        while let Some(i) = m.pick(&fresh) {
+            seen.push(i);
+        }
+        assert!(!seen.is_empty() && !seen.contains(&slow), "{seen:?}");
+        // the others don't have the set: the slow one gets it
+        let mut only_slow = [Tried::Missing; MIRRORS.len()];
+        only_slow[slow] = Tried::No;
+        assert_eq!(m.pick(&only_slow), Some(slow));
+        // the others all rest: the slow one too
+        let m = Mirrors::default();
+        for (i, s) in m.state.lock().unwrap().iter_mut().enumerate() {
+            if i != slow {
+                s.rest_until = Some(Instant::now() + Duration::from_secs(60));
+            }
+        }
+        assert_eq!(m.pick(&fresh), Some(slow));
     }
 
     #[test]
