@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 cc = "1"
 
 [dependencies]
+sha2 = "0.10"
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
@@ -53,7 +54,6 @@ webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
 tauri = { version = "2", features = ["devtools"] }
 
 [dev-dependencies]
-sha2 = "0.10"
 flate2 = "1"
 
 # Image decoding, SQLite and JSON parsing are painfully slow unoptimised; keep dev builds usable.
