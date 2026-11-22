@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.4.3",
+    "date": "2026-11-22",
+    "en": [
+      "Changed: Fumen downloads at most 5000 sets a day from each mirror, so the mirrors stay free for everyone. A big import stops there and the rest can go the next day."
+    ],
+    "de": [
+      "Geändert: Fumen lädt höchstens 5000 Sets am Tag von jedem Mirror, damit die Mirrors für alle frei bleiben. Ein großer Import hält dort an, und der Rest geht am nächsten Tag."
+    ]
+  },
+  {
     "version": "1.4.2",
     "date": "2026-11-22",
     "en": [

@@ -2052,6 +2052,13 @@ fn run_import(app: &AppHandle, state: &AppState, links: &[String], into_stable: 
                     emit(i, "skipped", Some(set), None, Some("Cancelled".into()));
                     summary.cancelled += 1;
                 }
+                // the mirrors' downloads for the day are used up: the rest waits for another day
+                Ok((i, set, Err(e))) if e.code() == "daily-limit" => {
+                    emit(i, "error", Some(set), None, Some(e.to_string()));
+                    summary.failed += 1;
+                    summary.stopped = Some(e.to_string());
+                    cancel.store(true, Ordering::SeqCst);
+                }
                 Ok((i, set, Err(e))) => {
                     emit(i, "error", Some(set), None, Some(e.to_string()));
                     summary.failed += 1;
@@ -2279,6 +2286,7 @@ pub fn run() {
             let settings_path = config_dir.join("settings.json");
             let settings = Settings::load(&settings_path);
             let conn = db::open(&data_dir.join("library.db"))?;
+            downloads::keep_counts_in(data_dir.join("mirror-downloads.json"));
 
             let state = AppState {
                 db: Mutex::new(conn),
