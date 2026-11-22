@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.4.3",
+    "date": "2026-11-22",
+    "en": [
+      "Changed: When a download mirror has trouble, Fumen's website can now tell every Fumen to go easy on it or leave it out for a while, without an update."
+    ],
+    "de": [
+      "Geändert: Wenn ein Download-Mirror Probleme hat, kann Fumens Website jetzt jedem Fumen sagen, ihn zu schonen oder eine Weile auszulassen, ohne Update."
+    ]
+  },
+  {
     "version": "1.4.2",
     "date": "2026-11-22",
     "en": [
