@@ -20,6 +20,16 @@
     ]
   },
   {
+    "version": "1.4.2",
+    "date": "2026-11-22",
+    "en": [
+      "Fix: Downloads are much faster. One very slow mirror held them up, and now it only gets the sets the other mirrors don't have."
+    ],
+    "de": [
+      "Fix: Downloads sind deutlich schneller. Ein sehr langsamer Mirror hat sie ausgebremst, jetzt bekommt er nur noch Maps, die die anderen Mirrors nicht haben."
+    ]
+  },
+  {
     "version": "1.4.1",
     "date": "2026-11-21",
     "en": [
