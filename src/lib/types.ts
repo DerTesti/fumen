@@ -82,6 +82,8 @@ export interface MapRow {
   msdSkill?: MsdSkill;
   /** osu!mania: the notes whatever the speed, the same for rate edits and copies (msd.rs) */
   notesKey?: string;
+  /** osu!mania: what vibro.rs finds at 1×: 1 adjusted, 2 vibro, 3 unrateable; unset when clean */
+  vibro?: number;
   /** osu!mania: each pattern's share of the chart in percent, in lib/skills' PATTERNS order
    * (stream, jumpstream, handstream, chordjack, jacks, ln) */
   shares?: number[];
@@ -727,6 +729,9 @@ export interface Play {
   /** osu!mania passes: what the play is worth in Etterna's eyes (its SSR): overall, then stream,
    * jumpstream, handstream, stamina, jackspeed, chordjack, technical */
   ssr?: number[];
+  /** osu!mania passes: parts past a human hand at the rate played (src-tauri/src/vibro.rs):
+   * "adjusted" (cut out before rating), "vibro" or "unrateable" (the pass doesn't count) */
+  vibro?: "adjusted" | "vibro" | "unrateable";
 }
 
 /** A difficulty that isn't in the library, as osu! described it. */

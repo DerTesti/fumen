@@ -735,6 +735,10 @@ pub struct Play {
     /// jumpstream, handstream, stamina, jackspeed, chordjack, technical; msd.rs)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ssr: Option<[f32; 8]>,
+    /// osu!mania: parts past a human hand at the rate played (vibro.rs): "adjusted" (cut out
+    /// before rating), "vibro" or "unrateable" (the play doesn't count for the skills)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vibro: Option<&'static str>,
     /// the difficulty's md5 (the library snapshot's best scores go by it)
     #[serde(skip)]
     md5: Option<String>,
@@ -971,6 +975,7 @@ fn live_plays(conn: &Connection, player: &Player, lib: &Library, plays: &mut Vec
             sr: None,
             wife: None,
             ssr: None,
+            vibro: None,
             md5: Some(md5),
         });
     }
@@ -1031,6 +1036,7 @@ fn merge(conn: &Connection) -> Result<Merged> {
             sr: None,
             wife: None,
             ssr: None,
+            vibro: None,
             md5,
         });
     }
@@ -1101,6 +1107,7 @@ fn merge(conn: &Connection) -> Result<Merged> {
                 sr: None,
                 wife: None,
                 ssr: None,
+                vibro: None,
                 md5,
             });
         }
@@ -1153,8 +1160,9 @@ fn rate_missing(conn: &Connection, files: &crate::paths::Files, lib: &Library, p
     Ok(())
 }
 
-/// Bump when Wife% or SSRs come out differently: MinaCalc's version, then the Wife% estimate's.
-const SSR_VERSION: i64 = 527_01;
+/// Bump when Wife% or SSRs come out differently: MinaCalc's version, then the Wife% estimate's
+/// (vibro.rs has its own version, added in).
+const SSR_VERSION: i64 = 527_02 * 100_000 + crate::vibro::VERSION;
 
 /// Mods that change what's played beyond the rate: such plays get no SSR.
 const CHANGES_CHART: [&str; 16] = ["HO", "IN", "NR", "RD", "CS", "DS", "AT", "CN", "1K", "2K", "3K", "4K", "5K", "6K", "7K", "8K"];
@@ -1173,8 +1181,9 @@ fn ssr_key(lib: &Library, p: &Play) -> Option<(String, u32, u32)> {
 }
 
 /// The SSRs of charts at rates and Wife%s, worked out with MinaCalc a chart at a time on a few
-/// threads. Charts that can't be read are left out (and asked for again next time).
-pub fn work_out_ssrs(files: &crate::paths::Files, wanted: HashMap<String, Vec<(u32, u32)>>) -> Vec<((String, u32, u32), Option<[f32; 8]>)> {
+/// threads, with what vibro.rs found at each rate (`Verdict::code`). Charts that can't be read
+/// are left out (and asked for again next time).
+pub fn work_out_ssrs(files: &crate::paths::Files, wanted: HashMap<String, Vec<(u32, u32)>>) -> Vec<((String, u32, u32), Option<[f32; 8]>, u8)> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let jobs: Vec<(String, Vec<(u32, u32)>)> = wanted.into_iter().collect();
     let next = AtomicUsize::new(0);
@@ -1187,9 +1196,14 @@ pub fn work_out_ssrs(files: &crate::paths::Files, wanted: HashMap<String, Vec<(u
                 let Some((hash, asks)) = jobs.get(i) else { break };
                 let one = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let chart = crate::charts::load(files, hash).ok()?;
+                    let mut verdicts: HashMap<u32, crate::vibro::Verdict> = HashMap::new();
                     Some(
                         asks.iter()
-                            .map(|&(rate, wife)| ((hash.clone(), rate, wife), crate::msd::ssr(&chart, rate as f64 / 100.0, wife as f64 / 10_000.0).map(|m| m.to_array())))
+                            .map(|&(rate, wife)| {
+                                let r = rate as f64 / 100.0;
+                                let verdict = verdicts.entry(rate).or_insert_with(|| crate::vibro::check(&chart, r));
+                                ((hash.clone(), rate, wife), crate::vibro::ssr(&chart, r, wife as f64 / 10_000.0, verdict), verdict.code())
+                            })
                             .collect::<Vec<_>>(),
                     )
                 }));
@@ -1206,11 +1220,13 @@ pub fn work_out_ssrs(files: &crate::paths::Files, wanted: HashMap<String, Vec<(u
 /// before, the rest worked out now and kept.
 fn ssr_missing(conn: &Connection, files: &crate::paths::Files, lib: &Library, plays: &mut [Play]) -> Result<()> {
     let keys: Vec<Option<(String, u32, u32)>> = plays.iter().map(|p| ssr_key(lib, p)).collect();
-    let mut st = conn.prepare("SELECT hash, rate, wife, ssr FROM play_ssr WHERE version = ?1")?;
-    let mut known: HashMap<(String, u32, u32), Option<[f32; 8]>> = st
-        .query_map([SSR_VERSION], |r| Ok(((r.get::<_, String>(0)?, r.get::<_, u32>(1)?, r.get::<_, u32>(2)?), r.get::<_, Option<String>>(3)?)))?
+    let mut st = conn.prepare("SELECT hash, rate, wife, ssr, vibro FROM play_ssr WHERE version = ?1")?;
+    let mut known: HashMap<(String, u32, u32), (Option<[f32; 8]>, u8)> = st
+        .query_map([SSR_VERSION], |r| {
+            Ok(((r.get::<_, String>(0)?, r.get::<_, u32>(1)?, r.get::<_, u32>(2)?), r.get::<_, Option<String>>(3)?, r.get::<_, Option<u8>>(4)?))
+        })?
         .filter_map(|r| r.ok())
-        .map(|(k, s)| (k, s.and_then(|s| serde_json::from_str(&s).ok())))
+        .map(|(k, s, v)| (k, (s.and_then(|s| serde_json::from_str(&s).ok()), v.unwrap_or(0))))
         .collect();
     let mut wanted: HashMap<String, Vec<(u32, u32)>> = HashMap::new();
     for k in keys.iter().flatten() {
@@ -1223,16 +1239,18 @@ fn ssr_missing(conn: &Connection, files: &crate::paths::Files, lib: &Library, pl
     }
     if !wanted.is_empty() {
         let worked = work_out_ssrs(files, wanted);
-        let mut put = conn.prepare("INSERT OR REPLACE INTO play_ssr (hash, rate, wife, version, ssr) VALUES (?1, ?2, ?3, ?4, ?5)")?;
-        for (k, v) in worked {
-            put.execute(params![k.0, k.1, k.2, SSR_VERSION, v.map(|a| serde_json::to_string(&a).unwrap_or_default())])?;
-            known.insert(k, v);
+        let mut put = conn.prepare("INSERT OR REPLACE INTO play_ssr (hash, rate, wife, version, ssr, vibro) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
+        for (k, v, vibro) in worked {
+            put.execute(params![k.0, k.1, k.2, SSR_VERSION, v.map(|a| serde_json::to_string(&a).unwrap_or_default()), vibro])?;
+            known.insert(k, (v, vibro));
         }
     }
     for (p, k) in plays.iter_mut().zip(keys) {
         if let Some(k) = k {
             p.wife = Some(k.2 as f64 / 10_000.0);
-            p.ssr = known.get(&k).copied().flatten();
+            let (ssr, vibro) = known.get(&k).copied().unwrap_or((None, 0));
+            p.ssr = ssr;
+            p.vibro = crate::vibro::Verdict::label(vibro);
         }
     }
     Ok(())

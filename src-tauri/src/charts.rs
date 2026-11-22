@@ -341,6 +341,8 @@ pub struct Summary {
     msd_rates: Option<String>,
     /// osu!mania: the notes whatever the speed (msd.rs), the same for rate edits
     notes_key: Option<String>,
+    /// osu!mania 4K and up: what vibro.rs finds at 1× (`Verdict::code`)
+    vibro: Option<u8>,
 }
 
 fn summarize(hash: &str, chart: &Chart) -> Summary {
@@ -370,6 +372,7 @@ fn summarize(hash: &str, chart: &Chart) -> Summary {
         msd_skill: msd.map(|m| m.top_skill()),
         msd_rates: all.map(|a| serde_json::to_string(&a.iter().map(|m| m.to_array()).collect::<Vec<_>>()).unwrap_or_default()),
         notes_key: crate::msd::notes_key(chart),
+        vibro: (chart.mode == 3 && chart.keys >= 4).then(|| crate::vibro::check(chart, 1.0).code()),
     }
 }
 
@@ -405,8 +408,8 @@ pub fn store(conn: &mut Connection, rows: &[Summary]) -> Result<()> {
     {
         let mut st = tx.prepare(
             "INSERT OR REPLACE INTO chart_stats
-               (hash, version, nps_avg, nps_peak, ln_time, jack_ratio, longest_burst, tags, patterns, sr_ht, sr_dt, dan, dan_value, category, sr, msd, msd_skill, msd_rates, notes_key)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+               (hash, version, nps_avg, nps_peak, ln_time, jack_ratio, longest_burst, tags, patterns, sr_ht, sr_dt, dan, dan_value, category, sr, msd, msd_skill, msd_rates, notes_key, vibro)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
         )?;
         for r in rows {
             st.execute(params![
@@ -428,7 +431,8 @@ pub fn store(conn: &mut Connection, rows: &[Summary]) -> Result<()> {
                 r.msd,
                 r.msd_skill,
                 r.msd_rates,
-                r.notes_key
+                r.notes_key,
+                r.vibro
             ])?;
         }
     }

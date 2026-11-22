@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  aggregate, aimFor, bestPerChart, FEW_PLAYS, keyModes, looksOverrated, MORE_SUGGESTIONS, msdAt, OVERRATED, practice, rateFor, skillHistory, skills, SKILLSETS, suggest,
+  aggregate, aimFor, bestPerChart, FEW_PLAYS, foundVibro, keyModes, looksOverrated, MORE_SUGGESTIONS, msdAt, OVERRATED, practice, rateFor, skillHistory, skills, SKILLSETS, suggest,
   type MsdRows, type Skill,
 } from "./skills";
 import type { MapRow, MsdSkill, Play } from "./types";
@@ -104,6 +104,26 @@ describe("skills", () => {
     expect(left([])).toEqual(["a-1.1x", "a", "b", "c"]);
     const points = skillHistory(plays, index, maps, 4, new Set(["k-a"]));
     expect(points[points.length - 1].values[0]).toBeCloseTo(skills(bestPerChart(plays, index, maps, 4, { leftOut: new Set(["k-a"]) })).overall!);
+  });
+
+  it("leaves out passes on vibro, and lists the charts", () => {
+    const plays = [
+      play("a", 22, { vibro: "adjusted" }),
+      play("b", 30, { vibro: "vibro", date: 2_000 }),
+      play("b", 31, { vibro: "vibro", rate: 1.2, mods: ["DT"], date: 3_000 }),
+      play("c", 28, { vibro: "unrateable" }),
+      play("c", 18),
+    ];
+    // adjusted counts (its SSR is on what's left), vibro and unrateable don't
+    expect(bestPerChart(plays, index, maps, 4).map((c) => [c.map.id, c.ssr[0]])).toEqual([
+      ["a", 22],
+      ["c", 18],
+    ]);
+    expect(foundVibro(plays, index, maps, 4).map((f) => [f.map.id, f.kind, f.rates])).toEqual([
+      ["b", "vibro", [1, 1.2]],
+      ["c", "unrateable", [1]],
+    ]);
+    expect(foundVibro(plays, index, maps, 7)).toEqual([]);
   });
 
   it("marks plays worth far more than the skill once it has filled up", () => {
@@ -290,6 +310,9 @@ describe("practice", () => {
     expect(suggest(k, aim, [], pool, 4, () => undefined)).toEqual([]);
     // and those left out of the skills
     expect(suggest(k, aim, [], pool, 4, msdOf, { leftOut: new Set(["heavy", "heavy-hd"]) }).map((p) => p.map.id)).toEqual(["blurry", "slow"]);
+    // and vibro charts (a new library snapshot: the pool is kept per snapshot)
+    const vibroPool = pool.map((m) => (m.id === "blurry" ? { ...m, vibro: 2 } : m.id === "slow" ? { ...m, vibro: 1 } : m));
+    expect(suggest(k, aim, [], vibroPool, 4, msdOf).map((p) => p.map.id)).toEqual(["heavy", "slow"]);
   });
 
   it("works out the skill after a pass with the chart's best two rates", () => {

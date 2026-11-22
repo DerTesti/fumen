@@ -15,7 +15,8 @@ use crate::chart::{Chart, Kind};
 /// 4: Etterna's MSD (`msd`) too.
 /// 5: the MSD at 0.7× to 2.0× too (the Skills page's practice).
 /// 6: the notes key (msd.rs), so rate edits count as one chart for the skills.
-pub const VERSION: i64 = 6;
+/// 7: what vibro.rs finds at 1× (practice leaves vibro charts out).
+pub const VERSION: i64 = 7;
 
 const WINDOW: i32 = 1000;
 /// rows per window below which a window counts as light

@@ -42,6 +42,8 @@ export interface ComparedChart {
   msdRates?: number[][];
   /** the notes whatever the speed (rate edits share it) */
   notesKey?: string;
+  /** what vibro.rs finds at 1× (see MapRow) */
+  vibro?: number;
   version: string;
   title: string;
   titleUnicode?: string;
@@ -132,6 +134,7 @@ function asMaps(charts: ComparedChart[]): MapRow[] {
         srDt: c.srDt,
         shares: c.shares,
         notesKey: c.notesKey,
+        vibro: c.vibro,
       }) satisfies MapRow,
   );
 }

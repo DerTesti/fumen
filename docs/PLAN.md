@@ -276,8 +276,13 @@ sections below is the order of the work.
       `skillsLeftOut`, by notes key; out of skills, history, goals and practice, listed with "Count
       again"), and a pass worth more than 1.12× the skill once 25 passes are rated is marked as
       looking overrated (real best plays sit within about 1.09×), on the Skills page and the score
-      page. mania-tracker also detects "vibro" sections from the notes and cuts or drops them
-      (its docs/features/vibro.md); not ported
+      page. Vibro (`src-tauri/src/vibro.rs`, ported from mania-tracker's algorithms/vibro, MIT):
+      every pass is checked at its rate from the notes alone; small vibro parts are cut before
+      MinaCalc rates the rest (accuracy loss all on what's left), otherwise the pass is "vibro" or
+      "unrateable" and doesn't count (`play_ssr.vibro`, SSR version includes `vibro::VERSION`).
+      The 1× verdict sits in `chart_stats.vibro` (analysis version 7) and keeps those charts out
+      of practice. On the user's library (4989 charts): 44 caught at 1× (a vibro anthology, a meme
+      pack, isogu's rate edits), 131 at 1.5×; ~1 ms a chart and rate
 - [x] Compare skills with another player (0.4.10, `src-tauri/src/player.rs`, `lib/compare.ts`):
       osu! API with the logged-in token (user by name, top 200, firsts, recent passes, most
       played → up to 60 best-score lookups; one request at a time, 350 ms apart), charts from the

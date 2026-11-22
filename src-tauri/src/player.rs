@@ -231,6 +231,9 @@ struct ChartOut {
     /// the notes whatever the speed (msd.rs), the same for rate edits
     #[serde(skip_serializing_if = "Option::is_none")]
     notes_key: Option<String>,
+    /// what vibro.rs finds at 1× (1 adjusted, 2 vibro, 3 unrateable; none when clean)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vibro: Option<u8>,
     version: String,
     title: String,
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -271,6 +274,9 @@ struct PlayOut {
     wife: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ssr: Option<[f32; 8]>,
+    /// parts past a human hand at the rate played (see osu_scores::Play)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vibro: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     top: Option<i64>,
     id: i64,
@@ -375,8 +381,9 @@ fn off_grid(rate: Option<f64>) -> Option<u32> {
     (key > 0.0 && ![75.0, 100.0, 150.0].contains(&key)).then_some(key as u32)
 }
 
-/// What a chart's plays are worth in Etterna's eyes: their Wife% and SSR, by score id.
-type Rated = HashMap<i64, (f64, Option<[f32; 8]>)>;
+/// What a chart's plays are worth in Etterna's eyes: their Wife%, SSR and what vibro.rs found
+/// (`Verdict::code`), by score id.
+type Rated = HashMap<i64, (f64, Option<[f32; 8]>, u8)>;
 
 /// One chart analysed: the chart's row, its star ratings at the rates (× 100) played and its
 /// passes' Wife% and SSR.
@@ -386,11 +393,13 @@ fn analyse(beatmap: i64, text: &str, api: Option<&ApiBeatmap>, rates: &[u32], li
         return None;
     }
     let mut worth: Rated = HashMap::new();
+    let mut verdicts: HashMap<u32, crate::vibro::Verdict> = HashMap::new();
     for s in scores.iter().filter(|s| s.passed && s.rank >= 0) {
         let (mods, rate) = mods_of(&s.mods);
         let Some(wife) = crate::wife::estimate(&crate::osu_scores::hits_of(&s.statistics), chart.od, &mods, false) else { continue };
-        let ssr = crate::msd::ssr(&chart, rate.unwrap_or(1.0), wife).map(|m| m.to_array());
-        worth.insert(s.id, (wife, ssr));
+        let rate = rate.unwrap_or(1.0);
+        let verdict = verdicts.entry((rate * 100.0).round() as u32).or_insert_with(|| crate::vibro::check(&chart, rate));
+        worth.insert(s.id, (wife, crate::vibro::ssr(&chart, rate, wife, verdict), verdict.code()));
     }
     let a = crate::analysis::analyse(&chart);
     let shares = serde_json::to_string(&a.patterns).ok().and_then(|j| crate::analysis::shares_percent(&j));
@@ -410,6 +419,7 @@ fn analyse(beatmap: i64, text: &str, api: Option<&ApiBeatmap>, rates: &[u32], li
         shares,
         msd_rates: crate::msd::all_rates(&chart).map(|a| a.iter().map(|m| m.to_array()).collect()),
         notes_key: crate::msd::notes_key(&chart),
+        vibro: Some(crate::vibro::check(&chart, 1.0).code()).filter(|&v| v > 0),
         version: pick(api.map(|b| &b.version), "Version"),
         title: pick(api.map(|b| &b.title), "Title"),
         title_unicode: pick(api.map(|b| &b.title_unicode), "TitleUnicode"),
@@ -522,7 +532,7 @@ pub fn build(
         .filter_map(|s| {
             let (at, worth) = by_id.get(&s.beatmap_id)?;
             let (mods, rate) = mods_of(&s.mods);
-            let (wife, ssr) = worth.get(&s.id).map_or((None, None), |&(w, ssr)| (Some(w), ssr));
+            let (wife, ssr, vibro) = worth.get(&s.id).map_or((None, None, None), |&(w, ssr, v)| (Some(w), ssr, crate::vibro::Verdict::label(v)));
             Some(PlayOut {
                 map: format!("o{}", s.beatmap_id),
                 beatmap_id: s.beatmap_id,
@@ -536,6 +546,7 @@ pub fn build(
                 sr: off_grid(rate).and_then(|r| at.get(&r).copied()),
                 wife,
                 ssr,
+                vibro,
                 mods,
                 rate,
                 failed: !s.passed || s.rank < 0,

@@ -11,7 +11,7 @@ import { duration, esc, fixed, num, pct, rankInfo, relativeTime, srChip } from "
 import { isBest, playMods, rankNumber, sessionStart } from "../lib/live";
 import { historyEvents, historyLoading, historyNow, loadHistory, mapIndexOf } from "../lib/history";
 import { skillName, type GoalSkill } from "../lib/goals";
-import { bestPerChart, chartKey, isLeftOut, keysOf, looksOverrated, SKILLSETS, skills } from "../lib/skills";
+import { bestPerChart, chartKey, isLeftOut, keysOf, looksOverrated, SKILLSETS, skills, vibroOut } from "../lib/skills";
 import { countAgain, leaveOut, leftOutNow } from "../lib/skills-left-out";
 import { chartMods, type Mod } from "../lib/mods";
 import { back, canGoBack, go } from "../lib/router";
@@ -229,6 +229,17 @@ export class ScoreView {
         <h2 class="section-title">${t("Skills")} <span class="section-count num">${keys}K</span></h2>
         <button class="btn btn-ghost btn-sm score-skills-open" type="button">${icon("radar")}<span>${t("Open Skills")}</span></button>
       </div>`;
+    // parts no hand plays as written (vibro.rs): the pass doesn't count
+    if (vibroOut(mine)) {
+      el.hidden = false;
+      el.innerHTML = `${head}
+        <div class="score-skill-odd">${icon("info")}<span>${
+          mine.vibro === "vibro"
+            ? t("This chart has parts no hand plays as written at this rate, like jacks or trills past a finger's speed (vibro), so this pass doesn't count for your skills.")
+            : t("This chart is built from notes MinaCalc can't follow, like jumptrills or chords split into notes a few ms apart, so this pass doesn't count for your skills.")
+        }</span></div>`;
+      return;
+    }
     const leftOut = leftOutNow();
     if (isLeftOut(map, leftOut)) {
       el.hidden = false;
@@ -270,7 +281,9 @@ export class ScoreView {
               .join("")}</div>`
           : ""
       }
-      <p class="chart-note">${up.length ? worth : `${t("No skill went up this time.")} ${worth}`}</p>
+      <p class="chart-note">${up.length ? worth : `${t("No skill went up this time.")} ${worth}`}${
+        mine.vibro === "adjusted" ? ` ${t("Parts no hand plays as written were cut out before rating it.")}` : ""
+      }</p>
       ${
         oddAt
           ? `<div class="score-skill-odd is-warn">${icon("alert")}<span>${t("This pass is worth far more than your {skill}. MinaCalc rates some charts too high. If this is one, leave it out.", { skill: skillName(SKILLSETS[oddAt.k]) })}</span>

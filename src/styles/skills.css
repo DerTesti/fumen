@@ -114,6 +114,8 @@
 .skill-odd { display: inline-flex; vertical-align: -2px; margin-right: 5px; color: var(--warning); }
 .skill-odd .ic { width: 13px; height: 13px; }
 .skill-odd-count { color: var(--warning); }
+.skill-cut { display: inline-flex; vertical-align: -2px; margin-right: 5px; color: var(--t3); }
+.skill-cut .ic { width: 13px; height: 13px; }
 
 /* ---------- Charts left out ---------- */
 .skills-left-out { margin-top: 32px; }
@@ -122,6 +124,9 @@
 .left-out-row:hover { background: var(--tint-hover); }
 .left-out-name { flex: 1; min-width: 0; color: var(--t1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .left-out-when { color: var(--t3); white-space: nowrap; }
+.left-out-why { color: var(--t3); white-space: nowrap; font-size: var(--fs-11); }
+.left-out-found { margin-top: 14px; }
+.skill-chart-link { cursor: pointer; outline-offset: -2px; }
 
 /* ---------- A skill's graph (opened from its row) ---------- */
 .skill-top { display: flex; align-items: center; gap: 2px; padding-right: 8px; }
@@ -245,7 +250,7 @@
   .skill-chart .t-art { display: none; }
   .skill-chart { grid-template-columns: minmax(0, 1fr) minmax(0, 76px) 58px 56px; }
   .skill-chart.mine { grid-template-columns: minmax(0, 1fr) minmax(0, 76px) 58px 56px 28px; }
-  .left-out-when { display: none; }
+  .left-out-when, .left-out-why { display: none; }
   .practice-chart { grid-template-columns: minmax(0, 1fr) 50px minmax(0, 60px) 56px; }
   .practice-group.has-them .practice-chart { grid-template-columns: minmax(0, 1fr) 50px minmax(0, 60px) 56px 28px; }
   .practice-head { flex-direction: column; align-items: flex-start; gap: 10px; }

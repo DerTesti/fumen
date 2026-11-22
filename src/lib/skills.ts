@@ -13,6 +13,10 @@
  * that change what you play (Hold Off, Invert, Random, …). Charts you leave out yourself don't
  * count at all (`LeftOut`), and a play worth far more than your skill is marked as looking
  * overrated (`looksOverrated`): MinaCalc rates some charts too high, and those get farmed.
+ * Fumen leaves out passes on its own too (`vibroOut`): where a chart at the rate played has parts
+ * no hand plays as written (vibro, src-tauri/src/vibro.rs), or is built from notes MinaCalc can't
+ * follow. Where such parts are a small share they're cut out before rating instead, and the pass
+ * counts.
  *
  * Practice suggestions aim a little above your best plays in a skillset: charts in the library
  * that are mostly about it and whose MSD there lands in that band, at 1× or at a rate.
@@ -47,6 +51,9 @@ export const OVERRATED = 1.12;
 const UNRATED = new Set(["HO", "IN", "NR", "RD", "EZ", "DS", "CO", "AT", "CN", "RX", "AP", "AS", "WU", "WD", "DA", "SG", "TP"]);
 
 export const rateOf = (p: Play): number => p.rate ?? 1;
+
+/** A pass vibro.rs took out: parts no hand plays as written, or notes MinaCalc can't follow. */
+export const vibroOut = (p: Play): boolean => p.vibro === "vibro" || p.vibro === "unrateable";
 
 /** Played with mods that change what's played beyond the rate (Hold Off, Easy, Autopilot, …). */
 export const changesChart = (p: Play): boolean => !!p.mods?.some((m) => UNRATED.has(m));
@@ -123,11 +130,40 @@ export const isLeftOut = (map: MapRow, leftOut: LeftOut | undefined): boolean =>
 /** A play's library index when it counts for the skills in a key mode: a rated osu!mania pass on
  * a difficulty with that many keys, without mods that change the chart, and not left out. */
 function counting(play: Play, mapIndex: (id: string | undefined) => number | undefined, maps: MapRow[], keys: number, leftOut?: LeftOut): number | undefined {
-  if (play.failed || play.mode !== 3 || !play.ssr || play.wife === undefined || changesChart(play)) return undefined;
+  if (play.failed || play.mode !== 3 || !play.ssr || play.wife === undefined || changesChart(play) || vibroOut(play)) return undefined;
   const mapIdx = mapIndex(play.map);
   if (mapIdx === undefined) return undefined;
   const map = maps[mapIdx];
   return map.mode === 3 && keysOf(map) === keys && !isLeftOut(map, leftOut) ? mapIdx : undefined;
+}
+
+export interface FoundVibro {
+  map: MapRow;
+  mapIdx: number;
+  /** "vibro" when any of its passes were, else "unrateable" */
+  kind: "vibro" | "unrateable";
+  /** the rates its passes were left out at, slowest first */
+  rates: number[];
+  /** the last of those passes (unix ms) */
+  last: number;
+}
+
+/** The charts in a key mode with passes Fumen left out (`vibroOut`), the latest first. */
+export function foundVibro(plays: Play[], mapIndex: (id: string | undefined) => number | undefined, maps: MapRow[], keys: number): FoundVibro[] {
+  const by = new Map<number, FoundVibro>();
+  for (const p of plays) {
+    if (p.failed || p.mode !== 3 || !vibroOut(p)) continue;
+    const mapIdx = mapIndex(p.map);
+    if (mapIdx === undefined || keysOf(maps[mapIdx]) !== keys) continue;
+    let f = by.get(mapIdx);
+    if (!f) by.set(mapIdx, (f = { map: maps[mapIdx], mapIdx, kind: "unrateable", rates: [], last: 0 }));
+    if (p.vibro === "vibro") f.kind = "vibro";
+    const rate = Math.round(rateOf(p) * 100) / 100;
+    if (!f.rates.includes(rate)) f.rates.push(rate);
+    f.last = Math.max(f.last, p.date);
+  }
+  for (const f of by.values()) f.rates.sort((a, b) => a - b);
+  return [...by.values()].sort((a, b) => b.last - a.last);
 }
 
 /** A difficulty at a rate: where Etterna keeps one best play. */
@@ -421,7 +457,8 @@ function poolOf(maps: MapRow[], keys: number): number[] {
     pool = [];
     for (let i = 0; i < maps.length; i++) {
       const m = maps[i];
-      if (m.mode === 3 && !m.hidden && keysOf(m) === keys) pool.push(i);
+      // not charts with parts no hand plays as written (at 1×): passes there wouldn't count
+      if (m.mode === 3 && !m.hidden && keysOf(m) === keys && !(m.vibro && m.vibro >= 2)) pool.push(i);
     }
     byKeys.set(keys, pool);
   }

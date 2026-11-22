@@ -48,7 +48,17 @@ sources and their small C bridge (`API.cpp`, `API.h`) come as the
 
 Ported from Etterna as well: Wife3, its accuracy curve, in `src-tauri/src/wife.rs` (the
 constants and the curve; turning osu!'s judgement counts into a Wife% is Fumen's own), and
-`aggregate_skill`, how Etterna blends plays into a skill, in `src/lib/skills.ts`.
+`aggregate_skill`, how Etterna blends plays into a skill, in `src/lib/skills.ts`, with its rule that a
+chart counts with its two best rates (`ScoresForChart::SetTopScores`).
+
+## mania-tracker (aleju03, MIT)
+
+[github.com/Manolo-dl/mania-hub](https://github.com/Manolo-dl/mania-hub)
+([mania-tracker.com](https://mania-tracker.com)), licence in
+[LICENSES/mania-tracker.txt](LICENSES/mania-tracker.txt). The vibro detection in
+`src-tauri/src/vibro.rs` is ported from its `algorithms/vibro` (`sections.ts`, `motion.ts`,
+`detection.ts`, section version 11) and the stacked-head rule of
+`algorithms/classification/dan-eligibility.ts`, thresholds included.
 
 ## ManiaMapAnalyser (Leo_Black, MIT)
 

@@ -28,6 +28,7 @@ mod mma;
 mod mods;
 mod msd;
 mod wife;
+mod vibro;
 mod osu;
 mod osu_auth;
 mod osu_scores;

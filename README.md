@@ -293,6 +293,8 @@ docs/PLAN.md      roadmap
   [Interlude](https://github.com/YAVSRG/YAVSRG)'s pattern analysis,
   [Star-Rating-Rebirth](https://github.com/sunnyxxy/Star-Rating-Rebirth) (Sunny) and
   [Daniel](https://thebagelofman.github.io/Daniel/)
+- [mania-tracker](https://github.com/Manolo-dl/mania-hub) by aleju03 (MIT): the vibro detection in
+  `src-tauri/src/vibro.rs`, which keeps passes on maps no hand plays as written out of the skills
 
 ## Licence
 

@@ -11,7 +11,7 @@ import { currentContext, goalEvents, goalsNow, loadGoals, removeGoal } from "../
 import { displayTitle, esc, fixed, num, pct, relativeTime } from "../lib/format";
 import { historyEvents, historyNow, loadHistory, mapIndexOf, modsText, playWhen } from "../lib/history";
 import {
-  bestByChart, bestPerChart, chartKey, FEW_PLAYS, keyModes, looksOverrated, MORE_SUGGESTIONS, practice, rateOf, SKILL_LABEL, skillHistory, SKILLSETS, skills, suggest, SUGGESTIONS, TOP,
+  bestByChart, bestPerChart, chartKey, FEW_PLAYS, foundVibro, type FoundVibro, keyModes, looksOverrated, MORE_SUGGESTIONS, practice, rateOf, SKILL_LABEL, skillHistory, SKILLSETS, skills, suggest, SUGGESTIONS, TOP,
   type Aim, type Counted, type LeftOut, type MsdRows, type Practice, type SkillPoint, type SkillSheet, type Suggestion,
 } from "../lib/skills";
 import { countAgain, leaveOut, leftOutList, leftOutNow } from "../lib/skills-left-out";
@@ -259,10 +259,10 @@ export class SkillsView {
       </div>
       ${this.goalsHtml(ctx)}
       ${this.practiceHtml(plan, rows, played, passed, theirPractice)}
-      ${leftOutHtml()}
+      ${leftOutHtml(foundVibro(h.plays, mapIndexOf, snap.maps, keys))}
       <p class="skills-how">
         ${t("Every pass is rated with Etterna's calculator, MinaCalc: the chart at the rate you played it, for your accuracy as Etterna counts it (Wife, worked out from your judgements). That's what the play is worth in each skillset. A skillset blends all your plays there the way Etterna does: your best count the most, and it takes a fair number of good plays to get up to your level. Overall blends the seven. As in Etterna, a chart counts with its two best rates (rate edits of it are the same chart), passes only, and not with mods that change what you play, like Hold Off.")}
-        ${t("MinaCalc rates some charts higher than they play. A pass worth far more than your skill is marked as looking overrated, and you can leave such a chart out.")}
+        ${t("MinaCalc rates some charts higher than they play. A pass worth far more than your skill is marked as looking overrated, and you can leave such a chart out. Fumen also looks for parts no hand plays as written, like jacks or trills past a finger's speed (vibro): where they're a small part of a chart they're cut out before rating, otherwise the pass doesn't count. Its rules come from mania-tracker.")}
       </p>`;
     // the graphs that are open, worked out only then
     const graphs = body.querySelectorAll<HTMLElement>(".skill-graph[data-line]");
@@ -714,7 +714,7 @@ export class SkillsView {
       if (leave) return this.leaveOut(+leave.closest<HTMLElement>(".skill-chart")!.dataset.map!);
       const again = target.closest<HTMLElement>(".left-out-again");
       if (again) return countAgain(again.closest<HTMLElement>("[data-key]")!.dataset.key!);
-      const row = target.closest<HTMLElement>(".skill-chart[data-map]");
+      const row = target.closest<HTMLElement>(".skill-chart[data-map], .skill-chart-link[data-map]");
       if (row) openSet(store.snap!.maps[+row.dataset.map!].set, +row.dataset.map!);
     });
     this.el.addEventListener("submit", (e) => {
@@ -757,7 +757,7 @@ export class SkillsView {
         e.preventDefault();
         return openImport(`https://osu.ppy.sh/beatmapsets/${add.dataset.add}`);
       }
-      const row = (e.target as Element).closest<HTMLElement>(".skill-chart[data-map], .goal[data-map]");
+      const row = (e.target as Element).closest<HTMLElement>(".skill-chart[data-map], .skill-chart-link[data-map], .goal[data-map]");
       if (row && (e.key === "Enter" || e.key === " ")) {
         e.preventDefault();
         openSet(store.snap!.maps[+row.dataset.map!].set, +row.dataset.map!);
@@ -794,15 +794,29 @@ function accCell(c: Counted): string {
   return `<span class="num skill-chart-acc" data-tip="${t("{wife} as Etterna counts it", { wife: pct(c.wife) })}">${pct(c.play.acc)}</span>`;
 }
 
-/** The charts you left out of the skills, each with a way back in. */
-function leftOutHtml(): string {
+/** The charts left out of the skills: yours, each with a way back in, then the ones Fumen found
+ * vibro on (at the rates played). */
+function leftOutHtml(found: FoundVibro[]): string {
   const list = leftOutList();
-  if (!list.length) return "";
+  if (!list.length && !found.length) return "";
+  const unicode = store.prefs.unicode;
+  const foundRows = found
+    .map((f) => {
+      const set = store.snap!.sets[f.map.set];
+      const why = f.kind === "vibro" ? t("parts no hand plays as written") : t("notes MinaCalc can't follow");
+      return `
+          <div class="left-out-row skill-chart-link" data-map="${f.mapIdx}" role="button" tabindex="0">
+            <span class="left-out-name">${esc(`${displayTitle(set, unicode)} [${f.map.version}]`)}</span>
+            <span class="left-out-why">${why}</span>
+            <span class="left-out-when num">${f.rates.map((r) => `${fixed(r, 2)}×`).join(", ")}</span>
+          </div>`;
+    })
+    .join("");
   return `
     <section class="skills-left-out">
-      <h2 class="section-title">${t("Left out of the skills")} <span class="section-count num">${list.length}</span></h2>
-      <div class="practice-sub">${t("These charts count for nothing here, at any rate, and aren't suggested to practise.")}</div>
-      <div class="panel left-out-list">${list
+      <h2 class="section-title">${t("Left out of the skills")} <span class="section-count num">${list.length + found.length}</span></h2>
+      ${list.length ? `<div class="practice-sub">${t("These charts count for nothing here, at any rate, and aren't suggested to practise.")}</div>` : ""}
+      ${list.length ? `<div class="panel left-out-list">${list
         .map(
           (l) => `
           <div class="left-out-row" data-key="${esc(l.key)}">
@@ -811,7 +825,13 @@ function leftOutHtml(): string {
             <button class="btn btn-ghost btn-sm left-out-again" type="button">${t("Count again")}</button>
           </div>`,
         )
-        .join("")}</div>
+        .join("")}</div>` : ""}
+      ${
+        found.length
+          ? `<div class="practice-sub left-out-found">${t("Fumen left out your passes on these charts at the rates shown: they have parts no hand plays as written (vibro), or notes MinaCalc can't follow, like jumptrills or chords split into notes a few ms apart.")}</div>
+      <div class="panel left-out-list">${foundRows}</div>`
+          : ""
+      }
     </section>`;
 }
 
@@ -826,7 +846,9 @@ function chartRow(c: Line["top"][number], skill: GoalSkill, odd = false): string
       <span class="t-art${bg ? "" : " img-missing"}">${bg ? `<img src="${thumbUrl(bg, 160)}" alt="" loading="lazy" decoding="async" />` : ""}</span>
       <div class="prow-text">
         <div class="t-title">${esc(displayTitle(set, store.prefs.unicode))}</div>
-        <div class="t-sub">${odd ? `<span class="skill-odd" data-tip="${t("Looks overrated: worth far more than your {skill}", { skill: skillName(skill) })}">${icon("alert")}</span>` : ""}${esc(c.map.version)}</div>
+        <div class="t-sub">${odd ? `<span class="skill-odd" data-tip="${t("Looks overrated: worth far more than your {skill}", { skill: skillName(skill) })}">${icon("alert")}</span>` : ""}${
+          c.play.vibro === "adjusted" ? `<span class="skill-cut" data-tip="${t("Parts no hand plays as written were cut out before rating this pass")}">${icon("info")}</span>` : ""
+        }${esc(c.map.version)}</div>
       </div>
       <span class="skill-chart-mods">${esc(modsText(c.play as Play))}</span>
       ${accCell(c)}

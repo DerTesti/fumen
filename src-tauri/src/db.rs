@@ -392,7 +392,7 @@ fn ensure_chart_columns(conn: &Connection) -> Result<()> {
         return Ok(());
     }
     // Etterna's MSD at 1× (msd.rs) and the skillset it asks most of; at 0.7× to 2.0× (1.5)
-    for (name, kind) in [("msd", "REAL"), ("msd_skill", "TEXT"), ("msd_rates", "TEXT"), ("notes_key", "TEXT")] {
+    for (name, kind) in [("msd", "REAL"), ("msd_skill", "TEXT"), ("msd_rates", "TEXT"), ("notes_key", "TEXT"), ("vibro", "INTEGER")] {
         if !cols.iter().any(|c| c == name) {
             conn.execute_batch(&format!("ALTER TABLE chart_stats ADD COLUMN {name} {kind}"))?;
         }
@@ -408,6 +408,11 @@ fn ensure_chart_columns(conn: &Connection) -> Result<()> {
             PRIMARY KEY (hash, rate, wife)
         )",
     )?;
+    // what vibro.rs found at the rate (0 clean, 1 adjusted, 2 vibro, 3 unrateable)
+    let has_vibro = conn.prepare("SELECT 1 FROM pragma_table_info('play_ssr') WHERE name = 'vibro'")?.exists([])?;
+    if !has_vibro {
+        conn.execute_batch("ALTER TABLE play_ssr ADD COLUMN vibro INTEGER")?;
+    }
     Ok(())
 }
 
