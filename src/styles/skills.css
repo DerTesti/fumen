@@ -55,7 +55,8 @@
 .skill.open { background: rgb(var(--ink) / .035); }
 .skill-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto 72px 18px;
+  /* the name keeps its width; the line beside it gives way (cut with …) when the window is narrow */
+  grid-template-columns: auto minmax(0, 1fr) auto 72px 18px;
   align-items: center;
   column-gap: 12px;
   width: 100%;
@@ -69,7 +70,7 @@
 .skill-head:disabled { cursor: default; }
 .skill-name { font-size: var(--fs-13); font-weight: 600; color: var(--t1); }
 .skill.empty .skill-name { color: var(--t3); }
-.skill-charts { font-size: var(--fs-11); color: var(--t3); white-space: nowrap; }
+.skill-charts { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; font-size: var(--fs-11); color: var(--t3); white-space: nowrap; }
 .skill-delta { font-size: var(--fs-11); font-weight: 700; font-variant-numeric: tabular-nums; }
 .skill-delta.up { color: var(--success); }
 .skill-delta.down { color: var(--danger); }
