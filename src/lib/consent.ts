@@ -101,6 +101,30 @@ const swallowKeys = (e: KeyboardEvent) => {
   }
 };
 
+/** The site's words, one paragraph each (it parts them with a blank line). The first one says
+ * what's blocked, which the page's title already does; the reason gets its own block. */
+function blockParagraphs(message: string): HTMLElement[] {
+  const parts = message.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const shown = parts.length > 1 ? parts.slice(1) : parts;
+  return shown.map((text) => {
+    const reason = /^Reason:\s*(.*)$/s.exec(text);
+    const contact = /^If you think that's a mistake:\s*(.*)$/s.exec(text);
+    if (reason) {
+      const box = document.createElement("div");
+      box.className = "fumen-block-reason";
+      const label = document.createElement("span");
+      label.textContent = t("Reason");
+      const words = document.createElement("p");
+      words.textContent = reason[1];
+      box.append(label, words);
+      return box;
+    }
+    const p = document.createElement("p");
+    p.textContent = contact ? `${t("If you think that's a mistake:")} ${contact[1]}` : text;
+    return p;
+  });
+}
+
 /** Fumen behind a page with the site's reason and where to turn; the files stay as they are. */
 function showBlock(b: FumenBlock): void {
   if (!page) {
@@ -112,21 +136,26 @@ function showBlock(b: FumenBlock): void {
   }
   page.innerHTML = `
     <div class="fumen-block-panel" role="alertdialog" aria-modal="true" aria-labelledby="fumen-block-title">
-      <div class="fumen-block-badge" aria-hidden="true">
-        <svg viewBox="0 0 48 48"><circle class="ring" cx="24" cy="24" r="17" pathLength="1"/><path class="slash" d="M12 12 36 36" pathLength="1"/></svg>
-      </div>
-      <div class="fumen-block-eyebrow">${t("Blocked")}</div>
-      <div class="fumen-block-title" id="fumen-block-title">${t("Fumen is blocked on this computer")}</div>
-      <p class="fumen-block-msg"></p>
-      <p class="fumen-block-note">${t("Your files stay as they are. Fumen hasn't changed or deleted anything.")}</p>
-      <div class="fumen-block-actions">
-        <button class="btn btn-ghost" type="button" data-act="privacy">${t("Privacy")}</button>
-        <button class="btn btn-danger" type="button" data-act="ask">${t("Ask again")}</button>
+      <div class="fumen-block-card">
+        <div class="fumen-block-head">
+          <div class="fumen-block-badge" aria-hidden="true">
+            <svg viewBox="0 0 48 48"><circle class="ring" cx="24" cy="24" r="17" pathLength="1"/><path class="slash" d="M12 12 36 36" pathLength="1"/></svg>
+          </div>
+        </div>
+        <div class="fumen-block-body">
+          <div class="fumen-block-eyebrow">${t("Blocked")}</div>
+          <div class="fumen-block-title" id="fumen-block-title">${t("Fumen is blocked on this computer")}</div>
+          <div class="fumen-block-msg"></div>
+          <p class="fumen-block-note">${t("Your files stay as they are. Fumen hasn't changed or deleted anything.")}</p>
+          <div class="fumen-block-actions">
+            <button class="btn btn-ghost" type="button" data-act="privacy">${t("Privacy")}</button>
+            <button class="btn btn-danger" type="button" data-act="ask">${t("Ask again")}</button>
+          </div>
+        </div>
       </div>
       <p class="fumen-block-small">${store.settings?.online ? t("Asks fumen.dertesti.dev whether the block was lifted.") : t("Asks fumen.dertesti.dev whether the block was lifted, with Fumen's random number only.")}</p>
     </div>`;
-  // the site's own words
-  page.querySelector(".fumen-block-msg")!.textContent = b.message;
+  page.querySelector(".fumen-block-msg")!.replaceChildren(...blockParagraphs(b.message));
   page.querySelector('[data-act="privacy"]')!.addEventListener("click", () =>
     void openUrl(PRIVACY).catch((e) => toast(asApiError(e).message, { kind: "danger" })),
   );

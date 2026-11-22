@@ -326,6 +326,7 @@ body.has-player .toast-host { bottom: calc(var(--player-h) + 12px); }
 }
 .toast.closing { animation: toast-out .2s ease-in forwards; }
 .toast-ic { width: 17px; height: 17px; color: var(--info); }
+.toast-msg { white-space: pre-line; }
 .toast-success .toast-ic { color: var(--success); }
 .toast-danger .toast-ic { color: var(--danger); }
 .toast-action { margin-left: 4px; flex: none; }

@@ -29,6 +29,8 @@ export const settings: Record<string, string> = {
   "What's kept, and for how long": "Was gespeichert wird und wie lange",
   "Continue": "Weiter",
   "Blocked": "Gesperrt",
+  "Reason": "Grund",
+  "If you think that's a mistake:": "Falls du denkst, dass das ein Fehler ist:",
   "Fumen is blocked on this computer": "Fumen ist auf diesem Computer gesperrt",
   "Your files stay as they are. Fumen hasn't changed or deleted anything.": "Deine Dateien bleiben, wie sie sind. Fumen hat nichts verändert oder gelöscht.",
   "Privacy": "Datenschutz",
