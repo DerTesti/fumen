@@ -35,6 +35,7 @@ import type {
   OsuAccount,
   ScanProgress,
   Settings,
+  FumenBlock,
   SkinList,
   Snapshot,
   SyncSummary,
@@ -51,6 +52,11 @@ export const isLinux = /Linux/.test(navigator.userAgent) && !/Android/.test(navi
 export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
   sendPing: () => invoke<void>("send_ping"),
+  /** the online features on or off (off logs out of osu!); answers the first start's question too */
+  setOnline: (on: boolean) => invoke<Settings>("set_online", { on }),
+  /** the block check; `ask`: from the block page, also with the online features off */
+  checkBlock: (ask: boolean) => invoke<FumenBlock | null>("check_block", { ask }),
+  notedBlock: () => invoke<FumenBlock | null>("noted_block"),
   updateSettings: (patch: Partial<Settings> | Record<string, unknown>) => invoke<Settings>("update_settings", { patch }),
   inspectLazerPath: (path: string) => invoke<LazerInstall | null>("inspect_lazer_path", { path }),
   inspectStablePath: (path: string) => invoke<StableInstall | null>("inspect_stable_path", { path }),

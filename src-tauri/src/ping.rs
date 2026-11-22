@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// The random id, made on the first start: 32 hex digits, tied to nothing.
-fn install_id(data_dir: &Path) -> Option<String> {
+pub(crate) fn install_id(data_dir: &Path) -> Option<String> {
     let path = data_dir.join("install-id");
     if let Ok(id) = std::fs::read_to_string(&path) {
         let id = id.trim().to_string();

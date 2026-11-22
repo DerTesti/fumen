@@ -1,0 +1,36 @@
+/* The first start's question (src/lib/consent.ts) */
+.dialog.consent { width: 460px; }
+.consent-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--r-lg);
+  background: var(--fill-subtle);
+  cursor: pointer;
+}
+.consent-row input { flex: none; margin-top: 2px; }
+.consent-text { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.consent-text b { font-size: var(--fs-13); font-weight: 650; color: var(--t1); }
+.consent-text span { font-size: var(--fs-12); line-height: 1.5; color: var(--t2); }
+.consent-text .consent-login { color: var(--warning); }
+.consent .dialog-actions { justify-content: space-between; }
+
+/* The block page: Fumen behind it, keys kept from it */
+body.fumen-blocked > :not(.fumen-block) { visibility: hidden; }
+.fumen-block {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg-base);
+}
+.fumen-block-panel { width: min(480px, 100%); display: flex; flex-direction: column; gap: 12px; }
+.fumen-block-title { font-size: var(--fs-20); font-weight: 700; color: var(--t1); }
+.fumen-block-msg { margin: 0; font-size: var(--fs-14); line-height: 1.55; color: var(--t1); white-space: pre-line; overflow-wrap: anywhere; }
+.fumen-block-note { margin: 0; font-size: var(--fs-13); color: var(--t2); }
+.fumen-block-actions { display: flex; gap: 8px; margin-top: 8px; }
+.fumen-block-small { margin: 0; font-size: var(--fs-12); color: var(--t3); }

@@ -454,6 +454,13 @@ export interface ScanProgress {
   total: number;
 }
 
+/** A block from fumen.dertesti.dev: "full" stops Fumen, "online" its online features. */
+export interface FumenBlock {
+  scope: "full" | "online";
+  /** the site's words, with the reason and where to turn */
+  message: string;
+}
+
 export interface Settings {
   lazerPath: string | null;
   autoRescan: boolean;
@@ -461,8 +468,12 @@ export interface Settings {
   useStable: boolean;
   /** imports may go into osu!stable's Songs folder (behind the warnings in Settings › osu!stable) */
   stableImport: boolean;
-  /** the start ping, so fumen.dertesti.dev can count the people using Fumen */
+  /** the start ping, so fumen.dertesti.dev can count the people using Fumen (only once asked) */
   startPing: boolean;
+  /** the first start's question (the start count, the online features) was answered */
+  consentAsked: boolean;
+  /** Fumen's online features (src-tauri/src/online.rs); changed through api.setOnline only */
+  online: boolean;
   /** where tosu is (picked, or remembered from seeing it run) */
   tosuPath: string | null;
   ui: Partial<UiPrefs>;

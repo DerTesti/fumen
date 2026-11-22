@@ -15,10 +15,39 @@ export const settings: Record<string, string> = {
   // library
   "Keep up to date": "Aktuell halten",
   "Count me in": "Mitzählen",
-  "Counting who uses Fumen": "Wer Fumen nutzt",
-  "When it starts, Fumen tells fumen.dertesti.dev that it did: a random number made on this PC and Fumen's version, nothing else. That's how many people use it gets counted. You can turn it off here or later in Settings › About.":
-    "Beim Start sagt Fumen fumen.dertesti.dev Bescheid: eine Zufallszahl, die auf diesem PC entsteht, und Fumens Version, sonst nichts. So lässt sich zählen, wie viele Fumen nutzen. Du kannst das hier oder später unter Einstellungen › Über ausschalten.",
-  "Turn it off": "Ausschalten",
+  // the first start's question, the online features, the block page
+  "Before you start": "Bevor es losgeht",
+  "Fumen works on your computer, and everything in it works without these two. Both stay off unless you turn them on, and you can change them later in Settings › About.":
+    "Fumen läuft auf deinem Computer, und alles darin funktioniert auch ohne diese beiden. Beide bleiben aus, solange du sie nicht einschaltest, und du kannst sie später unter Einstellungen › Über ändern.",
+  "At each start, Fumen tells fumen.dertesti.dev that it started: a random number made on this computer and Fumen's version. That's how many people use Fumen gets counted.":
+    "Bei jedem Start sagt Fumen fumen.dertesti.dev Bescheid: eine Zufallszahl, die auf diesem Computer entsteht, und Fumens Version. So lässt sich zählen, wie viele Fumen nutzen.",
+  "Online features": "Online-Funktionen",
+  "Logging in with osu!, collections in the cloud and comparing with other players. With them on, Fumen checks at each start whether it's blocked, with the random number and a code made from this computer's own id. The id never leaves your computer, and the code can't be turned back into it.":
+    "Mit osu! anmelden, Collections in der Cloud und der Vergleich mit anderen Spielern. Sind sie an, prüft Fumen bei jedem Start, ob es gesperrt ist, mit der Zufallszahl und einem Code aus der eigenen Kennung dieses Computers. Die Kennung verlässt deinen Computer nie, und der Code lässt sich nicht in sie zurückrechnen.",
+  "You're logged in with osu!. Logging in is one of the online features, so with them off, Fumen logs you out.":
+    "Du bist mit osu! angemeldet. Die Anmeldung gehört zu den Online-Funktionen. Lässt du sie aus, meldet Fumen dich ab.",
+  "What's kept, and for how long": "Was gespeichert wird und wie lange",
+  "Continue": "Weiter",
+  "Fumen is blocked on this computer": "Fumen ist auf diesem Computer gesperrt",
+  "Your files stay as they are. Fumen hasn't changed or deleted anything.": "Deine Dateien bleiben, wie sie sind. Fumen hat nichts verändert oder gelöscht.",
+  "Privacy": "Datenschutz",
+  "Ask again": "Nochmal nachfragen",
+  "Asks fumen.dertesti.dev whether the block was lifted.": "Fragt fumen.dertesti.dev, ob die Sperre aufgehoben wurde.",
+  "Asks fumen.dertesti.dev whether the block was lifted, with Fumen's random number only.":
+    "Fragt fumen.dertesti.dev, ob die Sperre aufgehoben wurde, nur mit Fumens Zufallszahl.",
+  "The block is lifted.": "Die Sperre ist aufgehoben.",
+  "Still blocked.": "Immer noch gesperrt.",
+  "Logging in goes through fumen.dertesti.dev, so it's one of Fumen's online features. Turn them on? Then Fumen also checks at each start whether it's blocked, with its random number and a code made from this computer's id.":
+    "Die Anmeldung läuft über fumen.dertesti.dev und gehört damit zu Fumens Online-Funktionen. Einschalten? Dann prüft Fumen auch bei jedem Start, ob es gesperrt ist, mit seiner Zufallszahl und einem Code aus der Kennung dieses Computers.",
+  "Turn on the online features?": "Online-Funktionen einschalten?",
+  "Turn them on": "Einschalten",
+  "Logging in with osu!, collections in the cloud and comparing with other players, through fumen.dertesti.dev. With them on, Fumen checks at each start whether it's blocked, with its random number and a code made from this computer's id; the id itself never leaves your computer. Turning them off logs you out, and fumen.dertesti.dev deletes the code.":
+    "Mit osu! anmelden, Collections in der Cloud und der Vergleich mit anderen Spielern, über fumen.dertesti.dev. Sind sie an, prüft Fumen bei jedem Start, ob es gesperrt ist, mit seiner Zufallszahl und einem Code aus der Kennung dieses Computers; die Kennung selbst verlässt deinen Computer nie. Schaltest du sie aus, meldet Fumen dich ab, und fumen.dertesti.dev löscht den Code.",
+  "What goes to fumen.dertesti.dev and to others, how long it's kept, and how to get it removed.":
+    "Was an fumen.dertesti.dev und an andere geht, wie lange es gespeichert wird und wie du es löschen lassen kannst.",
+  "Turn the online features off? Fumen logs you out of osu!, and fumen.dertesti.dev deletes this computer's code.":
+    "Online-Funktionen ausschalten? Fumen meldet dich bei osu! ab, und fumen.dertesti.dev löscht den Code dieses Computers.",
+  "Turn them off": "Ausschalten",
   "When Fumen starts, it tells fumen.dertesti.dev that it did: a random number made on this PC and Fumen's version, nothing else. That's how many people use it.":
     "Beim Start sagt Fumen fumen.dertesti.dev Bescheid: eine Zufallszahl, die auf diesem PC entsteht, und Fumens Version, sonst nichts. So lässt sich zählen, wie viele Fumen nutzen.",
   "Re-import when osu!lazer's or osu!stable's library changed since the last import.":

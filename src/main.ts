@@ -20,6 +20,7 @@ import "./styles/skills.css";
 import "./styles/browse.css";
 import "./styles/hud-editor.css";
 import "./styles/score.css";
+import "./styles/consent.css";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
@@ -32,7 +33,7 @@ import { describeScan, isScanning, runScan } from "./lib/scan";
 import { clearSkins, loadSkinList } from "./lib/skin/skins";
 import { events, loadPrefs, refreshStatus, reloadLibrary, setPrefs, setSnapshot, store } from "./lib/store";
 import type { ScanProgress } from "./lib/types";
-import { startPing } from "./lib/ping";
+import { startConsent } from "./lib/consent";
 import { newSinceLastRun } from "./lib/changelog";
 import { openChangelog } from "./views/changelog";
 import { getVersion } from "@tauri-apps/api/app";
@@ -946,8 +947,8 @@ async function boot(): Promise<void> {
   heart.init();
   presence.init();
   document.body.classList.add("ready");
-  void startPing()
-    .catch((e) => console.warn("[ping]", asApiError(e).message))
+  void startConsent()
+    .catch((e) => console.warn("[consent]", asApiError(e).message))
     .finally(() => void showWhatsNew(!!st?.scannedAt));
 }
 

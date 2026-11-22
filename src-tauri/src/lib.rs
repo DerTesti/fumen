@@ -32,6 +32,7 @@ mod vibro;
 mod osu;
 mod osu_auth;
 mod osu_scores;
+mod online;
 mod overlay;
 mod library;
 mod live;
@@ -255,7 +256,11 @@ fn get_settings(state: State<'_, AppState>) -> Settings {
 }
 
 #[tauri::command]
-fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: Value) -> Result<Settings> {
+fn update_settings(app: AppHandle, state: State<'_, AppState>, mut patch: Value) -> Result<Settings> {
+    // the online features change through set_online only
+    if let Value::Object(p) = &mut patch {
+        p.remove("online");
+    }
     let updated = {
         let mut s = state.settings.lock().unwrap_or_else(|e| e.into_inner());
         s.apply_patch(patch)?;
@@ -977,6 +982,7 @@ fn osu_account(state: State<'_, AppState>) -> Option<osu_auth::Account> {
 async fn osu_login(app: AppHandle) -> Result<osu_auth::Account> {
     tauri::async_runtime::spawn_blocking(move || {
         use tauri_plugin_opener::OpenerExt;
+        online::ensure()?;
         let state = app.state::<AppState>();
         if state.logging_in.swap(true, Ordering::SeqCst) {
             return Err(Error::known("busy", "A login is already waiting for your browser."));
@@ -1026,6 +1032,61 @@ async fn osu_refresh_account(app: AppHandle) -> Result<Option<osu_auth::Account>
     .map_err(|e| Error::known("internal", e.to_string()))?
 }
 
+/// Turns Fumen's online features on or off (online.rs); the first start's question answers here
+/// too. Off logs out of osu!, and the site is asked to delete this computer's code if it may have it.
+#[tauri::command]
+async fn set_online(app: AppHandle, on: bool) -> Result<Settings> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let was = state.settings.lock().unwrap_or_else(|e| e.into_inner()).online;
+        if !on && osu_auth::account(&state.data_dir).is_some() {
+            // while the site may still be asked (a login from before goes too)
+            online::set(true);
+            let out = osu_auth::logout(&state.data_dir, &osu_auth::Endpoints::default());
+            online::set(was);
+            out?;
+            osu_scores::clear(&state.db())?;
+            let _ = app.emit("history-changed", true);
+        }
+        let updated = {
+            let mut s = state.settings.lock().unwrap_or_else(|e| e.into_inner());
+            s.online = on;
+            s.consent_asked = true;
+            s.save(&state.settings_path)?;
+            s.clone()
+        };
+        online::set(on);
+        if was && !on {
+            online::forget_machine(osu_auth::Endpoints::default().site);
+        }
+        Ok(updated)
+    })
+    .await
+    .map_err(|e| Error::known("internal", e.to_string()))?
+}
+
+/// The block check (online.rs): with the online features on, asks the site; with them off, only
+/// when `ask` (the block page's button, with the random id alone), else what's noted here.
+#[tauri::command]
+async fn check_block(app: AppHandle, ask: bool) -> Result<Option<online::Block>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = app.state::<AppState>().data_dir.clone();
+        let on = online::is_on();
+        if !on && !ask {
+            return Ok(online::noted(&dir));
+        }
+        online::check(&dir, &osu_auth::Endpoints::default().site, on)
+    })
+    .await
+    .map_err(|e| Error::known("internal", e.to_string()))?
+}
+
+/// A full block noted on this computer (shown before anything else at the start).
+#[tauri::command]
+fn noted_block(state: State<'_, AppState>) -> Option<online::Block> {
+    online::noted(&state.data_dir)
+}
+
 #[tauri::command]
 async fn osu_logout(app: AppHandle) -> Result<()> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -1059,6 +1120,7 @@ async fn get_history(app: AppHandle) -> Result<tauri::ipc::Response> {
 #[tauri::command]
 async fn cloud_push_collections(app: AppHandle) -> Result<cloud::PushSummary> {
     tauri::async_runtime::spawn_blocking(move || {
+        online::ensure()?;
         let state = app.state::<AppState>();
         let cols = cloud::gather(&state.db())?;
         cloud::push(&state.data_dir, &osu_auth::Endpoints::default(), cols)
@@ -1072,6 +1134,7 @@ async fn cloud_push_collections(app: AppHandle) -> Result<cloud::PushSummary> {
 #[tauri::command]
 async fn cloud_pull_collections(app: AppHandle) -> Result<cloud::PullSummary> {
     tauri::async_runtime::spawn_blocking(move || {
+        online::ensure()?;
         let state = app.state::<AppState>();
         let saved = cloud::fetch(&state.data_dir, &osu_auth::Endpoints::default())?;
         let mut conn = state.db();
@@ -1461,7 +1524,11 @@ async fn delete_sets_in_lazer(app: AppHandle, ids: Vec<String>) -> Result<LazerS
 #[tauri::command]
 fn send_ping(state: State<AppState>) {
     static SENT: AtomicBool = AtomicBool::new(false);
-    if state.settings.lock().unwrap_or_else(|e| e.into_inner()).start_ping && !SENT.swap(true, Ordering::SeqCst) {
+    let allowed = {
+        let s = state.settings.lock().unwrap_or_else(|e| e.into_inner());
+        s.consent_asked && s.start_ping
+    };
+    if allowed && !SENT.swap(true, Ordering::SeqCst) {
         ping::start(state.data_dir.clone(), osu_auth::Endpoints::default().site);
     }
 }
@@ -1784,6 +1851,7 @@ const MAX_WAITING: usize = IMPORT_BATCH * 2;
 #[tauri::command]
 async fn compare_player(app: AppHandle, name: String) -> Result<tauri::ipc::Response> {
     tauri::async_runtime::spawn_blocking(move || {
+        online::ensure()?;
         let state = app.state::<AppState>();
         // the one before gives way
         state.compare_cancel.store(true, Ordering::SeqCst);
@@ -2325,6 +2393,7 @@ pub fn run() {
             let cache_dir = app.path().app_cache_dir()?;
             let settings_path = config_dir.join("settings.json");
             let settings = Settings::load(&settings_path);
+            online::set(settings.online);
             let conn = db::open(&data_dir.join("library.db"))?;
             downloads::follow_rules(data_dir.join("mirror-rules.json"));
 
@@ -2470,6 +2539,9 @@ pub fn run() {
             save_collection_db,
             save_file,
             send_ping,
+            set_online,
+            check_block,
+            noted_block,
             copy_lazer_collection,
             rename_collection,
             delete_collection,

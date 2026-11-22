@@ -66,6 +66,11 @@ export const rust: Record<string, string> = {
   "The importer didn't report on this set": "Der Importer hat zu diesem Set nichts gemeldet",
   "lazer found no beatmaps in the download": "lazer hat im Download keine Beatmaps gefunden",
 
+  // the online features (online.rs)
+  "This is one of Fumen's online features, and they're turned off. You can turn them on in Settings › About.":
+    "Das gehört zu Fumens Online-Funktionen, und die sind ausgeschaltet. Du kannst sie unter Einstellungen › Über einschalten.",
+  "Fumen couldn't make its random id.": "Fumen konnte seine Zufallszahl nicht erzeugen.",
+
   // the mirrors
   "Beatmap {beatmap} wasn't found on the mirrors": "Beatmap {beatmap} wurde auf den Mirrors nicht gefunden",
   "Couldn't find beatmap {beatmap}'s set ({why})": "Das Set von Beatmap {beatmap} wurde nicht gefunden ({why})",

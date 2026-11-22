@@ -281,8 +281,16 @@ fn unreachable(code: &'static str, who: &str, url: &str, e: &ureq::Error) -> Err
     )
 }
 
-/// The site's /oauth/token or /oauth/refresh.
+/// The stored access token while it's still good, without renewing it (None: not logged in, or
+/// it ran out).
+pub fn current_token(data_dir: &Path) -> Option<String> {
+    let stored = read(data_dir)?;
+    (stored.tokens.expires_at > crate::lazer::now_ms()).then_some(stored.tokens.access)
+}
+
+/// The site's /oauth/token or /oauth/refresh (one of the online features).
 fn token_request(ep: &Endpoints, kind: &str, body: &serde_json::Value) -> Result<Tokens> {
+    crate::online::ensure()?;
     let mut res = agent()
         .post(&format!("{}/oauth/{kind}", ep.site))
         .header("Content-Type", "application/json")
