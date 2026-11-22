@@ -196,7 +196,7 @@ fn ask(mirror: &'static str, req: ureq::RequestBuilder<ureq::typestate::WithoutB
 
 /// One page of sets for the search: osu.direct's, else catboy.best's.
 pub fn search(ep: &Endpoints, q: &Query) -> Result<Page> {
-    crate::online::refuse_if_blocked()?;
+    crate::online::ensure()?;
     let agent = agent();
     let offset = (q.page * PAGE).to_string();
     let text = q.text.trim();

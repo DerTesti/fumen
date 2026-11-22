@@ -468,11 +468,10 @@ export interface Settings {
   useStable: boolean;
   /** imports may go into osu!stable's Songs folder (behind the warnings in Settings › osu!stable) */
   stableImport: boolean;
-  /** the start ping, so fumen.dertesti.dev can count the people using Fumen (only once asked) */
-  startPing: boolean;
-  /** the first start's question (the start count, the online features) was answered */
-  consentAsked: boolean;
-  /** Fumen's online features (src-tauri/src/online.rs); changed through api.setOnline only */
+  /** the first start's terms for the online features and downloads were answered */
+  termsAsked: boolean;
+  /** Fumen's online features and downloads, their terms accepted (src-tauri/src/online.rs);
+   * changed through api.setOnline only */
   online: boolean;
   /** where tosu is (picked, or remembered from seeing it run) */
   tosuPath: string | null;

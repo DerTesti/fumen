@@ -19,6 +19,7 @@ import { attachSegIndicator, closeAnimated, reduceMotion, toast, uiConfirm } fro
 import { icon } from "../ui/icons";
 import { closeLazerHtml, wireCloseLazer } from "../ui/osu-launch";
 import { fromRust, t, tn } from "../lib/i18n";
+import { needOnline } from "../lib/consent";
 
 type Mode = "links" | "played";
 /** where the sets go */
@@ -844,6 +845,8 @@ async function stopImport(): Promise<void> {
 }
 
 async function runImport(lines: Line[], from: From): Promise<void> {
+  // downloading is one of the online features: their terms first, when they're off
+  if (!(await needOnline())) return;
   const links = lines.map((l) => l.link);
   const to = goesTo();
   const current: Job = { rows: lines.map((l) => ({ ...l, stage: "waiting", done: 0, total: 0 })), running: true, from, target: to };

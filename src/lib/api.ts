@@ -51,8 +51,8 @@ export const isLinux = /Linux/.test(navigator.userAgent) && !/Android/.test(navi
 
 export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
-  sendPing: () => invoke<void>("send_ping"),
-  /** the online features on or off (off logs out of osu!); answers the first start's question too */
+  /** the online features on (their terms accepted) or off (logs out of osu!); answers the first
+   * start's terms too */
   setOnline: (on: boolean) => invoke<Settings>("set_online", { on }),
   /** the block check; `ask`: from the block page, also with the online features off */
   checkBlock: (ask: boolean) => invoke<FumenBlock | null>("check_block", { ask }),

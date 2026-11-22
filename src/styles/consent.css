@@ -1,21 +1,22 @@
-/* The first start's question (src/lib/consent.ts) */
-.dialog.consent { width: 460px; }
-.consent-row {
+/* The terms for the online features and downloads (src/lib/consent.ts) */
+.dialog.consent { width: 480px; }
+.consent-terms {
   display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  margin-top: 14px;
-  padding: 12px 14px;
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 12px 14px 12px 30px;
   border-radius: var(--r-lg);
   background: var(--fill-subtle);
-  cursor: pointer;
+  font-size: var(--fs-12);
+  line-height: 1.5;
+  color: var(--t2);
 }
-.consent-row input { flex: none; margin-top: 2px; }
-.consent-text { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
-.consent-text b { font-size: var(--fs-13); font-weight: 650; color: var(--t1); }
-.consent-text span { font-size: var(--fs-12); line-height: 1.5; color: var(--t2); }
-.consent-text .consent-login { color: var(--warning); }
-.consent .dialog-actions { justify-content: space-between; }
+.consent-terms li::marker { color: var(--t3); }
+.consent-login { margin-top: 10px; font-size: var(--fs-12); line-height: 1.5; color: var(--warning); }
+.consent-links { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+.consent-links span { margin-left: 6px; font-size: var(--fs-12); color: var(--t3); }
+.consent .dialog-actions { justify-content: flex-end; }
 
 /* The block page: Fumen behind it, keys kept from it. A Fumen card that lands with weight: it
    springs up, the badge stamps down onto the striped head and sends one soft ring out, the sign

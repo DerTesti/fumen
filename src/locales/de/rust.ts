@@ -67,8 +67,8 @@ export const rust: Record<string, string> = {
   "lazer found no beatmaps in the download": "lazer hat im Download keine Beatmaps gefunden",
 
   // the online features (online.rs)
-  "This is one of Fumen's online features, and they're turned off. You can turn them on in Settings › About.":
-    "Das gehört zu Fumens Online-Funktionen, und die sind ausgeschaltet. Du kannst sie unter Einstellungen › Über einschalten.",
+  "This needs Fumen's online features, and they're off. You can turn them on in Settings › About.":
+    "Dafür braucht es Fumens Online-Funktionen, und die sind aus. Du kannst sie unter Einstellungen › Über einschalten.",
   "Fumen couldn't make its random id.": "Fumen konnte seine Zufallszahl nicht erzeugen.",
 
   // the mirrors

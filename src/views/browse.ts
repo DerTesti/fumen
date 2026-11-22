@@ -21,6 +21,7 @@ import { starRange } from "../ui/star-range";
 import { openSet } from "./actions";
 import { importEvents, importSets, importTarget, openImport, setImportState, type SetImport } from "./import";
 import { fromRust, t, tn } from "../lib/i18n";
+import { needOnline } from "../lib/consent";
 
 const MODES = [
   { mode: -1, label: t("All") },
@@ -128,6 +129,8 @@ export class BrowseView {
   private plain = false;
   private loading: "first" | "more" | null = null;
   private error: string | null = null;
+  /** the online features are off: searching waits for their terms */
+  private offline = false;
   /** bumped per search, so a late answer to an older one is dropped */
   private job = 0;
   /** sets whose difficulties are open */
@@ -215,6 +218,8 @@ export class BrowseView {
   /** The page came on screen: osu!lazer may have opened or closed meanwhile. */
   shown(): void {
     void this.refreshStatus();
+    // the online features turned on elsewhere meanwhile
+    if (this.offline && store.settings?.online) this.search();
   }
 
   private readonly onPreview = () => {
@@ -236,6 +241,15 @@ export class BrowseView {
 
   private load(more: boolean): void {
     const job = ++this.job;
+    this.offline = !store.settings?.online;
+    if (this.offline) {
+      this.loading = null;
+      this.sets = [];
+      this.more = false;
+      this.renderList();
+      this.renderFoot();
+      return;
+    }
     const q = { ...this.q, page: more ? this.q.page + 1 : 0 };
     this.loading = more ? "more" : "first";
     this.error = null;
@@ -362,6 +376,7 @@ export class BrowseView {
     if (first) this.el.scrollTop = 0;
     if (!this.sets.length) {
       if (first) list.innerHTML = ghostRows(Math.ceil(window.innerHeight / GHOST_PITCH) + 1);
+      else if (this.offline) list.innerHTML = `<div class="empty-state br-empty">${icon("search-duo")}<div class="empty-title">${t("Searching and downloading are online features")}</div><div class="empty-sub">${t("They're off. With their terms accepted, Fumen searches the mirrors and downloads from them.")}</div><button class="btn btn-sm btn-primary br-online" type="button">${t("Turn them on")}</button></div>`;
       else if (this.error) list.innerHTML = `<div class="empty-state br-empty">${icon("alert")}<div class="empty-title">${t("The mirrors couldn't search")}</div><div class="empty-sub">${esc(this.error)}</div><button class="btn btn-sm br-retry" type="button">${t("Try again")}</button></div>`;
       else list.innerHTML = `<div class="empty-state br-empty">${icon("search-duo")}<div class="empty-title">${t("Nothing on the mirrors matches")}</div><div class="empty-sub">${t("Fewer filters, or other words, find more.")}</div></div>`;
       return;
@@ -580,6 +595,7 @@ export class BrowseView {
       if (target.closest(".br-filters-btn")) return this.openFilters(target.closest<HTMLElement>(".br-filters-btn")!);
       if (target.closest(".br-recheck")) return void this.refreshStatus();
       if (target.closest(".br-retry")) return this.load(this.sets.length > 0);
+      if (target.closest(".br-online")) return void needOnline().then((on) => on && this.search());
       if (target.closest(".br-more")) return this.load(true);
       if (target.closest(".br-add-all")) return void this.addAll();
       const row = target.closest<HTMLElement>(".br-set");

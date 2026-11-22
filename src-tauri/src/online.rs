@@ -1,16 +1,18 @@
-//! Fumen's online features: logging in with osu!, the cloud, comparing with other players, and
-//! everything else that goes through fumen.dertesti.dev with something that says who you are.
-//! They're off until the player says yes (the first start asks; Settings › About can change it),
-//! and while they're off nothing here talks to the site (`ensure`).
+//! Fumen's online features and downloads: searching and downloading maps on the mirrors, logging
+//! in with osu!, the cloud, comparing with other players. They come with terms the first start
+//! shows (fumen.dertesti.dev/terms): with them accepted, they're on; "only local" keeps them off,
+//! and while they're off nothing here goes online (`ensure`). Settings › About can change it.
 //!
-//! With them on, every start runs the block check (`check`): the install's random id (ping.rs), a
-//! code for this computer, and the osu! login when there is one. The code is a SHA-256 hash of
-//! Fumen's own key and the id the system gives itself (Windows' MachineGuid, macOS' hardware UUID,
-//! Linux' machine-id): the id itself never leaves the computer, and the code can't be matched with
-//! what other apps send. A block from the site is noted in `block.json`, so it holds offline (a
-//! full one also with the online features turned off again) until a check finds it lifted. An
-//! online block closes `ensure`, so the login, the cloud and comparing stop. Turning the features
-//! off asks the site to delete this computer's code (`forget_machine`).
+//! With them on, every start runs the block check (`check`): the install's random id (ping.rs),
+//! this computer's codes, the osu! login when there is one, and Fumen's version (a release build's
+//! check also counts the start). The codes are SHA-256 hashes of Fumen's own key and ids the
+//! system and the mainboard give themselves (Windows' MachineGuid and the SMBIOS UUID and serial
+//! numbers; macOS' hardware UUID; Linux' machine-id): the ids never leave the computer, and the
+//! codes can't be matched with what other apps send. Placeholder ids boards ship with are left
+//! out. A block from the site is noted in `block.json`, so it holds offline (a full one also with
+//! the online features off) until a check finds it lifted; any block closes `ensure`. Turning the
+//! features off asks the site to take this computer's codes off its players list
+//! (`forget_machine`; a block keeps them).
 //!
 //! What the site keeps of this: site/server.mjs (/api/check), and the privacy page.
 
@@ -45,21 +47,9 @@ pub fn is_on() -> bool {
 /// Ok while the online features are on and not blocked; else what to tell the player.
 pub fn ensure() -> Result<()> {
     if !is_on() {
-        return Err(Error::known("online-off", "This is one of Fumen's online features, and they're turned off. You can turn them on in Settings › About."));
+        return Err(Error::known("online-off", "This needs Fumen's online features, and they're off. You can turn them on in Settings › About."));
     }
     // the tests talk to their own local servers, and set no block
-    if cfg!(test) {
-        return Ok(());
-    }
-    match BLOCK.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-        Some(b) => Err(Error::known("blocked", b.message.clone())),
-        None => Ok(()),
-    }
-}
-
-/// Err while Fumen is blocked (online or full), whether the online features are on or not: for
-/// what goes online without them, the mirrors (searching, downloads, imports by link).
-pub fn refuse_if_blocked() -> Result<()> {
     if cfg!(test) {
         return Ok(());
     }
@@ -110,9 +100,118 @@ fn code_of(id: &str) -> String {
     h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// This computer's code, when the system has an id.
-pub fn machine_code() -> Option<String> {
-    machine_id().map(|id| code_of(&id))
+/// This computer's codes: the system's id first, then the mainboard's (at most four, without
+/// placeholders).
+pub fn machine_codes() -> Vec<String> {
+    let mut codes: Vec<String> = machine_id().filter(|id| real_id(id)).map(|id| code_of(&id)).into_iter().collect();
+    for (kind, value) in hardware_ids() {
+        if real_id(&value) {
+            let code = code_of(&format!("{kind}:{value}"));
+            if !codes.contains(&code) {
+                codes.push(code);
+            }
+        }
+    }
+    codes.truncate(4);
+    codes
+}
+
+/// Whether an id from the system or the mainboard names this computer, not a placeholder many
+/// boards ship with ("To be filled by O.E.M.", "Default string", 00000000…, 03000200-0400-…).
+fn real_id(id: &str) -> bool {
+    let compact: String = id.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_lowercase()).collect();
+    let Some(first) = compact.chars().next() else { return false };
+    if compact.len() < 5 || compact.chars().all(|c| c == first) {
+        return false;
+    }
+    const WITHIN: [&str; 12] = [
+        "tobefilled",
+        "defaultstring",
+        "systemserial",
+        "serialnumber",
+        "notapplicable",
+        "notspecified",
+        "notavailable",
+        "chassisserial",
+        "baseboardserial",
+        "03000200040005000006000700080009",
+        "0123456789",
+        "123456789",
+    ];
+    const WHOLE: [&str; 6] = ["default", "unknown", "invalid", "nodata", "nonenone", "xxxxx"];
+    !WITHIN.iter().any(|p| compact.contains(p)) && !WHOLE.contains(&compact.as_str())
+}
+
+/// The mainboard's ids from an SMBIOS structure table: the system UUID and serial number (type 1)
+/// and the board's serial number (type 2), as (kind, value), placeholders and all.
+fn smbios_ids(table: &[u8]) -> Vec<(&'static str, String)> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + 4 <= table.len() {
+        let (kind, len) = (table[i], table[i + 1] as usize);
+        if len < 4 || i + len > table.len() {
+            break;
+        }
+        let formatted = &table[i..i + len];
+        // the strings after the formatted part, each ending in NUL, the set in another NUL
+        let mut j = i + len;
+        let mut strings: Vec<&[u8]> = Vec::new();
+        if table.get(j) == Some(&0) {
+            j += 2;
+        } else {
+            while let Some(p) = table.get(j..).and_then(|t| t.iter().position(|&b| b == 0)) {
+                if p == 0 {
+                    j += 1;
+                    break;
+                }
+                strings.push(&table[j..j + p]);
+                j += p + 1;
+            }
+        }
+        let string = |at: usize| -> Option<String> {
+            let n = (*formatted.get(at)? as usize).checked_sub(1)?;
+            Some(String::from_utf8_lossy(strings.get(n)?).trim().to_string())
+        };
+        match kind {
+            1 => {
+                if let Some(uuid) = formatted.get(8..24) {
+                    out.push(("board-uuid", uuid.iter().map(|b| format!("{b:02x}")).collect()));
+                }
+                out.extend(string(7).map(|s| ("system-serial", s)));
+            }
+            2 => out.extend(string(7).map(|s| ("board-serial", s))),
+            127 => break,
+            _ => {}
+        }
+        i = j;
+    }
+    out
+}
+
+/// The mainboard's ids (Windows: the SMBIOS table, readable without admin rights).
+#[cfg(windows)]
+fn hardware_ids() -> Vec<(&'static str, String)> {
+    use windows_sys::Win32::System::SystemInformation::GetSystemFirmwareTable;
+    let rsmb = u32::from_be_bytes(*b"RSMB");
+    // SAFETY: a null buffer of size 0 only asks for the size
+    let size = unsafe { GetSystemFirmwareTable(rsmb, 0, std::ptr::null_mut(), 0) };
+    if size == 0 || size > 1 << 20 {
+        return Vec::new();
+    }
+    let mut buf = vec![0u8; size as usize];
+    // SAFETY: the buffer is exactly as long as said
+    let got = unsafe { GetSystemFirmwareTable(rsmb, 0, buf.as_mut_ptr(), size) };
+    if got == 0 || got > size || buf.len() < 8 {
+        return Vec::new();
+    }
+    // RawSMBIOSData: four bytes of versions, the table's length, then the table
+    let len = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]) as usize;
+    smbios_ids(&buf[8..(8 + len).min(got as usize)])
+}
+
+#[cfg(not(windows))]
+fn hardware_ids() -> Vec<(&'static str, String)> {
+    Vec::new()
 }
 
 #[cfg(windows)]
@@ -166,15 +265,17 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
-/// Asks `site` whether this Fumen is blocked: with the install's random id, this computer's code
-/// when `machine` (only with the online features on), and the osu! login while it's current. A
-/// block is noted on disk and closes `ensure`; none lifts both.
+/// Asks `site` whether this Fumen is blocked: with the install's random id and version, this
+/// computer's codes when `machine` (only with the online features on, which also counts a release
+/// build's start), and the osu! login while it's current. A block is noted on disk and closes
+/// `ensure`; none lifts both.
 pub fn check(data_dir: &Path, site: &str, machine: bool) -> Result<Option<Block>> {
     let install = crate::ping::install_id(data_dir).ok_or_else(|| Error::known("check-failed", "Fumen couldn't make its random id."))?;
-    let mut body = serde_json::json!({ "install": install });
+    let mut body = serde_json::json!({ "install": install, "version": env!("CARGO_PKG_VERSION"), "count": machine && !cfg!(debug_assertions) });
     if machine {
-        if let Some(code) = machine_code() {
-            body["machine"] = code.into();
+        let codes = machine_codes();
+        if !codes.is_empty() {
+            body["machines"] = codes.into();
         }
     }
     let agent = agent();
@@ -194,12 +295,15 @@ pub fn check(data_dir: &Path, site: &str, machine: bool) -> Result<Option<Block>
     Ok(block)
 }
 
-/// Asks `site` to delete this computer's code wherever it keeps it (the consent for it was taken
-/// back). In the background; a failure is silent.
+/// Asks `site` to take this computer's codes off its players list (the online features were
+/// turned off). In the background; a failure is silent.
 pub fn forget_machine(site: String) {
     std::thread::spawn(move || {
-        let Some(code) = machine_code() else { return };
-        let body = serde_json::json!({ "machine": code });
+        let codes = machine_codes();
+        if codes.is_empty() {
+            return;
+        }
+        let body = serde_json::json!({ "machines": codes });
         let _ = agent().post(&format!("{site}/api/forget-machine")).header("Content-Type", "application/json").send(body.to_string());
     });
 }
@@ -217,13 +321,52 @@ mod tests {
         assert_eq!(a, code_of(" 4C4C4544-0042-3510-8051-B4C04F384D32\n"));
         assert_ne!(a, code_of("4c4c4544-0042-3510-8051-b4c04f384d33"));
         assert!(!a.contains("4c4c4544"));
-        // this computer has one (Windows always gives one)
+        // this computer has some (Windows always gives one), the same each time
+        let codes = machine_codes();
         #[cfg(windows)]
-        assert!(machine_code().is_some());
-        if let Some(code) = machine_code() {
-            assert_eq!(code.len(), 64);
-            assert_eq!(machine_code(), Some(code));
+        assert!(!codes.is_empty());
+        assert!(codes.len() <= 4 && codes.iter().all(|c| c.len() == 64));
+        assert_eq!(machine_codes(), codes);
+        println!("this computer: {} codes", codes.len());
+    }
+
+    #[test]
+    fn placeholders_name_no_computer() {
+        for fake in ["To be filled by O.E.M.", "Default string", "System Serial Number", "00000000-0000-0000-0000-000000000000", "ffffffffffffffffffffffffffffffff", "03000200040005000006000700080009", "None", "0", "", "  ", "123456789", "Not Applicable", "xxxxx"] {
+            assert!(!real_id(fake), "{fake:?} passed as a real id");
         }
+        for real in ["4c4c4544-0042-3510-8051-b4c04f384d32", "PF3ABC12", "MS-7C02-SN-8473920", "2f7e9a40c1d5e8b3a6f4d2c1b0e9a8f7"] {
+            assert!(real_id(real), "{real:?} was taken for a placeholder");
+        }
+    }
+
+    #[test]
+    fn reads_the_mainboard_from_smbios() {
+        let mut t = Vec::new();
+        // type 0 (firmware), no strings
+        t.extend([0u8, 4, 0, 0, 0, 0]);
+        // type 1: header, maker/product/version strings (1-3), serial (4), the UUID at 8
+        let mut one = vec![1u8, 27, 1, 0, 1, 2, 3, 4];
+        one.extend((0x10..0x20).collect::<Vec<u8>>());
+        one.extend([6, 0, 0]);
+        t.extend(&one);
+        t.extend(b"Maker\0Box\0v1\0SERIAL-1234\0\0");
+        // type 2: board, serial at 7 (string 2)
+        t.extend([2u8, 8, 2, 0, 1, 0, 0, 2]);
+        t.extend(b"Board Maker\0Default string\0\0");
+        t.extend([127u8, 4, 3, 0, 0, 0]);
+        let ids = smbios_ids(&t);
+        assert_eq!(
+            ids,
+            vec![
+                ("board-uuid", "101112131415161718191a1b1c1d1e1f".to_string()),
+                ("system-serial", "SERIAL-1234".to_string()),
+                ("board-serial", "Default string".to_string()),
+            ]
+        );
+        assert_eq!(ids.iter().filter(|(_, v)| real_id(v)).count(), 2);
+        // a cut-off table stops without a panic
+        assert!(smbios_ids(&t[..30]).len() <= 2);
     }
 
     #[test]

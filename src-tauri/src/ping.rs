@@ -1,11 +1,9 @@
-//! The start ping: once per start, Fumen tells fumen.dertesti.dev "a Fumen started", with a random
-//! id made on this PC (so a person counts once, however often they start it) and its version.
-//! Nothing else goes along, no answer is waited for, and a failure is silent. The window asks for
-//! it (`send_ping`) only after the first start's notice about it; Settings can turn it off, and
-//! development builds never send it.
+//! Fumen's random id for this install: made on the first start, tied to nothing. It goes along
+//! with the block check (online.rs), which also counts a release build's start with it, so a
+//! person counts once however often they start Fumen. (Fumen used to send it on its own, as the
+//! start ping; the site still takes that from older versions.)
 
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::path::Path;
 
 /// The random id, made on the first start: 32 hex digits, tied to nothing.
 pub(crate) fn install_id(data_dir: &Path) -> Option<String> {
@@ -26,24 +24,6 @@ pub(crate) fn install_id(data_dir: &Path) -> Option<String> {
 
 fn is_id(s: &str) -> bool {
     s.len() == 32 && s.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-}
-
-/// Sends the ping in the background (release builds only).
-pub fn start(data_dir: PathBuf, site: String) {
-    if cfg!(debug_assertions) {
-        return;
-    }
-    std::thread::spawn(move || {
-        let Some(id) = install_id(&data_dir) else { return };
-        let body = serde_json::json!({ "id": id, "version": env!("CARGO_PKG_VERSION") });
-        let agent: ureq::Agent = ureq::Agent::config_builder()
-            .user_agent(crate::downloads::USER_AGENT)
-            .timeout_global(Some(Duration::from_secs(10)))
-            .https_only(true)
-            .build()
-            .into();
-        let _ = agent.post(&format!("{site}/api/ping")).header("Content-Type", "application/json").send(body.to_string());
-    });
 }
 
 #[cfg(test)]

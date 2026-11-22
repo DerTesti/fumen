@@ -22,11 +22,11 @@ pub struct Settings {
     /// downloaded .osz into stable's Songs folder, stable imports it on its next start). Off unless
     /// turned on behind the warnings in Settings › osu!stable.
     pub stable_import: bool,
-    /// The start ping (ping.rs): counted among the people using Fumen. Only with `consent_asked`.
-    pub start_ping: bool,
-    /// The first start's question (the start count, the online features) was answered.
-    pub consent_asked: bool,
-    /// Fumen's online features (online.rs): only through `set_online`, never a plain patch.
+    /// The first start's terms for the online features and downloads were answered (accepted, or
+    /// "only local"); `online` says which.
+    pub terms_asked: bool,
+    /// Fumen's online features and downloads, their terms accepted (online.rs): only through
+    /// `set_online`, never a plain patch.
     pub online: bool,
     /// Where tosu is (tosu.rs): picked, or remembered from seeing it run.
     pub tosu_path: Option<String>,
@@ -41,8 +41,7 @@ impl Default for Settings {
             stable_path: None,
             use_stable: true,
             stable_import: false,
-            start_ping: false,
-            consent_asked: false,
+            terms_asked: false,
             online: false,
             tosu_path: None,
             ui: Map::new(),

@@ -1051,7 +1051,7 @@ async fn set_online(app: AppHandle, on: bool) -> Result<Settings> {
         let updated = {
             let mut s = state.settings.lock().unwrap_or_else(|e| e.into_inner());
             s.online = on;
-            s.consent_asked = true;
+            s.terms_asked = true;
             s.save(&state.settings_path)?;
             s.clone()
         };
@@ -1524,18 +1524,6 @@ async fn delete_sets_in_lazer(app: AppHandle, ids: Vec<String>) -> Result<LazerS
 /// The start ping (`ping.rs`), once per start and only while Settings allow it. The window asks
 /// for it after the one-time notice about it, so nothing is sent before the player knew.
 #[tauri::command]
-fn send_ping(state: State<AppState>) {
-    static SENT: AtomicBool = AtomicBool::new(false);
-    let allowed = {
-        let s = state.settings.lock().unwrap_or_else(|e| e.into_inner());
-        s.consent_asked && s.start_ping
-    };
-    if allowed && !SENT.swap(true, Ordering::SeqCst) {
-        ping::start(state.data_dir.clone(), osu_auth::Endpoints::default().site);
-    }
-}
-
-#[tauri::command]
 async fn save_collection_db(app: AppHandle, title: String, filter: String, picks: Vec<collections::Pick>) -> Result<Option<usize>> {
     tauri::async_runtime::spawn_blocking(move || {
         use tauri_plugin_dialog::DialogExt;
@@ -1978,8 +1966,8 @@ async fn import_beatmaps(app: AppHandle, links: Vec<String>, target: Option<Stri
 }
 
 fn run_import(app: &AppHandle, state: &AppState, links: &[String], into_stable: bool) -> Result<ImportSummary> {
-    // a blocked Fumen downloads nothing (said once, not per link)
-    online::refuse_if_blocked()?;
+    // downloads are one of the online features: off, or blocked, nothing goes (said once, not per link)
+    online::ensure()?;
     let emit = |index: usize, stage: &'static str, set: Option<u32>, title: Option<String>, message: Option<String>| {
         let p = ImportProgress { index, stage, set, title, done: 0, total: 0, message };
         let _ = app.emit("import-progress", p);
@@ -2544,7 +2532,6 @@ pub fn run() {
             delete_sets_in_lazer,
             save_collection_db,
             save_file,
-            send_ping,
             set_online,
             check_block,
             noted_block,

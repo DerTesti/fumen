@@ -11,7 +11,7 @@ import { lang, LANGS, switchLang, t, tn } from "../lib/i18n";
 import { esc, fixed, MODE_LABEL, num, relativeTime } from "../lib/format";
 import { collectionEvents, fumenCollections, loadCollections, putIntoLazer, saveCollectionDb } from "../lib/collections";
 import { syncHistory } from "../lib/history";
-import { checkBlock } from "../lib/consent";
+import { needOnline } from "../lib/consent";
 import { canUpdate, checkForUpdate, downloadText, installUpdate, updateEvents, updateState } from "../lib/updater";
 import { describeScan, isScanning, runScan } from "../lib/scan";
 import { DEFAULT_ACCENT, events, flushPrefs, refreshStatus, setPrefs, store } from "../lib/store";
@@ -63,19 +63,8 @@ const norm = (s: string): string =>
 export async function loginWithOsu(): Promise<void> {
   if (waiting) return;
   if (!store.settings?.online) {
-    const ok = await uiConfirm(
-      t("Logging in goes through fumen.dertesti.dev, so it's one of Fumen's online features. Turn them on? Then Fumen also checks at each start whether it's blocked, with its random number and a code made from this computer's id."),
-      { title: t("Turn on the online features?"), confirmLabel: t("Turn them on") },
-    );
-    if (!ok) return;
-    try {
-      store.settings = await api.setOnline(true);
-    } catch (e) {
-      toast(asApiError(e).message, { kind: "danger", timeout: 6000 });
-      return;
-    }
+    if (!(await needOnline())) return;
     shown?.syncOnline();
-    void checkBlock(false);
   }
   waiting = true;
   shown?.renderAccount();
@@ -405,17 +394,17 @@ export class SettingsView {
           }
           <div class="setting-row">
             <div class="setting-text">
-              <div class="setting-title">${t("Count me in")}</div>
-              <div class="setting-desc">${t("When Fumen starts, it tells fumen.dertesti.dev that it did: a random number made on this PC and Fumen's version, nothing else. That's how many people use it.")}</div>
+              <div class="setting-title">${t("Online features and downloads")}</div>
+              <div class="setting-desc">${t("Searching and downloading maps, logging in with osu!, the cloud and comparing with other players. They come with terms: Fumen checks at each start whether it's blocked, with its random number and codes made from this computer's ids. Turning them off logs you out, and fumen.dertesti.dev takes this computer's codes off its list.")}</div>
             </div>
-            <input type="checkbox" role="switch" data-setting="startPing" aria-label="${t("Count me in")}" ${store.settings?.consentAsked && store.settings.startPing ? "checked" : ""} />
+            <input type="checkbox" role="switch" data-setting="online" aria-label="${t("Online features and downloads")}" ${store.settings?.online ? "checked" : ""} />
           </div>
           <div class="setting-row">
             <div class="setting-text">
-              <div class="setting-title">${t("Online features")}</div>
-              <div class="setting-desc">${t("Logging in with osu!, collections in the cloud and comparing with other players, through fumen.dertesti.dev. With them on, Fumen checks at each start whether it's blocked, with its random number and a code made from this computer's id; the id itself never leaves your computer. Turning them off logs you out, and fumen.dertesti.dev deletes the code.")}</div>
+              <div class="setting-title">${t("Terms")}</div>
+              <div class="setting-desc">${t("What the online features and downloads come with, and what gets them blocked.")}</div>
             </div>
-            <input type="checkbox" role="switch" data-setting="online" aria-label="${t("Online features")}" ${store.settings?.online ? "checked" : ""} />
+            <button class="btn s-terms" type="button">${t("Open")}</button>
           </div>
           <div class="setting-row">
             <div class="setting-text">
@@ -751,24 +740,27 @@ export class SettingsView {
     if (sw) sw.checked = !!store.settings?.online;
   }
 
-  /** the online features on or off from their switch; off asks first when it logs out */
+  /** the online features on or off from their switch: on shows the terms first, off asks first
+   * when it logs out */
   private async setOnline(input: HTMLInputElement): Promise<void> {
     const on = input.checked;
-    if (!on && account) {
-      const ok = await uiConfirm(t("Turn the online features off? Fumen logs you out of osu!, and fumen.dertesti.dev deletes this computer's code."), {
-        title: t("Online features"),
+    if (on) {
+      input.checked = false;
+      input.checked = await needOnline();
+      return;
+    }
+    if (account) {
+      const ok = await uiConfirm(t("Turn the online features off? Fumen logs you out of osu!, and fumen.dertesti.dev takes this computer's codes off its list."), {
+        title: t("Online features and downloads"),
         confirmLabel: t("Turn them off"),
       });
       if (!ok) return void (input.checked = true);
     }
     input.disabled = true;
     try {
-      store.settings = await api.setOnline(on);
-      if (on) void checkBlock(false);
-      else {
-        account = null;
-        this.renderAccount();
-      }
+      store.settings = await api.setOnline(false);
+      account = null;
+      this.renderAccount();
     } catch (e) {
       input.checked = !on;
       toast(asApiError(e).message, { kind: "danger", timeout: 6000 });
@@ -1041,6 +1033,7 @@ export class SettingsView {
     if (target.closest(".s-inspector")) return void api.openInspector().catch((e) => toast(asApiError(e).message, { kind: "danger" }));
     if (target.closest(".s-update-install")) return installUpdate();
     if (target.closest(".s-login")) return loginWithOsu();
+    if (target.closest(".s-terms")) return void openUrl("https://fumen.dertesti.dev/terms").catch((err) => toast(asApiError(err).message, { kind: "danger" }));
     if (target.closest(".s-privacy")) return void openUrl("https://fumen.dertesti.dev/privacy").catch((err) => toast(asApiError(err).message, { kind: "danger" }));
     if (target.closest(".s-login-cancel")) return api.osuLoginCancel();
     if (target.closest(".s-logout")) {
@@ -1123,8 +1116,7 @@ export class SettingsView {
     } else if ("prefCompanion" in input.dataset) {
       setPrefs({ companion: input.checked });
       void (input.checked ? api.openCompanion() : api.closeCompanion()).catch((err) => toast(asApiError(err).message, { kind: "danger" }));
-    } else if (input.dataset.setting === "startPing") {
-      api.updateSettings({ startPing: input.checked, consentAsked: true }).then((s) => (store.settings = s));
+
     } else if (input.dataset.setting === "online") {
       void this.setOnline(input);
     } else if (input.dataset.setting === "autoRescan") {
