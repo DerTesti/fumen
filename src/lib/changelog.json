@@ -25,7 +25,7 @@
   },
   {
     "version": "1.4.3",
-    "date": "2026-11-22",
+    "date": "2026-11-23",
     "en": [
       "Changed: When a download mirror has trouble, Fumen's website can now tell every Fumen to go easy on it or leave it out for a while, without an update."
     ],
