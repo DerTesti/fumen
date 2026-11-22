@@ -4,9 +4,12 @@
 //! nothing here ever fetches a file from osu!'s servers: sets come from community mirrors.
 //! Downloads share a [`Mirrors`] pool that spreads them over the mirrors, so no single one sees
 //! a whole import, and that pauses a mirror when it says "too many requests" (for as long as its
-//! `Retry-After` asks) instead of failing sets. Beatmap links (`/b/<id>`, `/beatmaps/<id>`) are
+//! `Retry-After` asks) instead of failing sets. Every request to a mirror, from here, the search
+//! and the chart files, goes through one budget per mirror (see [`UNITS_PER_MINUTE`]), so Fumen
+//! stays under the mirrors' rate limits instead of running into them. Beatmap links (`/b/<id>`, `/beatmaps/<id>`) are
 //! turned into their set by the mirrors' beatmap lookups too.
 
+use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -43,6 +46,126 @@ const LOOKUPS: [(&str, fn(u32) -> String); 3] = [
     ("nekoha.moe", |id| format!("https://mirror.nekoha.moe/api4/beatmap/{id}")),
     ("catboy.best", |id| format!("https://catboy.best/api/v2/b/{id}")),
 ];
+
+/// What Fumen asks of one mirror a minute at most, in the units of catboy.best's limit (1200 a
+/// minute, a download costs 20 and any other request 1; an IP that keeps going past it gets
+/// banned). Two thirds of that, for every mirror: 40 downloads a minute.
+const UNITS_PER_MINUTE: u32 = 800;
+const WINDOW: Duration = Duration::from_secs(60);
+/// What a set or chart file download costs of the budget.
+pub const DOWNLOAD: u32 = 20;
+/// What a lookup or search costs.
+pub const REQUEST: u32 = 1;
+
+#[derive(Default)]
+struct Budget {
+    spent: VecDeque<(Instant, u32)>,
+    /// after "too many requests": nothing goes to the mirror until then
+    rest_until: Option<Instant>,
+}
+
+impl Budget {
+    fn free_at(&self, units: u32, now: Instant) -> Instant {
+        let rest = self.rest_until.filter(|&t| t > now).unwrap_or(now);
+        let mut used: u32 = self.spent.iter().map(|(_, u)| u).sum();
+        if used + units <= UNITS_PER_MINUTE {
+            return rest;
+        }
+        for (t, u) in &self.spent {
+            used -= u;
+            if used + units <= UNITS_PER_MINUTE {
+                return rest.max(*t + WINDOW);
+            }
+        }
+        rest
+    }
+}
+
+type Budgets = Mutex<Vec<(&'static str, Budget)>>;
+
+#[cfg(not(test))]
+static BUDGETS: Budgets = Mutex::new(Vec::new());
+// each test its own, so they don't use up each other's
+#[cfg(test)]
+thread_local! {
+    static BUDGETS: Budgets = const { Mutex::new(Vec::new()) };
+}
+
+fn with_budget<T>(mirror: &'static str, f: impl FnOnce(&mut Budget, Instant) -> T) -> T {
+    #[cfg(not(test))]
+    return in_budget(&BUDGETS, mirror, f);
+    #[cfg(test)]
+    BUDGETS.with(|all| in_budget(all, mirror, f))
+}
+
+fn in_budget<T>(all: &Budgets, mirror: &'static str, f: impl FnOnce(&mut Budget, Instant) -> T) -> T {
+    let mut all = all.lock().unwrap_or_else(|e| e.into_inner());
+    let now = Instant::now();
+    let i = match all.iter().position(|(n, _)| *n == mirror) {
+        Some(i) => i,
+        None => {
+            all.push((mirror, Budget::default()));
+            all.len() - 1
+        }
+    };
+    let b = &mut all[i].1;
+    while b.spent.front().is_some_and(|(t, _)| now.duration_since(*t) >= WINDOW) {
+        b.spent.pop_front();
+    }
+    f(b, now)
+}
+
+/// When `mirror` can take a request costing `units` (now or earlier: right away).
+pub fn free_at(mirror: &'static str, units: u32) -> Instant {
+    with_budget(mirror, |b, now| b.free_at(units, now))
+}
+
+/// Whether `mirror` can take a request costing `units` right now.
+fn can_take(mirror: &'static str, units: u32) -> bool {
+    with_budget(mirror, |b, now| b.free_at(units, now) <= now)
+}
+
+/// Books a request costing `units` with `mirror` if it fits right now.
+pub fn try_book(mirror: &'static str, units: u32) -> bool {
+    with_budget(mirror, |b, now| {
+        let fits = b.free_at(units, now) <= now;
+        if fits {
+            b.spent.push_back((now, units));
+        }
+        fits
+    })
+}
+
+/// Waits until `mirror` can take a request costing `units` and books it; false (nothing booked)
+/// when that's further off than `max`.
+pub fn book(mirror: &'static str, units: u32, max: Duration) -> bool {
+    loop {
+        let at = free_at(mirror, units);
+        let now = Instant::now();
+        if at <= now {
+            if try_book(mirror, units) {
+                return true;
+            }
+            continue;
+        }
+        if at - now > max {
+            return false;
+        }
+        std::thread::sleep((at - now).min(Duration::from_millis(500)));
+    }
+}
+
+/// `mirror` said "too many requests": nothing in Fumen asks it again for `d`.
+pub fn rest(mirror: &'static str, d: Duration) {
+    with_budget(mirror, |b, now| {
+        let until = now + d.min(MAX_REST);
+        b.rest_until = Some(b.rest_until.map_or(until, |t| t.max(until)));
+    });
+}
+
+fn resting(mirror: &'static str) -> bool {
+    with_budget(mirror, |b, now| b.rest_until.is_some_and(|t| t > now))
+}
 
 /// Downloads from one mirror at once, at most.
 const PER_MIRROR: u32 = 2;
@@ -114,12 +237,15 @@ impl Mirrors {
     fn pick(&self, tried: &[Tried]) -> Option<usize> {
         let now = Instant::now();
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        let resting = |m: &MirrorState| m.rest_until.is_some_and(|t| t > now);
-        let others_left = (0..MIRRORS.len()).any(|i| !MIRRORS[i].last_resort && may_have(tried[i]) && !resting(&state[i]));
+        let rests = |i: usize| state[i].rest_until.is_some_and(|t| t > now) || resting(MIRRORS[i].name);
+        let others_left = (0..MIRRORS.len()).any(|i| !MIRRORS[i].last_resort && may_have(tried[i]) && !rests(i));
         let best = (0..MIRRORS.len())
             .filter(|&i| may_have(tried[i]) && !(MIRRORS[i].last_resort && others_left))
-            .filter(|&i| !resting(&state[i]) && state[i].active < PER_MIRROR)
+            .filter(|&i| !rests(i) && state[i].active < PER_MIRROR && can_take(MIRRORS[i].name, DOWNLOAD))
             .min_by_key(|&i| (matches!(tried[i], Tried::Failed(_)), state[i].active, state[i].started, i))?;
+        if !try_book(MIRRORS[best].name, DOWNLOAD) {
+            return None;
+        }
         state[best].active += 1;
         state[best].started += 1;
         Some(best)
@@ -139,7 +265,10 @@ impl Mirrors {
                 m.errors_in_a_row = 0;
                 m.refusals_in_a_row = 0;
             }
-            Some(Outcome::Limited(d)) => rest(m, *d),
+            Some(Outcome::Limited(d)) => {
+                rest(m, *d);
+                self::rest(MIRRORS[i].name, *d);
+            }
             Some(Outcome::Failed(_)) => {
                 m.errors_in_a_row += 1;
                 let d = REST_AFTER_ERROR * 2u32.pow(m.errors_in_a_row.min(8) - 1);
@@ -163,10 +292,10 @@ impl Mirrors {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         (0..MIRRORS.len())
             .filter(|&i| may_have(tried[i]))
-            .map(|i| match state[i].rest_until {
-                Some(t) if t > now => t,
+            .map(|i| {
                 // busy with other sets: soon
-                _ => now,
+                let own = state[i].rest_until.filter(|&t| t > now).unwrap_or(now);
+                own.max(free_at(MIRRORS[i].name, DOWNLOAD))
             })
             .min()
     }
@@ -235,8 +364,16 @@ pub fn set_of_beatmap(beatmap: u32) -> Result<u32> {
     let agent = agent(Duration::from_secs(15));
     let mut failures = Vec::new();
     for (name, url) in LOOKUPS {
+        if !book(name, REQUEST, Duration::from_secs(10)) {
+            failures.push(format!("{name} resting"));
+            continue;
+        }
         let answer = agent.get(&url(beatmap)).call();
         match answer {
+            Ok(res) if res.status() == 429 => {
+                rest(name, retry_after(&res));
+                failures.push(format!("{name} 429"));
+            }
             Ok(mut res) if res.status() == 200 => {
                 let set = res
                     .body_mut()
@@ -337,6 +474,9 @@ pub fn download_set(set: u32, dir: &Path, mirrors: &Mirrors, mut progress: impl 
     Err(Error::known("download-failed", format!("No download mirror could deliver this set ({})", reasons(&why))))
 }
 
+/// How long a chart file waits at most for a mirror's budget.
+const CHART_WAIT: Duration = Duration::from_secs(90);
+
 /// Mirrors that serve a single difficulty's `.osu` file by osu!'s difficulty ID.
 const CHART_MIRRORS: [(&str, fn(i64) -> String); 3] = [
     ("osu.direct", |id| format!("https://osu.direct/api/osu/{id}")),
@@ -345,13 +485,37 @@ const CHART_MIRRORS: [(&str, fn(i64) -> String); 3] = [
 ];
 
 /// A difficulty's `.osu` file from the mirrors (never osu!'s servers), starting with mirror
-/// `first` so parallel callers spread over them. Ok(None): no mirror has it.
+/// `first` so parallel callers spread over them. Each mirror's budget holds: the next one in turn
+/// that can take it now gets it, else this waits for the soonest (resting ones are skipped).
+/// Ok(None): no mirror has it.
 pub fn download_chart(agent: &ureq::Agent, beatmap: i64, first: usize) -> Result<Option<String>> {
     let mut failures = Vec::new();
     let mut missing = 0;
-    for k in 0..CHART_MIRRORS.len() {
-        let (name, url) = CHART_MIRRORS[(first + k) % CHART_MIRRORS.len()];
+    let mut left: Vec<usize> = (0..CHART_MIRRORS.len()).map(|k| (first + k) % CHART_MIRRORS.len()).collect();
+    while !left.is_empty() {
+        let k = match left.iter().position(|&i| can_take(CHART_MIRRORS[i].0, DOWNLOAD)) {
+            Some(k) => k,
+            None => {
+                let now = Instant::now();
+                let soonest = left.iter().map(|&i| free_at(CHART_MIRRORS[i].0, DOWNLOAD)).min().unwrap_or(now);
+                if soonest.saturating_duration_since(now) > CHART_WAIT {
+                    failures.extend(left.iter().map(|&i| format!("{} resting", CHART_MIRRORS[i].0)));
+                    break;
+                }
+                std::thread::sleep(soonest.saturating_duration_since(now).clamp(Duration::from_millis(10), Duration::from_millis(500)));
+                continue;
+            }
+        };
+        let (name, url) = CHART_MIRRORS[left[k]];
+        if !try_book(name, DOWNLOAD) {
+            continue;
+        }
+        left.remove(k);
         match agent.get(&url(beatmap)).call() {
+            Ok(res) if res.status() == 429 => {
+                rest(name, retry_after(&res));
+                failures.push(format!("{name} 429"));
+            }
             Ok(mut res) if res.status() == 200 => {
                 let text = res.body_mut().with_config().limit(32 * 1024 * 1024).read_to_string().unwrap_or_default();
                 if text.trim_start_matches('\u{feff}').trim_start().starts_with("osu file format") {
@@ -388,7 +552,7 @@ fn reasons(why: &[String]) -> String {
 const NOT_ARCHIVE: &str = "not a beatmap archive";
 
 /// How long a "too many requests" answer asks to wait.
-fn retry_after(res: &ureq::http::Response<ureq::Body>) -> Duration {
+pub fn retry_after(res: &ureq::http::Response<ureq::Body>) -> Duration {
     let header = |name: &str| res.headers().get(name).and_then(|v| v.to_str().ok()).map(str::trim);
     // seconds (an HTTP date is rare here; then the default)
     header("retry-after")
@@ -508,6 +672,24 @@ mod tests {
         let mut failed = [Tried::Missing; MIRRORS.len()];
         failed[0] = Tried::Failed(TRIES);
         assert_eq!(m.next_free(&failed), None);
+    }
+
+    #[test]
+    fn budget_holds_a_mirror_under_its_limit() {
+        let start = Instant::now();
+        let mut b = Budget::default();
+        // 40 downloads in a minute, the 41st waits for the first to drop out of the window
+        for k in 0..40 {
+            assert!(b.free_at(DOWNLOAD, start) <= start, "download {k}");
+            b.spent.push_back((start + Duration::from_millis(k * 100), DOWNLOAD));
+        }
+        assert_eq!(b.free_at(DOWNLOAD, start), start + WINDOW);
+        // a lookup still fits only when a download's units are free
+        assert!(b.free_at(REQUEST, start) > start);
+        // a rest wins over a free budget
+        let mut b = Budget::default();
+        b.rest_until = Some(start + Duration::from_secs(90));
+        assert_eq!(b.free_at(REQUEST, start), start + Duration::from_secs(90));
     }
 
     #[test]

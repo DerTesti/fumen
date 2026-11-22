@@ -23,10 +23,12 @@
     "version": "1.4.2",
     "date": "2026-11-22",
     "en": [
-      "Fix: Downloads are much faster. One very slow mirror held them up, and now it only gets the sets the other mirrors don't have."
+      "Fix: Downloads are much faster. One very slow mirror held them up, and now it only gets the sets the other mirrors don't have.",
+      "Fix: Fumen keeps to the download mirrors' limits. Comparing with another player could ask a mirror for files faster than it allows, and a mirror that says it's busy is now left alone everywhere in Fumen."
     ],
     "de": [
-      "Fix: Downloads sind deutlich schneller. Ein sehr langsamer Mirror hat sie ausgebremst, jetzt bekommt er nur noch Maps, die die anderen Mirrors nicht haben."
+      "Fix: Downloads sind deutlich schneller. Ein sehr langsamer Mirror hat sie ausgebremst, jetzt bekommt er nur noch Maps, die die anderen Mirrors nicht haben.",
+      "Fix: Fumen hält sich an die Limits der Download-Mirrors. Beim Vergleich mit anderen Spielern konnte Fumen einen Mirror schneller nach Dateien fragen, als er erlaubt, und ein Mirror, der sagt, dass er ausgelastet ist, wird jetzt überall in Fumen in Ruhe gelassen."
     ]
   },
   {
