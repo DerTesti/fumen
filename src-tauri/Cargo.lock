@@ -1213,7 +1213,7 @@ dependencies = [
 
 [[package]]
 name = "fumen"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "btleplug",
  "cc",
