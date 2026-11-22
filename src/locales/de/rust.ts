@@ -72,8 +72,6 @@ export const rust: Record<string, string> = {
   "Couldn't get difficulty {beatmap} ({why})": "Schwierigkeitsgrad {beatmap} ließ sich nicht holen ({why})",
   "The mirrors are busy for a while (rate limits); try this set again later ({why})":
     "Die Mirrors sind eine Weile ausgelastet (Rate Limits); versuch dieses Set später nochmal ({why})",
-  "Fumen downloads at most {n} sets a day from each mirror, and that's reached for now. Try the rest again tomorrow.":
-    "Fumen lädt höchstens {n} Sets am Tag von jedem Mirror, und das ist für heute erreicht. Versuch den Rest morgen nochmal.",
   "No download mirror has this set ({why})": "Kein Download-Mirror hat dieses Set ({why})",
   "No download mirror could deliver this set ({why})": "Kein Download-Mirror konnte dieses Set liefern ({why})",
   "The mirrors couldn't search right now (osu.direct {direct}, catboy.best {why})":

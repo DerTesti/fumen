@@ -52,10 +52,6 @@ const LOOKUPS: [(&str, fn(u32) -> String); 3] = [
 /// banned). Two thirds of that, for every mirror: 40 downloads a minute.
 const UNITS_PER_MINUTE: u32 = 800;
 const WINDOW: Duration = Duration::from_secs(60);
-/// Downloads one mirror gets from Fumen in 24 hours at most (catboy.best asked for 5000 a day; the
-/// others get the same). Kept on disk, so a restart doesn't start the day over.
-const DAILY_DOWNLOADS: u32 = 5000;
-const HOUR: u64 = 3600;
 /// What a set or chart file download costs of the budget.
 pub const DOWNLOAD: u32 = 20;
 /// What a lookup or search costs.
@@ -66,20 +62,11 @@ struct Budget {
     spent: VecDeque<(Instant, u32)>,
     /// after "too many requests": nothing goes to the mirror until then
     rest_until: Option<Instant>,
-    /// downloads per hour (hours since 1970) over the last 24
-    hours: VecDeque<(u64, u32)>,
 }
 
 impl Budget {
-    /// When a request costing `units` fits; `wall` is the time in seconds since 1970, for the
-    /// day's downloads.
-    fn free_at(&self, units: u32, now: Instant, wall: u64) -> Instant {
-        let mut rest = self.rest_until.filter(|&t| t > now).unwrap_or(now);
-        if units == DOWNLOAD && self.today(wall) >= DAILY_DOWNLOADS {
-            // free again when the oldest hour drops out of the 24
-            let oldest = self.hours.front().map_or(wall / HOUR, |(h, _)| *h);
-            rest = rest.max(now + Duration::from_secs(((oldest + 24) * HOUR).saturating_sub(wall)));
-        }
+    fn free_at(&self, units: u32, now: Instant) -> Instant {
+        let rest = self.rest_until.filter(|&t| t > now).unwrap_or(now);
         let mut used: u32 = self.spent.iter().map(|(_, u)| u).sum();
         if used + units <= UNITS_PER_MINUTE {
             return rest;
@@ -91,58 +78,6 @@ impl Budget {
             }
         }
         rest
-    }
-
-    /// Downloads in the last 24 hours.
-    fn today(&self, wall: u64) -> u32 {
-        let hour = wall / HOUR;
-        self.hours.iter().filter(|(h, _)| h + 24 > hour).map(|(_, n)| n).sum()
-    }
-
-    fn book(&mut self, units: u32, now: Instant, wall: u64) {
-        self.spent.push_back((now, units));
-        if units == DOWNLOAD {
-            let hour = wall / HOUR;
-            match self.hours.back_mut() {
-                Some((h, n)) if *h == hour => *n += 1,
-                _ => self.hours.push_back((hour, 1)),
-            }
-        }
-    }
-}
-
-fn wall_now() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
-}
-
-/// Where the day's downloads per mirror are kept (none: only in memory).
-static COUNTS_FILE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-
-/// Keeps the day's downloads per mirror in `file`, starting from what's in it already.
-pub fn keep_counts_in(file: PathBuf) {
-    let saved: std::collections::HashMap<String, Vec<(u64, u32)>> =
-        std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-    for (mirror, hours) in saved {
-        let name: &'static str = MIRRORS
-            .iter()
-            .map(|m| m.name)
-            .chain(CHART_MIRRORS.iter().map(|(n, _)| *n))
-            .find(|n| *n == mirror)
-            .unwrap_or_else(|| Box::leak(mirror.into_boxed_str()));
-        with_budget(name, |b, _| b.hours = hours.into_iter().collect());
-    }
-    let _ = COUNTS_FILE.set(file);
-}
-
-fn save_counts(all: &[(&'static str, Budget)]) {
-    let Some(file) = COUNTS_FILE.get() else { return };
-    let counts: std::collections::BTreeMap<&str, Vec<(u64, u32)>> =
-        all.iter().filter(|(_, b)| !b.hours.is_empty()).map(|(n, b)| (*n, b.hours.iter().copied().collect())).collect();
-    if let Ok(text) = serde_json::to_string(&counts) {
-        let tmp = file.with_extension("tmp");
-        if std::fs::write(&tmp, text).is_ok() {
-            let _ = std::fs::rename(&tmp, file);
-        }
     }
 }
 
@@ -166,7 +101,6 @@ fn with_budget<T>(mirror: &'static str, f: impl FnOnce(&mut Budget, Instant) -> 
 fn in_budget<T>(all: &Budgets, mirror: &'static str, f: impl FnOnce(&mut Budget, Instant) -> T) -> T {
     let mut all = all.lock().unwrap_or_else(|e| e.into_inner());
     let now = Instant::now();
-    let hour = wall_now() / HOUR;
     let i = match all.iter().position(|(n, _)| *n == mirror) {
         Some(i) => i,
         None => {
@@ -178,40 +112,25 @@ fn in_budget<T>(all: &Budgets, mirror: &'static str, f: impl FnOnce(&mut Budget,
     while b.spent.front().is_some_and(|(t, _)| now.duration_since(*t) >= WINDOW) {
         b.spent.pop_front();
     }
-    while b.hours.front().is_some_and(|(h, _)| h + 24 <= hour) {
-        b.hours.pop_front();
-    }
-    let downloads = b.today(hour * HOUR);
-    let out = f(b, now);
-    // a download booked: the day's count goes to disk
-    if all[i].1.today(hour * HOUR) != downloads {
-        save_counts(&all);
-    }
-    out
+    f(b, now)
 }
 
 /// When `mirror` can take a request costing `units` (now or earlier: right away).
 pub fn free_at(mirror: &'static str, units: u32) -> Instant {
-    with_budget(mirror, |b, now| b.free_at(units, now, wall_now()))
-}
-
-/// Whether `mirror` has had all its downloads for the day.
-fn day_used_up(mirror: &'static str) -> bool {
-    with_budget(mirror, |b, _| b.today(wall_now()) >= DAILY_DOWNLOADS)
+    with_budget(mirror, |b, now| b.free_at(units, now))
 }
 
 /// Whether `mirror` can take a request costing `units` right now.
 fn can_take(mirror: &'static str, units: u32) -> bool {
-    with_budget(mirror, |b, now| b.free_at(units, now, wall_now()) <= now)
+    with_budget(mirror, |b, now| b.free_at(units, now) <= now)
 }
 
 /// Books a request costing `units` with `mirror` if it fits right now.
 pub fn try_book(mirror: &'static str, units: u32) -> bool {
     with_budget(mirror, |b, now| {
-        let wall = wall_now();
-        let fits = b.free_at(units, now, wall) <= now;
+        let fits = b.free_at(units, now) <= now;
         if fits {
-            b.book(units, now, wall);
+            b.spent.push_back((now, units));
         }
         fits
     })
@@ -494,15 +413,6 @@ pub fn download_set(set: u32, dir: &Path, mirrors: &Mirrors, mut progress: impl 
     let mut waited_since: Option<Instant> = None;
     loop {
         let Some(i) = mirrors.pick(&tried) else {
-            // every mirror that may have it has had its downloads for the day: no waiting for that
-            if (0..MIRRORS.len()).filter(|&i| may_have(tried[i])).all(|i| day_used_up(MIRRORS[i].name))
-                && (0..MIRRORS.len()).any(|i| may_have(tried[i]))
-            {
-                return Err(Error::known(
-                    "daily-limit",
-                    format!("Fumen downloads at most {} sets a day from each mirror, and that's reached for now. Try the rest again tomorrow.", DAILY_DOWNLOADS),
-                ));
-            }
             // every mirror said no, or the ones left are resting or busy
             let Some(free) = mirrors.next_free(&tried) else { break };
             let since = *waited_since.get_or_insert_with(Instant::now);
@@ -767,38 +677,19 @@ mod tests {
     #[test]
     fn budget_holds_a_mirror_under_its_limit() {
         let start = Instant::now();
-        let wall = 1_800_000_000;
         let mut b = Budget::default();
         // 40 downloads in a minute, the 41st waits for the first to drop out of the window
         for k in 0..40 {
-            assert!(b.free_at(DOWNLOAD, start, wall) <= start, "download {k}");
+            assert!(b.free_at(DOWNLOAD, start) <= start, "download {k}");
             b.spent.push_back((start + Duration::from_millis(k * 100), DOWNLOAD));
         }
-        assert_eq!(b.free_at(DOWNLOAD, start, wall), start + WINDOW);
+        assert_eq!(b.free_at(DOWNLOAD, start), start + WINDOW);
         // a lookup still fits only when a download's units are free
-        assert!(b.free_at(REQUEST, start, wall) > start);
+        assert!(b.free_at(REQUEST, start) > start);
         // a rest wins over a free budget
         let mut b = Budget::default();
         b.rest_until = Some(start + Duration::from_secs(90));
-        assert_eq!(b.free_at(REQUEST, start, wall), start + Duration::from_secs(90));
-    }
-
-    #[test]
-    fn a_mirror_gets_its_daily_downloads_and_no_more() {
-        let start = Instant::now();
-        let hour = 500_000;
-        let mut b = Budget::default();
-        // spread over the day, so the minute's budget never stops them
-        b.hours.push_back((hour - 20, DAILY_DOWNLOADS - 1));
-        assert!(b.free_at(DOWNLOAD, start, hour * HOUR) <= start);
-        b.book(DOWNLOAD, start, hour * HOUR);
-        assert_eq!(b.today(hour * HOUR), DAILY_DOWNLOADS);
-        // the day's used up: free again when the oldest hour is 24 hours old, in 4 hours
-        assert_eq!(b.free_at(DOWNLOAD, start, hour * HOUR), start + Duration::from_secs(4 * HOUR));
-        // lookups and searches don't count
-        assert!(b.free_at(REQUEST, start, hour * HOUR) <= start);
-        // a day later it's all free again
-        assert_eq!(b.today((hour + 24) * HOUR), 0);
+        assert_eq!(b.free_at(REQUEST, start), start + Duration::from_secs(90));
     }
 
     #[test]
