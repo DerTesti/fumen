@@ -395,6 +395,8 @@ fn fetch_account(ep: &Endpoints, access: &str) -> Result<Account> {
 /// A usable access token, renewed through the site when it's about to run out. A login osu! no
 /// longer accepts is forgotten.
 pub fn access_token(data_dir: &Path, ep: &Endpoints) -> Result<String> {
+    // everything that uses the login is one of the online features
+    crate::online::ensure()?;
     let mut stored = read(data_dir).ok_or_else(|| Error::known("osu-logged-out", "You're not logged in to osu!."))?;
     if stored.tokens.expires_at - crate::lazer::now_ms() > RENEW_BEFORE_MS {
         return Ok(stored.tokens.access);

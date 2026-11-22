@@ -31,6 +31,15 @@ body.fumen-blocked > :not(.fumen-block) { visibility: hidden; }
   overflow: auto;
   background: var(--bg-base);
 }
+/* an online block: the same card over the app, which keeps working behind it */
+.fumen-block.is-online {
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(6px);
+          backdrop-filter: blur(6px);
+  animation: backdrop-in 0.22s var(--ease-std);
+}
+.fumen-block.is-online.closing { animation: backdrop-out 0.2s var(--ease-std) forwards; pointer-events: none; }
+.fumen-block.is-online.closing .fumen-block-card { animation: modal-out 0.2s var(--ease-std) forwards; }
 .fumen-block-panel {
   width: min(460px, 100%);
   display: flex;

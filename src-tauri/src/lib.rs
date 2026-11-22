@@ -1073,7 +1073,8 @@ async fn check_block(app: AppHandle, ask: bool) -> Result<Option<online::Block>>
         let dir = app.state::<AppState>().data_dir.clone();
         let on = online::is_on();
         if !on && !ask {
-            return Ok(online::noted(&dir));
+            // with the online features off, only a full block matters
+            return Ok(online::noted(&dir).filter(|b| b.scope == "full"));
         }
         online::check(&dir, &osu_auth::Endpoints::default().site, on)
     })
@@ -1081,10 +1082,11 @@ async fn check_block(app: AppHandle, ask: bool) -> Result<Option<online::Block>>
     .map_err(|e| Error::known("internal", e.to_string()))?
 }
 
-/// A full block noted on this computer (shown before anything else at the start).
+/// The block noted on this computer (shown before anything else at the start). An online one
+/// only counts while the online features are on.
 #[tauri::command]
 fn noted_block(state: State<'_, AppState>) -> Option<online::Block> {
-    online::noted(&state.data_dir)
+    online::noted(&state.data_dir).filter(|b| b.scope == "full" || online::is_on())
 }
 
 #[tauri::command]
@@ -2394,6 +2396,8 @@ pub fn run() {
             let settings_path = config_dir.join("settings.json");
             let settings = Settings::load(&settings_path);
             online::set(settings.online);
+            // a block noted last time holds until a check finds it lifted (also offline)
+            online::set_block(online::noted(&data_dir));
             let conn = db::open(&data_dir.join("library.db"))?;
             downloads::follow_rules(data_dir.join("mirror-rules.json"));
 

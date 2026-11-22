@@ -29,6 +29,10 @@ export const settings: Record<string, string> = {
   "What's kept, and for how long": "Was gespeichert wird und wie lange",
   "Continue": "Weiter",
   "Blocked": "Gesperrt",
+  "Online blocked": "Online gesperrt",
+  "Fumen's online features are blocked": "Fumens Online-Funktionen sind gesperrt",
+  "Logging in, the cloud and comparing are off. Everything else in Fumen works as usual.":
+    "Anmeldung, Cloud und Vergleich sind aus. Alles andere in Fumen funktioniert wie gewohnt.",
   "Reason": "Grund",
   "If you think that's a mistake:": "Falls du denkst, dass das ein Fehler ist:",
   "Fumen is blocked on this computer": "Fumen ist auf diesem Computer gesperrt",

@@ -7,13 +7,15 @@
 //! code for this computer, and the osu! login when there is one. The code is a SHA-256 hash of
 //! Fumen's own key and the id the system gives itself (Windows' MachineGuid, macOS' hardware UUID,
 //! Linux' machine-id): the id itself never leaves the computer, and the code can't be matched with
-//! what other apps send. A full block from the site is noted in `block.json`, so it holds offline
-//! and with the online features turned off again, until a check finds it lifted. Turning the
-//! features off asks the site to delete this computer's code (`forget_machine`).
+//! what other apps send. A block from the site is noted in `block.json`, so it holds offline (a
+//! full one also with the online features turned off again) until a check finds it lifted. An
+//! online block closes `ensure`, so the login, the cloud and comparing stop. Turning the features
+//! off asks the site to delete this computer's code (`forget_machine`).
 //!
 //! What the site keeps of this: site/server.mjs (/api/check), and the privacy page.
 
 use std::path::Path;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -22,6 +24,13 @@ use serde::{Deserialize, Serialize};
 use crate::error::{Error, Result};
 
 static ON: AtomicBool = AtomicBool::new(false);
+/// The block the last check (or the note on disk) found, for `ensure`.
+static BLOCK: Mutex<Option<Block>> = Mutex::new(None);
+
+/// What the site said about this Fumen, for `ensure` (None: not blocked).
+pub fn set_block(block: Option<Block>) {
+    *BLOCK.lock().unwrap_or_else(|e| e.into_inner()) = block;
+}
 
 /// Switches the online features on or off for this run (Settings keeps the choice).
 pub fn set(on: bool) {
@@ -33,12 +42,18 @@ pub fn is_on() -> bool {
     cfg!(test) || ON.load(Ordering::SeqCst)
 }
 
-/// Ok while the online features are on; what to tell the player when they're off.
+/// Ok while the online features are on and not blocked; else what to tell the player.
 pub fn ensure() -> Result<()> {
-    if is_on() {
-        Ok(())
-    } else {
-        Err(Error::known("online-off", "This is one of Fumen's online features, and they're turned off. You can turn them on in Settings › About."))
+    if !is_on() {
+        return Err(Error::known("online-off", "This is one of Fumen's online features, and they're turned off. You can turn them on in Settings › About."));
+    }
+    // the tests talk to their own local servers, and set no block
+    if cfg!(test) {
+        return Ok(());
+    }
+    match BLOCK.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        Some(b) => Err(Error::known("blocked", b.message.clone())),
+        None => Ok(()),
     }
 }
 
@@ -53,10 +68,10 @@ pub struct Block {
 /// Where a full block is noted.
 const NOTE: &str = "block.json";
 
-/// The full block noted on this computer, if there is one.
+/// The block noted on this computer, if there is one (full or online).
 pub fn noted(data_dir: &Path) -> Option<Block> {
     let b: Block = serde_json::from_slice(&std::fs::read(data_dir.join(NOTE)).ok()?).ok()?;
-    (b.scope == "full").then_some(b)
+    matches!(b.scope.as_str(), "full" | "online").then_some(b)
 }
 
 fn note(data_dir: &Path, block: Option<&Block>) {
@@ -141,7 +156,7 @@ fn agent() -> ureq::Agent {
 
 /// Asks `site` whether this Fumen is blocked: with the install's random id, this computer's code
 /// when `machine` (only with the online features on), and the osu! login while it's current. A
-/// full block is noted on disk; anything else lifts the note.
+/// block is noted on disk and closes `ensure`; none lifts both.
 pub fn check(data_dir: &Path, site: &str, machine: bool) -> Result<Option<Block>> {
     let install = crate::ping::install_id(data_dir).ok_or_else(|| Error::known("check-failed", "Fumen couldn't make its random id."))?;
     let mut body = serde_json::json!({ "install": install });
@@ -162,7 +177,8 @@ pub fn check(data_dir: &Path, site: &str, machine: bool) -> Result<Option<Block>
     let text = res.body_mut().read_to_string().unwrap_or_default();
     let answer: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
     let block = answer.get("blocked").and_then(|b| serde_json::from_value::<Block>(b.clone()).ok());
-    note(data_dir, block.as_ref().filter(|b| b.scope == "full"));
+    note(data_dir, block.as_ref());
+    set_block(block.clone());
     Ok(block)
 }
 
@@ -205,8 +221,12 @@ mod tests {
         assert_eq!(noted(&dir), None);
         note(&dir, Some(&full));
         assert_eq!(noted(&dir), Some(full));
-        // an online block isn't one to show at the start
-        note(&dir, Some(&Block { scope: "online".into(), message: "x".into() }));
+        // an online block is noted too (the start shows it, and it holds offline)
+        let online = Block { scope: "online".into(), message: "x".into() };
+        note(&dir, Some(&online));
+        assert_eq!(noted(&dir), Some(online));
+        // anything else the file might hold isn't a block
+        std::fs::write(dir.join(NOTE), r#"{"scope":"other","message":"x"}"#).unwrap();
         assert_eq!(noted(&dir), None);
         note(&dir, None);
         assert_eq!(noted(&dir), None);

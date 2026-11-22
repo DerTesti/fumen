@@ -16,19 +16,37 @@ const PRIVACY = "https://fumen.dertesti.dev/privacy";
 export async function startConsent(): Promise<void> {
   if (!isTauri) return;
   const noted = await api.notedBlock().catch(() => null);
-  if (noted) showBlock(noted);
+  showFor(noted);
   if (!store.settings?.consentAsked) await askConsent();
   if (store.settings?.consentAsked && store.settings.startPing) await api.sendPing();
   if (store.settings?.online) await checkBlock(false);
 }
 
-/** The block check: a full block shows the block page, none takes it away. Offline, what's noted
- * holds. \`ask\`: from the block page (also with the online features off). */
+/** A full block takes Fumen over; an online one is said once per start, over the app. */
+let onlineSaid = false;
+function showFor(b: FumenBlock | null | undefined): void {
+  if (b?.scope === "full") {
+    hideOnline();
+    showBlock(b);
+    return;
+  }
+  hideBlock();
+  if (b?.scope === "online") {
+    if (!onlineSaid) showOnline(b);
+    onlineSaid = true;
+  } else {
+    hideOnline();
+    onlineSaid = false;
+  }
+}
+
+/** The block check: a full block shows the block page, an online one the notice, none takes
+ * them away. Offline, what's noted holds. \`ask\`: from the block page (also with the online
+ * features off). */
 export async function checkBlock(ask: boolean): Promise<FumenBlock | null | undefined> {
   try {
     const b = await api.checkBlock(ask);
-    if (b?.scope === "full") showBlock(b);
-    else hideBlock();
+    showFor(b);
     return b;
   } catch (e) {
     if (ask) toast(asApiError(e).message, { kind: "danger", timeout: 6000 });
@@ -125,6 +143,78 @@ function blockParagraphs(message: string): HTMLElement[] {
   });
 }
 
+/** The card both block screens share: the badge on its striped head, then the words. */
+function blockCard(o: { eyebrow: string; title: string; note: string; actions: string; small?: string }): string {
+  return `
+    <div class="fumen-block-panel" role="alertdialog" aria-modal="true" aria-labelledby="fumen-block-title">
+      <div class="fumen-block-card">
+        <div class="fumen-block-head">
+          <div class="fumen-block-badge" aria-hidden="true">
+            <svg viewBox="0 0 48 48"><circle class="ring" cx="24" cy="24" r="17" pathLength="1"/><path class="slash" d="M12 12 36 36" pathLength="1"/></svg>
+          </div>
+        </div>
+        <div class="fumen-block-body">
+          <div class="fumen-block-eyebrow">${o.eyebrow}</div>
+          <div class="fumen-block-title" id="fumen-block-title">${o.title}</div>
+          <div class="fumen-block-msg"></div>
+          <p class="fumen-block-note">${o.note}</p>
+          <div class="fumen-block-actions">${o.actions}</div>
+        </div>
+      </div>
+      ${o.small ? `<p class="fumen-block-small">${o.small}</p>` : ""}
+    </div>`;
+}
+
+/** The card's words from the site, and its privacy button. */
+function fillCard(el: HTMLElement, b: FumenBlock): void {
+  el.querySelector(".fumen-block-msg")!.replaceChildren(...blockParagraphs(b.message));
+  el.querySelector('[data-act="privacy"]')!.addEventListener("click", () =>
+    void openUrl(PRIVACY).catch((e) => toast(asApiError(e).message, { kind: "danger" })),
+  );
+}
+
+let notice: HTMLElement | null = null;
+const noticeKeys = (e: KeyboardEvent) => {
+  if (e.key === "Escape" || e.key === "Enter") {
+    e.preventDefault();
+    e.stopPropagation();
+    hideOnline();
+  }
+};
+
+/** An online block, said over the app: the login, the cloud and comparing are off, the rest works. */
+function showOnline(b: FumenBlock): void {
+  hideOnline(true);
+  notice = document.createElement("div");
+  notice.className = "fumen-block is-online";
+  notice.innerHTML = blockCard({
+    eyebrow: t("Online blocked"),
+    title: t("Fumen's online features are blocked"),
+    note: t("Logging in, the cloud and comparing are off. Everything else in Fumen works as usual."),
+    actions: `
+      <button class="btn btn-ghost" type="button" data-act="privacy">${t("Privacy")}</button>
+      <button class="btn btn-danger" type="button" data-act="close">${t("Got it")}</button>`,
+  });
+  fillCard(notice, b);
+  notice.querySelector('[data-act="close"]')!.addEventListener("click", () => hideOnline());
+  notice.addEventListener("click", (e) => {
+    if (e.target === notice) hideOnline();
+  });
+  document.body.appendChild(notice);
+  document.addEventListener("keydown", noticeKeys, true);
+  notice.querySelector<HTMLButtonElement>('[data-act="close"]')!.focus({ preventScroll: true });
+}
+
+function hideOnline(now = false): void {
+  if (!notice) return;
+  const el = notice;
+  notice = null;
+  document.removeEventListener("keydown", noticeKeys, true);
+  if (now) return el.remove();
+  el.classList.add("closing");
+  setTimeout(() => el.remove(), 200);
+}
+
 /** Fumen behind a page with the site's reason and where to turn; the files stay as they are. */
 function showBlock(b: FumenBlock): void {
   if (!page) {
@@ -134,37 +224,25 @@ function showBlock(b: FumenBlock): void {
     document.body.classList.add("fumen-blocked");
     document.addEventListener("keydown", swallowKeys, true);
   }
-  page.innerHTML = `
-    <div class="fumen-block-panel" role="alertdialog" aria-modal="true" aria-labelledby="fumen-block-title">
-      <div class="fumen-block-card">
-        <div class="fumen-block-head">
-          <div class="fumen-block-badge" aria-hidden="true">
-            <svg viewBox="0 0 48 48"><circle class="ring" cx="24" cy="24" r="17" pathLength="1"/><path class="slash" d="M12 12 36 36" pathLength="1"/></svg>
-          </div>
-        </div>
-        <div class="fumen-block-body">
-          <div class="fumen-block-eyebrow">${t("Blocked")}</div>
-          <div class="fumen-block-title" id="fumen-block-title">${t("Fumen is blocked on this computer")}</div>
-          <div class="fumen-block-msg"></div>
-          <p class="fumen-block-note">${t("Your files stay as they are. Fumen hasn't changed or deleted anything.")}</p>
-          <div class="fumen-block-actions">
-            <button class="btn btn-ghost" type="button" data-act="privacy">${t("Privacy")}</button>
-            <button class="btn btn-danger" type="button" data-act="ask">${t("Ask again")}</button>
-          </div>
-        </div>
-      </div>
-      <p class="fumen-block-small">${store.settings?.online ? t("Asks fumen.dertesti.dev whether the block was lifted.") : t("Asks fumen.dertesti.dev whether the block was lifted, with Fumen's random number only.")}</p>
-    </div>`;
-  page.querySelector(".fumen-block-msg")!.replaceChildren(...blockParagraphs(b.message));
-  page.querySelector('[data-act="privacy"]')!.addEventListener("click", () =>
-    void openUrl(PRIVACY).catch((e) => toast(asApiError(e).message, { kind: "danger" })),
-  );
+  page.innerHTML = blockCard({
+    eyebrow: t("Blocked"),
+    title: t("Fumen is blocked on this computer"),
+    note: t("Your files stay as they are. Fumen hasn't changed or deleted anything."),
+    actions: `
+      <button class="btn btn-ghost" type="button" data-act="privacy">${t("Privacy")}</button>
+      <button class="btn btn-danger" type="button" data-act="ask">${t("Ask again")}</button>`,
+    small: store.settings?.online
+      ? t("Asks fumen.dertesti.dev whether the block was lifted.")
+      : t("Asks fumen.dertesti.dev whether the block was lifted, with Fumen's random number only."),
+  });
+  fillCard(page, b);
   const ask = page.querySelector<HTMLButtonElement>('[data-act="ask"]')!;
   ask.addEventListener("click", async () => {
     ask.disabled = true;
     const now = await checkBlock(true);
-    if (now === null || now?.scope === "online") toast(t("The block is lifted."), { kind: "success" });
-    else if (now) {
+    // an online block left over shows its own notice (showFor)
+    if (now === null) toast(t("The block is lifted."), { kind: "success" });
+    else if (now?.scope === "full") {
       toast(t("Still blocked."));
       // a short shake again, so the answer is felt
       page?.classList.remove("again");
