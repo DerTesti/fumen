@@ -28,6 +28,7 @@ export const settings: Record<string, string> = {
     "Du bist mit osu! angemeldet. Die Anmeldung gehört zu den Online-Funktionen. Lässt du sie aus, meldet Fumen dich ab.",
   "What's kept, and for how long": "Was gespeichert wird und wie lange",
   "Continue": "Weiter",
+  "Blocked": "Gesperrt",
   "Fumen is blocked on this computer": "Fumen ist auf diesem Computer gesperrt",
   "Your files stay as they are. Fumen hasn't changed or deleted anything.": "Deine Dateien bleiben, wie sie sind. Fumen hat nichts verändert oder gelöscht.",
   "Privacy": "Datenschutz",

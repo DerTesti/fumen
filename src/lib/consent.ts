@@ -111,7 +111,12 @@ function showBlock(b: FumenBlock): void {
     document.addEventListener("keydown", swallowKeys, true);
   }
   page.innerHTML = `
+    <div class="fumen-block-flash"></div>
     <div class="fumen-block-panel" role="alertdialog" aria-modal="true" aria-labelledby="fumen-block-title">
+      <div class="fumen-block-hero" aria-hidden="true">
+        <div class="fumen-block-band"><div class="fumen-block-stripes"></div><div class="fumen-block-shine"></div></div>
+        <div class="fumen-block-word">${t("Blocked")}</div>
+      </div>
       <div class="fumen-block-title" id="fumen-block-title">${t("Fumen is blocked on this computer")}</div>
       <p class="fumen-block-msg"></p>
       <p class="fumen-block-note">${t("Your files stay as they are. Fumen hasn't changed or deleted anything.")}</p>
@@ -123,13 +128,21 @@ function showBlock(b: FumenBlock): void {
     </div>`;
   // the site's own words
   page.querySelector(".fumen-block-msg")!.textContent = b.message;
-  page.querySelector('[data-act="privacy"]')!.addEventListener("click", () => void openUrl(PRIVACY).catch(() => {}));
+  page.querySelector('[data-act="privacy"]')!.addEventListener("click", () =>
+    void openUrl(PRIVACY).catch((e) => toast(asApiError(e).message, { kind: "danger" })),
+  );
   const ask = page.querySelector<HTMLButtonElement>('[data-act="ask"]')!;
   ask.addEventListener("click", async () => {
     ask.disabled = true;
     const now = await checkBlock(true);
     if (now === null || now?.scope === "online") toast(t("The block is lifted."), { kind: "success" });
-    else if (now) toast(t("Still blocked."));
+    else if (now) {
+      toast(t("Still blocked."));
+      // a short shake again, so the answer is felt
+      page?.classList.remove("again");
+      void page?.offsetWidth;
+      page?.classList.add("again");
+    }
     ask.disabled = false;
   });
 }

@@ -21,6 +21,9 @@
           "url": "https://osu.ppy.sh/*"
         },
         {
+          "url": "https://fumen.dertesti.dev/*"
+        },
+        {
           "url": "osu://b/*"
         },
         {
