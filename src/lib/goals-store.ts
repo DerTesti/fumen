@@ -5,6 +5,7 @@ import { api, asApiError } from "./api";
 import { goalContext, goalNow, goalTarget, goalTitle, isReached, isRetired, type Goal, type GoalContext, type GoalSpec } from "./goals";
 import { historyEvents, historyNow, loadHistory, mapIndexOf } from "./history";
 import { Emitter, events, store } from "./store";
+import { leftOutNow } from "./skills-left-out";
 import { toast } from "../ui/controls";
 import { t } from "./i18n";
 
@@ -37,7 +38,7 @@ export function loadGoals(): Promise<Goal[]> {
 export function currentContext(): GoalContext | null {
   const h = historyNow();
   const snap = store.snap;
-  return h && snap ? goalContext(h, snap.maps, mapIndexOf) : null;
+  return h && snap ? goalContext(h, snap.maps, mapIndexOf, leftOutNow()) : null;
 }
 
 function changed(): void {
@@ -80,6 +81,12 @@ export function initGoals(): void {
   started = true;
   historyEvents.on("history", () => check());
   events.on("library", () => check());
+  events.on("prefs", (p) => {
+    if ("skillsLeftOut" in p) {
+      changed();
+      check();
+    }
+  });
   loadGoals().then(
     // open goals are checked against the plays, so those load now rather than when first shown
     (g) => void (g.some((x) => !x.done) && loadHistory().catch(() => {})),

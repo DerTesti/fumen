@@ -62,6 +62,7 @@ export const DEFAULT_PREFS: UiPrefs = {
   scoreAuto: true,
   companion: false,
   companionPool: null,
+  skillsLeftOut: {},
   followOsu: false,
   followSelect: true,
   discord: true,

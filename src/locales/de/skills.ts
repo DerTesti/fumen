@@ -14,8 +14,25 @@ export const skills: Record<string, string> = {
   "{n} pass rated|{n} passes rated": "{n} Pass bewertet|{n} Passes bewertet",
   "still filling up": "füllt sich noch",
   "{n} chart passed|{n} charts passed": "{n} Chart gepasst|{n} Charts gepasst",
-  "Every pass is rated with Etterna's calculator, MinaCalc: the chart at the rate you played it, for your accuracy as Etterna counts it (Wife, worked out from your judgements). That's what the play is worth in each skillset. A skillset blends all your plays there the way Etterna does: your best count the most, and it takes a fair number of good plays to get up to your level. Overall blends the seven. Each chart counts once per rate, passes only, and not with mods that change what you play, like Hold Off.":
-    "Jeder Pass wird mit Etternas Rechner MinaCalc bewertet: das Chart bei der Rate, mit der du es gespielt hast, für deine Accuracy, wie Etterna sie zählt (Wife, aus deinen Judgements berechnet). Das ist, was das Play in jedem Skillset wert ist. Ein Skillset fasst alle deine Plays darin so zusammen, wie Etterna es tut: Deine besten zählen am meisten, und es braucht eine ordentliche Zahl guter Plays, bis es auf deinem Niveau ist. Overall fasst die sieben zusammen. Jedes Chart zählt einmal pro Rate, nur Passes, und nicht mit Mods, die ändern, was du spielst, wie Hold Off.",
+  "Every pass is rated with Etterna's calculator, MinaCalc: the chart at the rate you played it, for your accuracy as Etterna counts it (Wife, worked out from your judgements). That's what the play is worth in each skillset. A skillset blends all your plays there the way Etterna does: your best count the most, and it takes a fair number of good plays to get up to your level. Overall blends the seven. As in Etterna, a chart counts with its two best rates (rate edits of it are the same chart), passes only, and not with mods that change what you play, like Hold Off.":
+    "Jeder Pass wird mit Etternas Rechner MinaCalc bewertet: das Chart bei der Rate, mit der du es gespielt hast, für deine Accuracy, wie Etterna sie zählt (Wife, aus deinen Judgements berechnet). Das ist, was das Play in jedem Skillset wert ist. Ein Skillset fasst alle deine Plays darin so zusammen, wie Etterna es tut: Deine besten zählen am meisten, und es braucht eine ordentliche Zahl guter Plays, bis es auf deinem Niveau ist. Overall fasst die sieben zusammen. Wie in Etterna zählt ein Chart mit seinen zwei besten Rates (Rate-Edits davon sind dasselbe Chart), nur Passes, und nicht mit Mods, die ändern, was du spielst, wie Hold Off.",
+  "MinaCalc rates some charts higher than they play. A pass worth far more than your skill is marked as looking overrated, and you can leave such a chart out.":
+    "MinaCalc bewertet manche Charts höher, als sie sich spielen. Ein Pass, der weit mehr wert ist als dein Skill, wird als wohl überbewertet markiert, und du kannst so ein Chart rausnehmen.",
+  "Worth far more than this skill. MinaCalc rates some charts too high: open the list to leave one out.":
+    "Weit mehr wert als dieser Skill. MinaCalc bewertet manche Charts zu hoch: Öffne die Liste, um eins rauszunehmen.",
+  "{n} looks overrated|{n} look overrated": "{n} wirkt überbewertet|{n} wirken überbewertet",
+  "Looks overrated: worth far more than your {skill}": "Wirkt überbewertet: weit mehr wert als dein {skill}",
+  "Leave out of the skills": "Aus den Skills nehmen",
+  "Left out of the skills: {name}": "Aus den Skills genommen: {name}",
+  Undo: "Rückgängig",
+  "Left out of the skills": "Aus den Skills genommen",
+  "These charts count for nothing here, at any rate, and aren't suggested to practise.":
+    "Diese Charts zählen hier nicht, bei keiner Rate, und werden auch nicht zum Üben vorgeschlagen.",
+  "Count again": "Wieder zählen",
+  "You left this chart out of your skills, so this pass doesn't count.": "Du hast dieses Chart aus deinen Skills genommen, darum zählt dieser Pass nicht.",
+  "This pass is worth far more than your {skill}. MinaCalc rates some charts too high. If this is one, leave it out.":
+    "Dieser Pass ist weit mehr wert als dein {skill}. MinaCalc bewertet manche Charts zu hoch. Wenn das so eins ist, nimm es raus.",
+  "Leave out": "Rausnehmen",
   "Since {when}": "Seit {when}",
   "best play {value}": "bestes Play {value}",
   "{n} play carries it|{n} plays carry it": "{n} Play trägt ihn|{n} Plays tragen ihn",

@@ -6,11 +6,13 @@
  * handstream, stamina, jackspeed, chordjack and technical. A skillset's skill is Etterna's own
  * blend of all your plays' SSRs in it (`aggregate`): your best count the most, and it takes a fair
  * number of good plays to get to your level, so one lucky play doesn't make it. Overall blends the
- * seven the same way. Each chart counts once, with its best play at any rate, as in Etterna: rate
- * edits ("1.1x", "1.05x" …) and the same chart uploaded twice are one chart (their notes key, see
- * msd.rs), so farming one song at several speeds doesn't add up. Only passes on osu!mania charts in
- * your library, 4K to 7K, one key mode at a time, and not with mods that change what you play
- * (Hold Off, Invert, Random, …).
+ * seven the same way. As in Etterna, a chart counts with its best play at each rate, and of those
+ * only its two best: rate edits ("1.1x", "1.05x" …) and the same chart uploaded twice are that
+ * chart (their notes key, see msd.rs), so farming one song at several speeds doesn't add up. Only
+ * passes on osu!mania charts in your library, 4K to 7K, one key mode at a time, and not with mods
+ * that change what you play (Hold Off, Invert, Random, …). Charts you leave out yourself don't
+ * count at all (`LeftOut`), and a play worth far more than your skill is marked as looking
+ * overrated (`looksOverrated`): MinaCalc rates some charts too high, and those get farmed.
  *
  * Practice suggestions aim a little above your best plays in a skillset: charts in the library
  * that are mostly about it and whose MSD there lands in that band, at 1× or at a rate.
@@ -36,6 +38,11 @@ export const SKILL_LABEL: Record<MsdSkill, string> = {
 export const FEW_PLAYS = 25;
 /** plays shown behind a skillset */
 export const TOP = 10;
+/** rates of one chart that count, as in Etterna (its best play at each rate, the best two of those) */
+export const PER_CHART = 2;
+/** a play worth this many times the skill looks overrated (`looksOverrated`); real best plays
+ * sit within about 1.09× of it once the skills have filled up */
+export const OVERRATED = 1.12;
 /** mods that change what's played beyond the rate: such plays don't count */
 const UNRATED = new Set(["HO", "IN", "NR", "RD", "EZ", "DS", "CO", "AT", "CN", "RX", "AP", "AS", "WU", "WD", "DA", "SG", "TP"]);
 
@@ -104,40 +111,64 @@ export interface Counted {
 /** A play's SSR in skillset k (or overall at -1). */
 export const ssrOf = (c: Counted, k: number): number => c.ssr[k + 1] ?? 0;
 
+/** What makes two difficulties one chart: the same notes at any speed (rate edits), else itself. */
+export const chartKey = (map: MapRow): string => map.notesKey ?? map.id;
+
+/** Charts you took out of the skills yourself: their `chartKey` (or, left out before the notes
+ * key was known, the difficulty's id). */
+export type LeftOut = ReadonlySet<string>;
+
+export const isLeftOut = (map: MapRow, leftOut: LeftOut | undefined): boolean => !!leftOut?.size && (leftOut.has(chartKey(map)) || leftOut.has(map.id));
+
 /** A play's library index when it counts for the skills in a key mode: a rated osu!mania pass on
- * a difficulty with that many keys, without mods that change the chart. */
-function counting(play: Play, mapIndex: (id: string | undefined) => number | undefined, maps: MapRow[], keys: number): number | undefined {
+ * a difficulty with that many keys, without mods that change the chart, and not left out. */
+function counting(play: Play, mapIndex: (id: string | undefined) => number | undefined, maps: MapRow[], keys: number, leftOut?: LeftOut): number | undefined {
   if (play.failed || play.mode !== 3 || !play.ssr || play.wife === undefined || changesChart(play)) return undefined;
   const mapIdx = mapIndex(play.map);
   if (mapIdx === undefined) return undefined;
   const map = maps[mapIdx];
-  return map.mode === 3 && keysOf(map) === keys ? mapIdx : undefined;
+  return map.mode === 3 && keysOf(map) === keys && !isLeftOut(map, leftOut) ? mapIdx : undefined;
 }
 
-/** What makes two difficulties one chart: the same notes at any speed (rate edits), else itself. */
-export const chartKey = (map: MapRow): string => map.notesKey ?? map.id;
+/** A difficulty at a rate: where Etterna keeps one best play. */
+const slotOf = (map: MapRow, rate: number): string => `${map.id}@${rate.toFixed(2)}`;
 
-/** Each chart's best counting play in one key mode, at any rate (rate edits and copies are one
- * chart), best first. */
+/** What counts for the skills in one key mode, best first: each difficulty's best play at each
+ * rate, and of those the best two per chart (Etterna's rule, `PER_CHART`; rate edits and copies
+ * are one chart). `until`: only plays by then. */
 export function bestPerChart(
   plays: Play[],
   mapIndex: (id: string | undefined) => number | undefined,
   maps: MapRow[],
   keys: number,
-  until = Infinity,
+  opts: { until?: number; leftOut?: LeftOut } = {},
 ): Counted[] {
+  const until = opts.until ?? Infinity;
   const best = new Map<string, Counted>();
   for (const play of plays) {
     if (play.date > until || !play.ssr || play.wife === undefined) continue;
-    const mapIdx = counting(play, mapIndex, maps, keys);
+    const mapIdx = counting(play, mapIndex, maps, keys, opts.leftOut);
     if (mapIdx === undefined) continue;
     const map = maps[mapIdx];
-    const key = chartKey(map);
-    const had = best.get(key);
-    if (!had || play.ssr[0] > had.ssr[0]) best.set(key, { play, map, mapIdx, ssr: play.ssr, wife: play.wife });
+    const slot = slotOf(map, rateOf(play));
+    const had = best.get(slot);
+    if (!had || play.ssr[0] > had.ssr[0]) best.set(slot, { play, map, mapIdx, ssr: play.ssr, wife: play.wife });
   }
-  return [...best.values()].sort((a, b) => b.ssr[0] - a.ssr[0]);
+  const per = new Map<string, number>();
+  return [...best.values()]
+    .sort((a, b) => b.ssr[0] - a.ssr[0])
+    .filter((c) => {
+      const key = chartKey(c.map);
+      const n = per.get(key) ?? 0;
+      per.set(key, n + 1);
+      return n < PER_CHART;
+    });
 }
+
+/** Whether a play worth `worth` in a skillset looks overrated next to the skill there (`OVERRATED`).
+ * Only once the skills have filled up: before that the skill trails your best plays anyway. */
+export const looksOverrated = (worth: number, skill: number | null, plays: number): boolean =>
+  skill !== null && skill > 0 && plays >= FEW_PLAYS && worth > skill * OVERRATED;
 
 export interface Skill {
   skillset: MsdSkill;
@@ -148,6 +179,8 @@ export interface Skill {
   /** the plays that carry it: worth more than the rating Etterna's blend settled on (the value
    * before its ×1.05); the others add nothing */
   carrying: number;
+  /** of those, the ones that look overrated (`looksOverrated`) */
+  overrated: number;
   /** its best plays, best first, with what each is worth in it */
   top: (Counted & { worth: number })[];
 }
@@ -160,7 +193,7 @@ export interface SkillSheet {
   plays: number;
 }
 
-/** The skills from each chart's best plays (see `bestPerChart`). */
+/** The skills from what counts (see `bestPerChart`). */
 export function skills(charts: Counted[]): SkillSheet {
   const list = SKILLSETS.map((skillset, k): Skill => {
     const rated = charts.filter((c) => ssrOf(c, k) > 0);
@@ -170,7 +203,8 @@ export function skills(charts: Counted[]): SkillSheet {
       .map((c) => ({ ...c, worth: ssrOf(c, k) }));
     const value = rated.length ? aggregate(rated.map((c) => ssrOf(c, k))) : null;
     const carrying = value === null ? 0 : rated.filter((c) => ssrOf(c, k) > value / 1.05).length;
-    return { skillset, value, plays: rated.length, carrying, top };
+    const overrated = rated.filter((c) => looksOverrated(ssrOf(c, k), value, charts.length)).length;
+    return { skillset, value, plays: rated.length, carrying, overrated, top };
   });
   const known = list.map((s) => s.value).filter((v): v is number => v !== null);
   return { skills: list, overall: known.length ? aggregate(known, 0.1, 1.125) : null, plays: charts.length };
@@ -189,7 +223,7 @@ export interface SkillPoint {
 const dayOf = (ms: number): number => Math.floor((ms - new Date(ms).getTimezoneOffset() * 60_000) / 86_400_000);
 
 /** Where `v` goes in a list sorted highest first. */
-function slot(list: number[], v: number): number {
+function place(list: number[], v: number): number {
   let lo = 0;
   let hi = list.length;
   while (lo < hi) {
@@ -201,31 +235,57 @@ function slot(list: number[], v: number): number {
 }
 
 /** How the skills grew in a key mode, oldest first: overall and every skillset after each day whose
- * plays raised a chart's best (what `skills` would have said that evening). */
-export function skillHistory(plays: Play[], mapIndex: (id: string | undefined) => number | undefined, maps: MapRow[], keys: number): SkillPoint[] {
-  const list: { play: Play; ssr: number[]; key: string }[] = [];
+ * plays raised what counts (what `skills` would have said that evening). */
+export function skillHistory(
+  plays: Play[],
+  mapIndex: (id: string | undefined) => number | undefined,
+  maps: MapRow[],
+  keys: number,
+  leftOut?: LeftOut,
+): SkillPoint[] {
+  const list: { play: Play; ssr: number[]; slot: string; chart: string }[] = [];
   for (const play of plays) {
-    const mapIdx = counting(play, mapIndex, maps, keys);
-    if (mapIdx !== undefined && play.ssr) list.push({ play, ssr: play.ssr, key: chartKey(maps[mapIdx]) });
+    const mapIdx = counting(play, mapIndex, maps, keys, leftOut);
+    if (mapIdx === undefined || !play.ssr) continue;
+    const map = maps[mapIdx];
+    list.push({ play, ssr: play.ssr, slot: slotOf(map, rateOf(play)), chart: chartKey(map) });
   }
   list.sort((a, b) => a.play.date - b.play.date);
+  // the best per difficulty and rate, each chart's slots, and what each chart adds now (its best two)
   const best = new Map<string, number[]>();
+  const slots = new Map<string, string[]>();
+  const adds = new Map<string, number[][]>();
   // each skillset's values, highest first, kept as plays come in
   const sorted: number[][] = SKILLSETS.map(() => []);
   const out: SkillPoint[] = [];
   let moved = false;
   for (let j = 0; j < list.length; j++) {
-    const { play, ssr, key } = list[j];
-    const had = best.get(key);
+    const { play, ssr, slot, chart } = list[j];
+    const had = best.get(slot);
     if (!had || ssr[0] > had[0]) {
-      best.set(key, ssr);
-      for (let k = 0; k < SKILLSETS.length; k++) {
-        const old = had?.[k + 1] ?? 0;
-        if (old > 0) sorted[k].splice(slot(sorted[k], old), 1);
-        const v = ssr[k + 1] ?? 0;
-        if (v > 0) sorted[k].splice(slot(sorted[k], v), 0, v);
+      best.set(slot, ssr);
+      let mine = slots.get(chart);
+      if (!mine) slots.set(chart, (mine = []));
+      if (!mine.includes(slot)) mine.push(slot);
+      const now = mine.map((s) => best.get(s)!).sort((a, b) => b[0] - a[0]).slice(0, PER_CHART);
+      const was = adds.get(chart) ?? [];
+      // a rate under the chart's best two changes nothing
+      if (now.length !== was.length || now.some((v, i) => v !== was[i])) {
+        for (const old of was) {
+          for (let k = 0; k < SKILLSETS.length; k++) {
+            const v = old[k + 1] ?? 0;
+            if (v > 0) sorted[k].splice(place(sorted[k], v), 1);
+          }
+        }
+        for (const add of now) {
+          for (let k = 0; k < SKILLSETS.length; k++) {
+            const v = add[k + 1] ?? 0;
+            if (v > 0) sorted[k].splice(place(sorted[k], v), 0, v);
+          }
+        }
+        adds.set(chart, now);
+        moved = true;
       }
-      moved = true;
     }
     const next = list[j + 1];
     if (moved && (!next || dayOf(next.play.date) !== dayOf(play.date))) {
@@ -368,19 +428,38 @@ function poolOf(maps: MapRow[], keys: number): number[] {
   return pool;
 }
 
-/** Skillset k's skill once a chart is passed at Etterna's reference accuracy (worth its MSD
- * there), in place of that chart's best so far if it's better. */
-function skillWith(charts: Counted[], k: number, key: string, msd: number): number {
+/** Skillset k's skill once a chart is passed at a rate at Etterna's reference accuracy (worth its
+ * MSD there): in place of the best at that rate if it's better, and with the chart's best two
+ * (here by what they're worth in k, close enough for a suggestion). */
+function skillWith(charts: Counted[], k: number, pick: { map: MapRow; rate: number; msd: number }): number {
+  const key = chartKey(pick.map);
+  const at = slotOf(pick.map, pick.rate);
   const values: number[] = [];
-  let had = 0;
+  const chart: number[] = [];
+  let replaced = false;
   for (const c of charts) {
     const v = ssrOf(c, k);
     if (v <= 0) continue;
-    if (chartKey(c.map) === key) had = v;
-    else values.push(v);
+    if (chartKey(c.map) !== key) values.push(v);
+    else if (slotOf(c.map, rateOf(c.play)) === at) {
+      chart.push(Math.max(v, pick.msd));
+      replaced = true;
+    } else chart.push(v);
   }
-  values.push(Math.max(msd, had));
+  if (!replaced) chart.push(pick.msd);
+  values.push(...chart.sort((a, b) => b - a).slice(0, PER_CHART));
   return aggregate(values);
+}
+
+/** Your best on each chart in skillset k (of the rates that count), by `chartKey`. */
+export function bestByChart(charts: Counted[], k: number): Map<string, Counted> {
+  const out = new Map<string, Counted>();
+  for (const c of charts) {
+    const key = chartKey(c.map);
+    const had = out.get(key);
+    if (!had || ssrOf(c, k) > ssrOf(had, k)) out.set(key, c);
+  }
+  return out;
 }
 
 /** Charts to practise skillset k on, best first: in the key mode, mostly about k at a rate that puts
@@ -397,16 +476,18 @@ export function suggest(
   opts: {
     played?: Set<number>;
     exclude?: Set<number>;
+    /** charts left out of the skills, not suggested either */
+    leftOut?: LeftOut;
     limit?: number;
     /** your best on one of `maps`, when `maps` isn't the library `charts` index into */
     bestOf?: (mapIdx: number) => Counted | undefined;
   } = {},
 ): Suggestion[] {
-  const byKey = new Map(charts.map((c) => [chartKey(c.map), c]));
+  const byKey = bestByChart(charts, k);
   const bestOf = (i: number) => byKey.get(chartKey(maps[i])) ?? opts.bestOf?.(i);
   const perSet = new Map<number, { pick: Omit<Suggestion, "after">; score: number }>();
   for (const mapIdx of poolOf(maps, keys)) {
-    if (opts.exclude?.has(mapIdx)) continue;
+    if (opts.exclude?.has(mapIdx) || isLeftOut(maps[mapIdx], opts.leftOut)) continue;
     const rows = msdOf(mapIdx);
     if (!rows) continue;
     const best = bestOf(mapIdx);
@@ -425,7 +506,7 @@ export function suggest(
   return [...perSet.values()]
     .sort((a, b) => b.score - a.score)
     .slice(0, opts.limit ?? SUGGESTIONS)
-    .map(({ pick }) => ({ ...pick, after: skillWith(charts, k, chartKey(pick.map), pick.msd) }));
+    .map(({ pick }) => ({ ...pick, after: skillWith(charts, k, pick) }));
 }
 
 /** Practice for every skillset the library has charts for, weakest first (those without plays
@@ -437,7 +518,7 @@ export function practice(
   maps: MapRow[],
   keys: number,
   msdOf: (mapIdx: number) => MsdRows | undefined,
-  opts: { played?: Set<number>; shown?: (s: MsdSkill) => number } = {},
+  opts: { played?: Set<number>; leftOut?: LeftOut; shown?: (s: MsdSkill) => number } = {},
 ): Practice[] {
   const order = now.map((skill, k) => ({ skill, k }));
   order.sort((a, b) => (a.skill.value ?? -1) - (b.skill.value ?? -1));
@@ -446,7 +527,7 @@ export function practice(
   for (const { skill, k } of order) {
     const aim = aimFor(skill, now);
     if (!aim) continue;
-    const picks = suggest(k, aim, charts, maps, keys, msdOf, { played: opts.played, exclude, limit: MORE_SUGGESTIONS });
+    const picks = suggest(k, aim, charts, maps, keys, msdOf, { played: opts.played, exclude, leftOut: opts.leftOut, limit: MORE_SUGGESTIONS });
     picks.slice(0, opts.shown?.(skill.skillset) ?? SUGGESTIONS).forEach((p) => exclude.add(p.mapIdx));
     out.push({ skill, aim, picks });
   }

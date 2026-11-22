@@ -11,11 +11,12 @@ import { duration, esc, fixed, num, pct, rankInfo, relativeTime, srChip } from "
 import { isBest, playMods, rankNumber, sessionStart } from "../lib/live";
 import { historyEvents, historyLoading, historyNow, loadHistory, mapIndexOf } from "../lib/history";
 import { skillName, type GoalSkill } from "../lib/goals";
-import { bestPerChart, keysOf, SKILLSETS, skills } from "../lib/skills";
+import { bestPerChart, chartKey, isLeftOut, keysOf, looksOverrated, SKILLSETS, skills } from "../lib/skills";
+import { countAgain, leaveOut, leftOutNow } from "../lib/skills-left-out";
 import { chartMods, type Mod } from "../lib/mods";
 import { back, canGoBack, go } from "../lib/router";
 import { judge, rateHint, review, type LossStretch, type Review } from "../lib/score-review";
-import { store } from "../lib/store";
+import { events, store } from "../lib/store";
 import type { ChartData, LivePlay, MapRow } from "../lib/types";
 import { claimContentArt } from "../player";
 import { icon } from "../ui/icons";
@@ -64,6 +65,7 @@ export class ScoreView {
   private attempt: Attempt | null = null;
   private job = 0;
   private offHistory: () => void;
+  private offPrefs: () => void;
 
   constructor(private id: string) {
     this.el = document.createElement("section");
@@ -72,6 +74,9 @@ export class ScoreView {
     this.el.addEventListener("click", (e) => this.click(e.target as Element));
     // the play joins the history a moment after it's here (lib/history reloads on a new play)
     this.offHistory = historyEvents.on("history", () => this.fillSkills());
+    this.offPrefs = events.on("prefs", (p) => {
+      if ("skillsLeftOut" in p) this.fillSkills();
+    });
     void this.load();
   }
 
@@ -219,8 +224,29 @@ export class ScoreView {
       el.hidden = true;
       return;
     }
-    const before = skills(bestPerChart(h.plays, mapIndexOf, snap.maps, keys, mine.date - 1));
-    const after = skills(bestPerChart(h.plays, mapIndexOf, snap.maps, keys, mine.date));
+    const head = `
+      <div class="score-skills-head">
+        <h2 class="section-title">${t("Skills")} <span class="section-count num">${keys}K</span></h2>
+        <button class="btn btn-ghost btn-sm score-skills-open" type="button">${icon("radar")}<span>${t("Open Skills")}</span></button>
+      </div>`;
+    const leftOut = leftOutNow();
+    if (isLeftOut(map, leftOut)) {
+      el.hidden = false;
+      el.innerHTML = `${head}
+        <div class="score-skill-odd">${icon("eye-off")}<span>${t("You left this chart out of your skills, so this pass doesn't count.")}</span>
+          <button class="btn btn-ghost btn-sm score-count-again" type="button">${t("Count again")}</button>
+        </div>`;
+      return;
+    }
+    const before = skills(bestPerChart(h.plays, mapIndexOf, snap.maps, keys, { until: mine.date - 1, leftOut }));
+    const after = skills(bestPerChart(h.plays, mapIndexOf, snap.maps, keys, { until: mine.date, leftOut }));
+    // the skillset where the pass stands out most from the skill, if it looks overrated anywhere
+    let oddAt: { k: number; by: number } | null = null;
+    for (let k = 0; k < SKILLSETS.length; k++) {
+      const v = mine.ssr[k + 1] ?? 0;
+      const skill = after.skills[k].value;
+      if (skill && looksOverrated(v, skill, after.plays) && (!oddAt || v / skill > oddAt.by)) oddAt = { k, by: v / skill };
+    }
     const lines: { key: GoalSkill; was: number | null; now: number | null }[] = [
       { key: "overall", was: before.overall, now: after.overall },
       ...SKILLSETS.map((s, k) => ({ key: s as GoalSkill, was: before.skills[k].value, now: after.skills[k].value })),
@@ -229,10 +255,7 @@ export class ScoreView {
     const worth = t("This pass is worth {value} overall, at {wife} as Etterna counts it.", { value: fixed(mine.ssr[0], 2), wife: pct(mine.wife) });
     el.hidden = false;
     el.innerHTML = `
-      <div class="score-skills-head">
-        <h2 class="section-title">${t("Skills")} <span class="section-count num">${keys}K</span></h2>
-        <button class="btn btn-ghost btn-sm score-skills-open" type="button">${icon("radar")}<span>${t("Open Skills")}</span></button>
-      </div>
+      ${head}
       ${
         up.length
           ? `<div class="score-skill-list">${up
@@ -247,7 +270,14 @@ export class ScoreView {
               .join("")}</div>`
           : ""
       }
-      <p class="chart-note">${up.length ? worth : `${t("No skill went up this time.")} ${worth}`}</p>`;
+      <p class="chart-note">${up.length ? worth : `${t("No skill went up this time.")} ${worth}`}</p>
+      ${
+        oddAt
+          ? `<div class="score-skill-odd is-warn">${icon("alert")}<span>${t("This pass is worth far more than your {skill}. MinaCalc rates some charts too high. If this is one, leave it out.", { skill: skillName(SKILLSETS[oddAt.k]) })}</span>
+              <button class="btn btn-ghost btn-sm score-leave-out" type="button">${t("Leave out")}</button>
+            </div>`
+          : ""
+      }`;
   }
 
   /** The judgements as lazer counted them (or as judged here, for a replay without lazer's counts). */
@@ -381,6 +411,9 @@ export class ScoreView {
     if (target.closest(".score-tries")) return go({ name: "tries", md5: p.md5 });
     if (target.closest(".score-skills-open")) return go({ name: "skills" });
     if (mi < 0) return;
+    const map = store.snap!.maps[mi];
+    if (target.closest(".score-leave-out")) return void leaveOut(map);
+    if (target.closest(".score-count-again")) return countAgain(chartKey(map), map.id);
     if (target.closest(".score-watch")) {
       watchPlay(mi, {
         id: p.id,
@@ -417,6 +450,7 @@ export class ScoreView {
   destroy(): void {
     this.job++;
     this.offHistory();
+    this.offPrefs();
     this.el.remove();
   }
 }

@@ -6,7 +6,7 @@
  * (src-tauri/src/goals.rs) and lib/goals-store.ts keeps them and marks the ones reached.
  */
 import { fixed, num, pct } from "./format";
-import { bestPerChart, changesChart, rateOf, SKILL_LABEL, skills, type SkillSheet } from "./skills";
+import { bestPerChart, changesChart, rateOf, SKILL_LABEL, skills, type LeftOut, type SkillSheet } from "./skills";
 import type { History, MapRow, MsdSkill, Play } from "./types";
 import { t } from "./i18n";
 
@@ -64,7 +64,7 @@ export const skillIn = (sheet: SkillSheet, skillset: GoalSkill): number | null =
 /** "Overall", "Jumpstream", … */
 export const skillName = (skillset: GoalSkill): string => (skillset === "overall" ? "Overall" : SKILL_LABEL[skillset]);
 
-export function goalContext(h: Pick<History, "plays" | "stats">, maps: MapRow[], mapIndex: GoalContext["mapIndex"]): GoalContext {
+export function goalContext(h: Pick<History, "plays" | "stats">, maps: MapRow[], mapIndex: GoalContext["mapIndex"], leftOut?: LeftOut): GoalContext {
   const cache = new Map<number, SkillSheet>();
   return {
     plays: h.plays,
@@ -73,7 +73,7 @@ export function goalContext(h: Pick<History, "plays" | "stats">, maps: MapRow[],
     stats: h.stats,
     skillsFor(keys) {
       let s = cache.get(keys);
-      if (!s) cache.set(keys, (s = skills(bestPerChart(h.plays, mapIndex, maps, keys))));
+      if (!s) cache.set(keys, (s = skills(bestPerChart(h.plays, mapIndex, maps, keys, { leftOut }))));
       return s;
     },
   };

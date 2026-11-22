@@ -535,6 +535,14 @@ export interface UiPrefs {
   discordPulse: boolean;
   /** the heart rate monitor used (lib/heart): connected on every start */
   heart: { id: string | null; name: string | null };
+  /** charts left out of the skills (lib/skills-left-out), by their chart key */
+  skillsLeftOut: Record<string, LeftOutChart>;
+}
+
+/** A chart left out of the skills: what to call it (it may leave the library) and since when. */
+export interface LeftOutChart {
+  name: string;
+  at: number;
 }
 
 /** OBS: the pages' server, the connection to OBS, its scenes and clips. */

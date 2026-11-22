@@ -11,9 +11,10 @@ import { currentContext, goalEvents, goalsNow, loadGoals, removeGoal } from "../
 import { displayTitle, esc, fixed, num, pct, relativeTime } from "../lib/format";
 import { historyEvents, historyNow, loadHistory, mapIndexOf, modsText, playWhen } from "../lib/history";
 import {
-  bestPerChart, chartKey, FEW_PLAYS, keyModes, MORE_SUGGESTIONS, practice, rateOf, SKILL_LABEL, skillHistory, SKILLSETS, skills, suggest, SUGGESTIONS, TOP,
-  type Aim, type Counted, type MsdRows, type Practice, type SkillPoint, type SkillSheet, type Suggestion,
+  bestByChart, bestPerChart, chartKey, FEW_PLAYS, keyModes, looksOverrated, MORE_SUGGESTIONS, practice, rateOf, SKILL_LABEL, skillHistory, SKILLSETS, skills, suggest, SUGGESTIONS, TOP,
+  type Aim, type Counted, type LeftOut, type MsdRows, type Practice, type SkillPoint, type SkillSheet, type Suggestion,
 } from "../lib/skills";
+import { countAgain, leaveOut, leftOutList, leftOutNow } from "../lib/skills-left-out";
 import { renderTrend, type TrendRange } from "./skill-trends";
 import { similarTo } from "../lib/similar";
 import { events, store } from "../lib/store";
@@ -42,9 +43,13 @@ const PATTERN_OF: Partial<Record<MsdSkill, PatternName>> = { stream: "stream", j
 interface Line {
   key: GoalSkill;
   value: number | null;
-  /** skillsets: the plays that carry it (above the rating), overall: none */
+  /** skillsets: the plays that carry it (above the rating), and of those the ones that look
+   * overrated; overall: none */
   carrying?: number;
+  overrated?: number;
   top: (Counted & { worth: number })[];
+  /** skillsets: how many passes are behind the skills (whether they've filled up) */
+  plays?: number;
 }
 
 /** a line's place: 0 overall, then the skillsets */
@@ -52,7 +57,7 @@ const lineIndex = (key: GoalSkill): number => (key === "overall" ? 0 : SKILLSETS
 
 const linesOf = (sheet: SkillSheet, charts: Counted[]): Line[] => [
   { key: "overall", value: sheet.overall, top: charts.slice(0, TOP).map((c) => ({ ...c, worth: c.ssr[0] })) },
-  ...sheet.skills.map((s): Line => ({ key: s.skillset, value: s.value, carrying: s.carrying, top: s.top })),
+  ...sheet.skills.map((s): Line => ({ key: s.skillset, value: s.value, carrying: s.carrying, overrated: s.overrated, top: s.top, plays: sheet.plays })),
 ];
 
 /** The compared player's charts that practise your skillsets (their indices, into `maps`). */
@@ -85,12 +90,12 @@ export class SkillsView {
   private msdFor: MapRow[] | null = null;
   /** the last practice plan and what it was worked out from (it takes a moment, and opening a
    * skillset's plays doesn't change it) */
-  private planMemo: { plays: Play[]; maps: MapRow[]; rows: Map<number, MsdRows>; keys: number; more: string; plan: Practice[] } | null = null;
+  private planMemo: { plays: Play[]; maps: MapRow[]; rows: Map<number, MsdRows>; keys: number; more: string; leftOut: LeftOut; plan: Practice[] } | null = null;
   /** "Over time": the range shown, and the skills day by day (worked out once per plays) */
   private range: TrendRange = "all";
   /** lines whose graph is open */
   private graphs = new Set<string>();
-  private trendMemo: { plays: Play[]; maps: MapRow[]; keys: number; points: SkillPoint[] } | null = null;
+  private trendMemo: { plays: Play[]; maps: MapRow[]; keys: number; leftOut: LeftOut; points: SkillPoint[] } | null = null;
 
   constructor() {
     this.el = document.createElement("section");
@@ -119,7 +124,7 @@ export class SkillsView {
       }),
       events.on("library", () => this.render()),
       events.on("prefs", (p) => {
-        if ("unicode" in p) this.render();
+        if ("unicode" in p || "skillsLeftOut" in p) this.render();
       }),
     );
     this.render();
@@ -160,20 +165,20 @@ export class SkillsView {
     return undefined;
   }
 
-  private trendFor(plays: Play[], maps: MapRow[], keys: number): SkillPoint[] {
+  private trendFor(plays: Play[], maps: MapRow[], keys: number, leftOut: LeftOut): SkillPoint[] {
     const m = this.trendMemo;
-    if (m && m.plays === plays && m.maps === maps && m.keys === keys) return m.points;
-    const points = skillHistory(plays, mapIndexOf, maps, keys);
-    this.trendMemo = { plays, maps, keys, points };
+    if (m && m.plays === plays && m.maps === maps && m.keys === keys && m.leftOut === leftOut) return m.points;
+    const points = skillHistory(plays, mapIndexOf, maps, keys, leftOut);
+    this.trendMemo = { plays, maps, keys, leftOut, points };
     return points;
   }
 
-  private planFor(plays: Play[], maps: MapRow[], rows: Map<number, MsdRows>, keys: number, work: () => Practice[]): Practice[] {
+  private planFor(plays: Play[], maps: MapRow[], rows: Map<number, MsdRows>, keys: number, leftOut: LeftOut, work: () => Practice[]): Practice[] {
     const more = [...this.more].sort().join();
     const m = this.planMemo;
-    if (m && m.plays === plays && m.maps === maps && m.rows === rows && m.keys === keys && m.more === more) return m.plan;
+    if (m && m.plays === plays && m.maps === maps && m.rows === rows && m.keys === keys && m.more === more && m.leftOut === leftOut) return m.plan;
     const plan = work();
-    this.planMemo = { plays, maps, rows, keys, more, plan };
+    this.planMemo = { plays, maps, rows, keys, more, leftOut, plan };
     return plan;
   }
 
@@ -215,9 +220,10 @@ export class SkillsView {
       attachSegIndicator(keysEl);
     } else keysEl.querySelectorAll<HTMLElement>("button").forEach((b) => b.classList.toggle("active", +b.dataset.keys! === keys));
 
-    const charts = bestPerChart(h.plays, mapIndexOf, snap.maps, keys);
+    const leftOut = leftOutNow();
+    const charts = bestPerChart(h.plays, mapIndexOf, snap.maps, keys, { leftOut });
     const now = skills(charts);
-    const thenCharts = bestPerChart(h.plays, mapIndexOf, snap.maps, keys, Date.now() - THEN_MS);
+    const thenCharts = bestPerChart(h.plays, mapIndexOf, snap.maps, keys, { until: Date.now() - THEN_MS, leftOut });
     const then = skills(thenCharts);
     // charts touched at all, and passed at all (with mods that don't count too)
     const played = new Set<number>();
@@ -229,9 +235,13 @@ export class SkillsView {
       if (!p.failed) passed.add(i);
     }
     const rows = this.msdRows(keys, snap.maps);
-    const plan = rows ? this.planFor(h.plays, snap.maps, rows, keys, () => practice(now.skills, charts, snap.maps, keys, (i) => rows.get(i), { played, shown: (s) => (this.more.has(s) ? MORE_SUGGESTIONS : SUGGESTIONS) })) : null;
-    // theirs, worked out the same way on their charts
-    const theirCharts = them ? bestPerChart(them.data.plays, theirIndex, them.maps, keys) : null;
+    const plan = rows
+      ? this.planFor(h.plays, snap.maps, rows, keys, leftOut, () =>
+          practice(now.skills, charts, snap.maps, keys, (i) => rows.get(i), { played, leftOut, shown: (s) => (this.more.has(s) ? MORE_SUGGESTIONS : SUGGESTIONS) }),
+        )
+      : null;
+    // theirs, worked out the same way on their charts (without the ones you left out)
+    const theirCharts = them ? bestPerChart(them.data.plays, theirIndex, them.maps, keys, { leftOut }) : null;
     const theirs = theirCharts ? skills(theirCharts) : null;
     const versus = them && theirs && theirCharts ? { name: them.data.player.name, sheet: theirs, lines: linesOf(theirs, theirCharts), charts: them.data.charts } : null;
     const theirPractice = them && plan ? this.theirPractice(plan, charts, them, keys, played) : null;
@@ -249,13 +259,15 @@ export class SkillsView {
       </div>
       ${this.goalsHtml(ctx)}
       ${this.practiceHtml(plan, rows, played, passed, theirPractice)}
+      ${leftOutHtml()}
       <p class="skills-how">
-        ${t("Every pass is rated with Etterna's calculator, MinaCalc: the chart at the rate you played it, for your accuracy as Etterna counts it (Wife, worked out from your judgements). That's what the play is worth in each skillset. A skillset blends all your plays there the way Etterna does: your best count the most, and it takes a fair number of good plays to get up to your level. Overall blends the seven. Each chart counts once per rate, passes only, and not with mods that change what you play, like Hold Off.")}
+        ${t("Every pass is rated with Etterna's calculator, MinaCalc: the chart at the rate you played it, for your accuracy as Etterna counts it (Wife, worked out from your judgements). That's what the play is worth in each skillset. A skillset blends all your plays there the way Etterna does: your best count the most, and it takes a fair number of good plays to get up to your level. Overall blends the seven. As in Etterna, a chart counts with its two best rates (rate edits of it are the same chart), passes only, and not with mods that change what you play, like Hold Off.")}
+        ${t("MinaCalc rates some charts higher than they play. A pass worth far more than your skill is marked as looking overrated, and you can leave such a chart out.")}
       </p>`;
     // the graphs that are open, worked out only then
     const graphs = body.querySelectorAll<HTMLElement>(".skill-graph[data-line]");
     if (graphs.length) {
-      const points = this.trendFor(h.plays, snap.maps, keys);
+      const points = this.trendFor(h.plays, snap.maps, keys, leftOut);
       for (const g of graphs) {
         const line = Number(g.dataset.line);
         const key = lines[line].key;
@@ -303,6 +315,9 @@ export class SkillsView {
                 ? [
                     t("best play {value}", { value: fixed(best.worth, 2) }),
                     l.carrying ? `<span data-tip="${t("Plays worth more than this skill: only they lift it, the rest adds nothing")}">${tn(l.carrying, "{n} play carries it", "{n} plays carry it")}</span>` : "",
+                    l.overrated
+                      ? `<span class="skill-odd-count" data-tip="${t("Worth far more than this skill. MinaCalc rates some charts too high: open the list to leave one out.")}">${tn(l.overrated, "{n} looks overrated", "{n} look overrated")}</span>`
+                      : "",
                   ]
                     .filter(Boolean)
                     .join(" · ")
@@ -317,7 +332,7 @@ export class SkillsView {
         ${graph ? `<div class="skill-graph" data-line="${lineIndex(l.key)}"></div>` : ""}
         ${
           open
-            ? `<div class="skill-charts-list">${vs && l.top.length ? `<div class="skill-them-head">${t("Yours")}</div>` : ""}${l.top.map((c) => chartRow(c, l.key)).join("")}${theirList}<button class="btn btn-ghost btn-sm skill-goal" type="button">${icon("flag")}<span>${t("Set a goal for {skill}", { skill: label })}</span></button></div>`
+            ? `<div class="skill-charts-list">${vs && l.top.length ? `<div class="skill-them-head">${t("Yours")}</div>` : ""}${l.top.map((c) => chartRow(c, l.key, looksOverrated(c.worth, l.value, l.plays ?? 0))).join("")}${theirList}<button class="btn btn-ghost btn-sm skill-goal" type="button">${icon("flag")}<span>${t("Set a goal for {skill}", { skill: label })}</span></button></div>`
             : ""
         }
       </div>`;
@@ -489,7 +504,6 @@ export class SkillsView {
   ): TheirPractice {
     // their charts as your library's difficulties, where you have them
     const lib = them.data.charts.map((c) => (c.library !== undefined ? mapIndexOf(c.library) : undefined));
-    const mine = new Map(charts.map((c) => [chartKey(c.map), c]));
     const snapMaps = store.snap!.maps;
     const shown = new Set<number>();
     for (const g of plan) for (const p of g.picks.slice(0, this.more.has(g.skill.skillset) ? MORE_SUGGESTIONS : SUGGESTIONS)) shown.add(p.mapIdx);
@@ -504,6 +518,7 @@ export class SkillsView {
     const picks = new Map<MsdSkill, Suggestion[]>();
     for (const g of plan) {
       const k = SKILLSETS.indexOf(g.skill.skillset);
+      const mine = bestByChart(charts, k);
       const bestOf = (j: number) => (lib[j] !== undefined ? mine.get(chartKey(snapMaps[lib[j]!])) : undefined);
       const list = suggest(k, g.aim, charts, them.maps, keys, msdOf, { played: playedThem, exclude, limit: THEIR_PICKS, bestOf });
       list.forEach((s) => exclude.add(s.mapIdx));
@@ -695,6 +710,10 @@ export class SkillsView {
         else this.more.add(s);
         return this.rerender(`.practice-group[data-skill="${s}"] .practice-more`);
       }
+      const leave = target.closest<HTMLElement>(".skill-leave");
+      if (leave) return this.leaveOut(+leave.closest<HTMLElement>(".skill-chart")!.dataset.map!);
+      const again = target.closest<HTMLElement>(".left-out-again");
+      if (again) return countAgain(again.closest<HTMLElement>("[data-key]")!.dataset.key!);
       const row = target.closest<HTMLElement>(".skill-chart[data-map]");
       if (row) openSet(store.snap!.maps[+row.dataset.map!].set, +row.dataset.map!);
     });
@@ -719,7 +738,10 @@ export class SkillsView {
       const skill = row.closest<HTMLElement>(".practice-group")?.dataset.skill as MsdSkill | undefined;
       setMenu({ x: e.clientX, y: e.clientY }, store.snap!.maps[mapIdx].set, mapIdx, {
         practice: { rate, pattern: skill ? PATTERN_OF[skill] : undefined },
-        extra: [{ label: t("Set a goal…"), icon: "flag", action: () => openGoalDialog({ kind: "chart", mapIdx, rate }) }],
+        extra: [
+          { label: t("Set a goal…"), icon: "flag", action: () => openGoalDialog({ kind: "chart", mapIdx, rate }) },
+          { label: t("Leave out of the skills"), icon: "eye-off", action: () => this.leaveOut(mapIdx) },
+        ],
       });
     });
     this.el.addEventListener("keydown", (e) => {
@@ -729,7 +751,7 @@ export class SkillsView {
         if (compareNow()?.status === "error") endCompare();
         return this.renderBar();
       }
-      if ((e.target as Element).closest(".like-btn")) return;
+      if ((e.target as Element).closest(".like-btn, .skill-leave, .left-out-again")) return;
       const add = (e.target as Element).closest<HTMLElement>(".skill-chart[data-add]");
       if (add && (e.key === "Enter" || e.key === " ")) {
         e.preventDefault();
@@ -753,6 +775,14 @@ export class SkillsView {
     );
   }
 
+  /** Takes a chart (and its rate edits) out of the skills, with a way back in the toast. */
+  private leaveOut(mapIdx: number): void {
+    const map = store.snap?.maps[mapIdx];
+    if (!map) return;
+    const name = leaveOut(map);
+    toast(t("Left out of the skills: {name}", { name }), { action: { label: t("Undo"), run: () => countAgain(chartKey(map), map.id) } });
+  }
+
   destroy(): void {
     this.offs.forEach((f) => f());
     this.el.remove();
@@ -764,21 +794,44 @@ function accCell(c: Counted): string {
   return `<span class="num skill-chart-acc" data-tip="${t("{wife} as Etterna counts it", { wife: pct(c.wife) })}">${pct(c.play.acc)}</span>`;
 }
 
-/** One play behind a skill: what it is, how it was played, what it's worth there. */
-function chartRow(c: Line["top"][number], skill: GoalSkill): string {
+/** The charts you left out of the skills, each with a way back in. */
+function leftOutHtml(): string {
+  const list = leftOutList();
+  if (!list.length) return "";
+  return `
+    <section class="skills-left-out">
+      <h2 class="section-title">${t("Left out of the skills")} <span class="section-count num">${list.length}</span></h2>
+      <div class="practice-sub">${t("These charts count for nothing here, at any rate, and aren't suggested to practise.")}</div>
+      <div class="panel left-out-list">${list
+        .map(
+          (l) => `
+          <div class="left-out-row" data-key="${esc(l.key)}">
+            <span class="left-out-name">${esc(l.name)}</span>
+            <span class="left-out-when">${relativeTime(l.at)}</span>
+            <button class="btn btn-ghost btn-sm left-out-again" type="button">${t("Count again")}</button>
+          </div>`,
+        )
+        .join("")}</div>
+    </section>`;
+}
+
+/** One play behind a skill: what it is, how it was played, what it's worth there, whether that
+ * looks overrated; with a button to leave the chart out. */
+function chartRow(c: Line["top"][number], skill: GoalSkill, odd = false): string {
   const snap = store.snap!;
   const set = snap.sets[c.map.set];
   const bg = c.map.bg ?? set.bg;
   return `
-    <div class="skill-chart" data-map="${c.mapIdx}" role="button" tabindex="0">
+    <div class="skill-chart mine${odd ? " odd" : ""}" data-map="${c.mapIdx}" role="button" tabindex="0">
       <span class="t-art${bg ? "" : " img-missing"}">${bg ? `<img src="${thumbUrl(bg, 160)}" alt="" loading="lazy" decoding="async" />` : ""}</span>
       <div class="prow-text">
         <div class="t-title">${esc(displayTitle(set, store.prefs.unicode))}</div>
-        <div class="t-sub">${esc(c.map.version)}</div>
+        <div class="t-sub">${odd ? `<span class="skill-odd" data-tip="${t("Looks overrated: worth far more than your {skill}", { skill: skillName(skill) })}">${icon("alert")}</span>` : ""}${esc(c.map.version)}</div>
       </div>
       <span class="skill-chart-mods">${esc(modsText(c.play as Play))}</span>
       ${accCell(c)}
       <b class="num skill-chart-worth" data-tip="${t("What this play is worth in {skill}", { skill: skillName(skill) })}">${fixed(c.worth, 2)}</b>
+      <button class="icon-btn sm skill-leave" type="button" data-tip="${t("Leave out of the skills")}" aria-label="${t("Leave out of the skills")}">${icon("eye-off")}</button>
     </div>`;
 }
 

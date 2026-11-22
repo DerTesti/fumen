@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { aggregate, aimFor, bestPerChart, keyModes, MORE_SUGGESTIONS, msdAt, practice, rateFor, skillHistory, skills, SKILLSETS, suggest, type MsdRows, type Skill } from "./skills";
+import {
+  aggregate, aimFor, bestPerChart, FEW_PLAYS, keyModes, looksOverrated, MORE_SUGGESTIONS, msdAt, OVERRATED, practice, rateFor, skillHistory, skills, SKILLSETS, suggest,
+  type MsdRows, type Skill,
+} from "./skills";
 import type { MapRow, MsdSkill, Play } from "./types";
 
 const map = (id: string, extra: Partial<MapRow> = {}): MapRow => ({
@@ -50,7 +53,7 @@ describe("skills", () => {
   const ids = new Map(maps.map((m, i) => [m.id, i]));
   const index = (id: string | undefined) => (id === undefined ? undefined : ids.get(id));
 
-  it("counts each chart's best pass at any rate in the key mode, without mods that change it", () => {
+  it("counts each chart's best pass per rate in the key mode, without mods that change it", () => {
     const plays = [
       play("a", 20),
       play("a", 22),
@@ -65,20 +68,60 @@ describe("skills", () => {
     const charts = bestPerChart(plays, index, maps, 4);
     expect(charts.map((c) => [c.map.id, c.ssr[0]])).toEqual([
       ["a", 25],
+      ["a", 22],
       ["b", 18],
     ]);
     // a point in time: only what was played by then
-    expect(bestPerChart(plays, index, maps, 4, 1_000).map((c) => c.map.id)).toEqual(["a"]);
+    expect(bestPerChart(plays, index, maps, 4, { until: 1_000 }).map((c) => c.map.id)).toEqual(["a", "a"]);
   });
 
-  it("takes rate edits of a chart as that chart", () => {
-    const plays = [play("a", 22), play("a-1.1x", 24), play("a-1.1x", 23), play("b", 18)];
+  it("counts a chart's best two rates, its rate edits as that chart", () => {
+    const plays = [
+      play("a", 22),
+      play("a", 21, { rate: 1.2, mods: ["DT"] }),
+      // the edit at 1×: a rate of a, its best there counts
+      play("a-1.1x", 24),
+      play("a-1.1x", 23),
+      play("a", 26, { rate: 1.5, mods: ["DT"] }),
+      play("b", 18),
+    ];
     const charts = bestPerChart(plays, index, maps, 4);
     expect(charts.map((c) => [c.map.id, c.ssr[0]])).toEqual([
+      ["a", 26],
       ["a-1.1x", 24],
       ["b", 18],
     ]);
-    expect(skills(charts).skills[0].plays).toBe(2);
+    expect(skills(charts).skills[0].plays).toBe(3);
+  });
+
+  it("leaves out the charts you left out, with their rate edits", () => {
+    const plays = [play("a", 22), play("a-1.1x", 24), play("b", 18), play("c", 16)];
+    const left = (keys: string[]) => bestPerChart(plays, index, maps, 4, { leftOut: new Set(keys) }).map((c) => c.map.id);
+    expect(left(["k-a"])).toEqual(["b", "c"]);
+    // left out by its id (before its notes key was known)
+    expect(left(["a"])).toEqual(["a-1.1x", "b", "c"]);
+    expect(left(["b"])).toEqual(["a-1.1x", "a", "c"]);
+    expect(left([])).toEqual(["a-1.1x", "a", "b", "c"]);
+    const points = skillHistory(plays, index, maps, 4, new Set(["k-a"]));
+    expect(points[points.length - 1].values[0]).toBeCloseTo(skills(bestPerChart(plays, index, maps, 4, { leftOut: new Set(["k-a"]) })).overall!);
+  });
+
+  it("marks plays worth far more than the skill once it has filled up", () => {
+    expect(looksOverrated(30 * OVERRATED + 0.01, 30, FEW_PLAYS)).toBe(true);
+    expect(looksOverrated(30 * OVERRATED - 0.01, 30, FEW_PLAYS)).toBe(false);
+    // still filling up: the skill trails the best plays anyway
+    expect(looksOverrated(40, 30, FEW_PLAYS - 1)).toBe(false);
+    expect(looksOverrated(40, null, 100)).toBe(false);
+    // a skillset of even plays with one far above it
+    const many = Array.from({ length: 40 }, (_, i) => map(`m${i}`));
+    const at = new Map(many.map((m, i) => [m.id, i]));
+    const idx = (id: string | undefined) => (id === undefined ? undefined : at.get(id));
+    const even = many.slice(1).map((m) => play(m.id, 20, {}, { stream: 20 }));
+    const sheet = (top: number) => skills(bestPerChart([play("m0", 20, {}, { stream: top }), ...even], idx, many, 4)).skills[K("stream")];
+    expect(sheet(21).overrated).toBe(0);
+    const farmed = sheet(30);
+    expect(farmed.overrated).toBe(1);
+    expect(farmed.top[0].worth).toBe(30);
   });
 
   it("blends each skillset's SSRs and the seven into overall", () => {
@@ -119,9 +162,29 @@ describe("skills", () => {
     expect(points[2].values[0]).toBeCloseTo(now.overall!);
     now.skills.forEach((s, k) => expect(points[2].values[k + 1]).toBeCloseTo(s.value!));
     // and every point is what they said then
-    const then = skills(bestPerChart(plays, index, maps, 4, at(3)));
+    const then = skills(bestPerChart(plays, index, maps, 4, { until: at(3) }));
     expect(points[1].values[0]).toBeCloseTo(then.overall!);
     expect(skillHistory(plays, index, maps, 7)).toEqual([]);
+  });
+
+  it("follows a chart's best two rates over time", () => {
+    const at = (d: number) => Date.UTC(2026, 9, 1 + d, 12);
+    const plays = [
+      play("a", 20, { date: at(0) }),
+      play("a", 22, { date: at(1), rate: 1.1, mods: ["DT"] }),
+      // a third rate under the two: nothing moves
+      play("a", 19, { date: at(2), rate: 0.9, mods: ["HT"] }),
+      // one over them: it takes the place of the lower
+      play("a-1.1x", 25, { date: at(3) }),
+      play("b", 18, { date: at(4) }),
+    ];
+    const points = skillHistory(plays, index, maps, 4);
+    expect(points.map((p) => p.date)).toEqual([at(0), at(1), at(3), at(4)]);
+    for (const [i, d] of [at(0), at(1), at(3), at(4)].entries()) {
+      const then = skills(bestPerChart(plays, index, maps, 4, { until: d }));
+      expect(points[i].values[0]).toBeCloseTo(then.overall!);
+      then.skills.forEach((s, k) => expect(points[i].values[k + 1]).toBeCloseTo(s.value!));
+    }
   });
 
   it("lists key modes by rated plays", () => {
@@ -159,7 +222,7 @@ describe("practice", () => {
   const jack = { jackspeed: 1 };
   const aim = { from: 20, base: 20, lo: 20.2, ideal: 21, hi: 22 };
   const sk = (skillset: MsdSkill, value: number | null): Skill => ({
-    skillset, value, plays: value === null ? 0 : 5, carrying: value === null ? 0 : 3, top: value === null ? [] : [{ worth: value } as never],
+    skillset, value, plays: value === null ? 0 : 5, carrying: value === null ? 0 : 3, overrated: 0, top: value === null ? [] : [{ worth: value } as never],
   });
 
   it("aims a little above your best plays, or under the weakest for a skillset without any", () => {
@@ -225,6 +288,20 @@ describe("practice", () => {
     expect(suggest(k, aim, [], pool, 4, msdOf, { exclude: new Set([ids.get("heavy")!, ids.get("heavy-hd")!]) }).map((p) => p.map.id)).toEqual(["blurry", "slow"]);
     // charts without an MSD yet are left out
     expect(suggest(k, aim, [], pool, 4, () => undefined)).toEqual([]);
+    // and those left out of the skills
+    expect(suggest(k, aim, [], pool, 4, msdOf, { leftOut: new Set(["heavy", "heavy-hd"]) }).map((p) => p.map.id)).toEqual(["blurry", "slow"]);
+  });
+
+  it("works out the skill after a pass with the chart's best two rates", () => {
+    const at = (rate: number, jackspeed: number) => play("heavy", 22, { rate, mods: rate === 1 ? [] : ["DT"] }, { jackspeed });
+    const onHeavy = (charts: ReturnType<typeof bestPerChart>) =>
+      suggest(k, aim, charts, pool, 4, msdOf, { exclude: new Set([ids.get("heavy-hd")!]) }).find((p) => p.map.id === "heavy")!;
+    // two rates on it already, both under the pick: a pass at 1× takes the lower one's place
+    const two = onHeavy(bestPerChart([at(1.1, 19), at(1.2, 18)], index, pool, 4));
+    expect(two).toMatchObject({ rate: 1, msd: 21 });
+    expect(two.after).toBeCloseTo(aggregate([21, 19]));
+    // at the rate of one of them: in its place, the other stays
+    expect(onHeavy(bestPerChart([at(1, 19), at(1.2, 18)], index, pool, 4)).after).toBeCloseTo(aggregate([21, 18]));
   });
 
   it("puts charts you've played after new ones and leaves out what you've passed at the aim", () => {

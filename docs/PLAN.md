@@ -269,7 +269,15 @@ sections below is the order of the work.
       every `live-play`, so a pass counts at once; the score page shows the skills it raised
       (just before against just after); a graph per row on the Skills page (its button, closed by default): overall or a
       skillset day by day (`skillHistory`, sorted values kept as plays come in), 90 days / year /
-      all
+      all; "N plays carry it" per skillset. Farm maps: a notes key per chart (`msd::notes_key`,
+      FNV-1a over the key count and the rows, analysis version 6) makes rate edits and copies one
+      chart; as in Etterna (`ScoresForChart::SetTopScores`) a chart counts with its best two rates
+      (mania-tracker does the same per "chart family"). You can leave a chart out by hand (UI pref
+      `skillsLeftOut`, by notes key; out of skills, history, goals and practice, listed with "Count
+      again"), and a pass worth more than 1.12× the skill once 25 passes are rated is marked as
+      looking overrated (real best plays sit within about 1.09×), on the Skills page and the score
+      page. mania-tracker also detects "vibro" sections from the notes and cuts or drops them
+      (its docs/features/vibro.md); not ported
 - [x] Compare skills with another player (0.4.10, `src-tauri/src/player.rs`, `lib/compare.ts`):
       osu! API with the logged-in token (user by name, top 200, firsts, recent passes, most
       played → up to 60 best-score lookups; one request at a time, 350 ms apart), charts from the

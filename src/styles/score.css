@@ -60,6 +60,11 @@
 .score-skill-up { font-size: var(--fs-12); font-weight: 700; color: var(--success); }
 .score-skill.is-overall .score-skill-name { color: var(--t1); }
 .score-skills .chart-note { margin-top: 10px; }
+.score-skill-odd { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 8px 8px 8px 12px; border-radius: var(--r-md); background: var(--tint-hover); font-size: var(--fs-12); line-height: 1.45; color: var(--t2); }
+.score-skill-odd > span { flex: 1; }
+.score-skill-odd > .ic { flex: none; width: 16px; height: 16px; color: var(--t3); }
+.score-skill-odd.is-warn { background: var(--warning-soft); color: var(--t1); }
+.score-skill-odd.is-warn > .ic { color: var(--warning); }
 
 /* the song's density, the losses over it */
 .score-graph {
