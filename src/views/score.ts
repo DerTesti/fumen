@@ -234,9 +234,7 @@ export class ScoreView {
       el.hidden = false;
       el.innerHTML = `${head}
         <div class="score-skill-odd">${icon("info")}<span>${
-          mine.vibro === "vibro"
-            ? t("This chart has parts no hand plays as written at this rate, like jacks or trills past a finger's speed (vibro), so this pass doesn't count for your skills.")
-            : t("This chart is built from notes MinaCalc can't follow, like jumptrills or chords split into notes a few ms apart, so this pass doesn't count for your skills.")
+          mine.vibro === "vibro" ? t("Doesn't count: this map has vibro at this rate.") : t("Doesn't count: MinaCalc can't rate this map.")
         }</span></div>`;
       return;
     }
@@ -244,7 +242,7 @@ export class ScoreView {
     if (isLeftOut(map, leftOut)) {
       el.hidden = false;
       el.innerHTML = `${head}
-        <div class="score-skill-odd">${icon("eye-off")}<span>${t("You left this chart out of your skills, so this pass doesn't count.")}</span>
+        <div class="score-skill-odd">${icon("eye-off")}<span>${t("Doesn't count: you left this map out.")}</span>
           <button class="btn btn-ghost btn-sm score-count-again" type="button">${t("Count again")}</button>
         </div>`;
       return;
@@ -282,11 +280,11 @@ export class ScoreView {
           : ""
       }
       <p class="chart-note">${up.length ? worth : `${t("No skill went up this time.")} ${worth}`}${
-        mine.vibro === "adjusted" ? ` ${t("Parts no hand plays as written were cut out before rating it.")}` : ""
+        mine.vibro === "adjusted" ? ` ${t("Vibro parts were cut out before rating.")}` : ""
       }</p>
       ${
         oddAt
-          ? `<div class="score-skill-odd is-warn">${icon("alert")}<span>${t("This pass is worth far more than your {skill}. MinaCalc rates some charts too high. If this is one, leave it out.", { skill: skillName(SKILLSETS[oddAt.k]) })}</span>
+          ? `<div class="score-skill-odd is-warn">${icon("alert")}<span>${t("Worth far more than your {skill}, maybe overrated.", { skill: skillName(SKILLSETS[oddAt.k]) })}</span>
               <button class="btn btn-ghost btn-sm score-leave-out" type="button">${t("Leave out")}</button>
             </div>`
           : ""

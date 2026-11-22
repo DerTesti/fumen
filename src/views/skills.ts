@@ -23,6 +23,7 @@ import { attachSegIndicator, openMenu, toast, type MenuEntry } from "../ui/contr
 import { icon } from "../ui/icons";
 import { openSet, setMenu } from "./actions";
 import { openGoalDialog } from "./goal-dialog";
+import { openSkillsHelp } from "./skills-help";
 import { openImport } from "./import";
 import { t, tn } from "../lib/i18n";
 
@@ -109,6 +110,7 @@ export class SkillsView {
         <div class="skills-tools">
           <div class="seg-pill skills-keys" role="tablist" aria-label="${t("Keys")}"></div>
           <button class="btn btn-sm skills-compare" type="button">${icon("user")}<span>${t("Compare")}</span></button>
+          <button class="icon-btn skills-help-btn" type="button" data-tip="${t("How Skills work")}" aria-label="${t("How Skills work")}">${icon("info")}</button>
         </div>
       </header>
       <div class="compare-bar" hidden></div>
@@ -259,11 +261,7 @@ export class SkillsView {
       </div>
       ${this.goalsHtml(ctx)}
       ${this.practiceHtml(plan, rows, played, passed, theirPractice)}
-      ${leftOutHtml(foundVibro(h.plays, mapIndexOf, snap.maps, keys))}
-      <p class="skills-how">
-        ${t("Every pass is rated with Etterna's calculator, MinaCalc: the chart at the rate you played it, for your accuracy as Etterna counts it (Wife, worked out from your judgements). That's what the play is worth in each skillset. A skillset blends all your plays there the way Etterna does: your best count the most, and it takes a fair number of good plays to get up to your level. Overall blends the seven. As in Etterna, a chart counts with its two best rates (rate edits of it are the same chart), passes only, and not with mods that change what you play, like Hold Off.")}
-        ${t("MinaCalc rates some charts higher than they play. A pass worth far more than your skill is marked as looking overrated, and you can leave such a chart out. Fumen also looks for parts no hand plays as written, like jacks or trills past a finger's speed (vibro): where they're a small part of a chart they're cut out before rating, otherwise the pass doesn't count. Its rules come from mania-tracker.")}
-      </p>`;
+      ${leftOutHtml(foundVibro(h.plays, mapIndexOf, snap.maps, keys))}`;
     // the graphs that are open, worked out only then
     const graphs = body.querySelectorAll<HTMLElement>(".skill-graph[data-line]");
     if (graphs.length) {
@@ -316,7 +314,7 @@ export class SkillsView {
                     t("best play {value}", { value: fixed(best.worth, 2) }),
                     l.carrying ? `<span data-tip="${t("Plays worth more than this skill: only they lift it, the rest adds nothing")}">${tn(l.carrying, "{n} play carries it", "{n} plays carry it")}</span>` : "",
                     l.overrated
-                      ? `<span class="skill-odd-count" data-tip="${t("Worth far more than this skill. MinaCalc rates some charts too high: open the list to leave one out.")}">${tn(l.overrated, "{n} looks overrated", "{n} look overrated")}</span>`
+                      ? `<span class="skill-odd-count" data-tip="${t("Worth far more than this skill, maybe overrated")}">${tn(l.overrated, "{n} looks overrated", "{n} look overrated")}</span>`
                       : "",
                   ]
                     .filter(Boolean)
@@ -464,7 +462,7 @@ export class SkillsView {
         <div class="practice-head">
           <div>
             <h2 class="section-title">${t("Goals")}${open.length ? ` <span class="section-count num">${open.length}</span>` : ""}</h2>
-            ${open.length ? "" : `<div class="practice-sub">${t("Something to work toward: a skill, an accuracy on a chart, or your pp or rank. Fumen ticks it off when your plays get there.")}</div>`}
+            ${open.length ? "" : `<div class="practice-sub">${t("A skill, an accuracy or a rank to work toward.")}</div>`}
           </div>
           <button class="btn btn-sm goal-new" type="button">${icon("plus")}<span>${t("New goal")}</span></button>
         </div>
@@ -533,7 +531,7 @@ export class SkillsView {
         <div class="practice-head">
           <div>
             <h2 class="section-title">${t("Practice next")}</h2>
-            <div class="practice-sub">${t("Charts in your library a little above your best plays in your weakest skillsets, and mostly about them: hard enough to move them, close enough to pass. Where 1× doesn't land there, a rate does.")}</div>
+            <div class="practice-sub">${t("A little above your best, in your weakest skillsets.")}</div>
           </div>
           ${extra}
         </div>`;
@@ -640,6 +638,7 @@ export class SkillsView {
   private bind(): void {
     this.el.addEventListener("click", (e) => {
       const target = e.target as Element;
+      if (target.closest(".skills-help-btn")) return openSkillsHelp();
       if (target.closest(".skills-compare")) {
         if (compareNow()?.status === "loading") return;
         this.entering = !this.entering;
@@ -803,20 +802,22 @@ function leftOutHtml(found: FoundVibro[]): string {
   const foundRows = found
     .map((f) => {
       const set = store.snap!.sets[f.map.set];
-      const why = f.kind === "vibro" ? t("parts no hand plays as written") : t("notes MinaCalc can't follow");
+      const [why, tip] =
+        f.kind === "vibro"
+          ? [t("Vibro"), t("Parts no hand plays as written, like jacks or trills past a finger's speed")]
+          : [t("Can't be rated"), t("Notes MinaCalc can't follow, like jumptrills or chords split into single notes")];
       return `
           <div class="left-out-row skill-chart-link" data-map="${f.mapIdx}" role="button" tabindex="0">
             <span class="left-out-name">${esc(`${displayTitle(set, unicode)} [${f.map.version}]`)}</span>
-            <span class="left-out-why">${why}</span>
+            <span class="left-out-why" data-tip="${esc(tip)}">${why}</span>
             <span class="left-out-when num">${f.rates.map((r) => `${fixed(r, 2)}×`).join(", ")}</span>
           </div>`;
     })
     .join("");
   return `
     <section class="skills-left-out">
-      <h2 class="section-title">${t("Left out of the skills")} <span class="section-count num">${list.length + found.length}</span></h2>
-      ${list.length ? `<div class="practice-sub">${t("These charts count for nothing here, at any rate, and aren't suggested to practise.")}</div>` : ""}
-      ${list.length ? `<div class="panel left-out-list">${list
+      <h2 class="section-title">${t("Left out")} <span class="section-count num">${list.length + found.length}</span></h2>
+      ${list.length ? `<div class="left-out-group">${t("By you")}</div><div class="panel left-out-list">${list
         .map(
           (l) => `
           <div class="left-out-row" data-key="${esc(l.key)}">
@@ -828,7 +829,7 @@ function leftOutHtml(found: FoundVibro[]): string {
         .join("")}</div>` : ""}
       ${
         found.length
-          ? `<div class="practice-sub left-out-found">${t("Fumen left out your passes on these charts at the rates shown: they have parts no hand plays as written (vibro), or notes MinaCalc can't follow, like jumptrills or chords split into notes a few ms apart.")}</div>
+          ? `<div class="left-out-group">${t("By Fumen")}</div>
       <div class="panel left-out-list">${foundRows}</div>`
           : ""
       }
@@ -847,7 +848,7 @@ function chartRow(c: Line["top"][number], skill: GoalSkill, odd = false): string
       <div class="prow-text">
         <div class="t-title">${esc(displayTitle(set, store.prefs.unicode))}</div>
         <div class="t-sub">${odd ? `<span class="skill-odd" data-tip="${t("Looks overrated: worth far more than your {skill}", { skill: skillName(skill) })}">${icon("alert")}</span>` : ""}${
-          c.play.vibro === "adjusted" ? `<span class="skill-cut" data-tip="${t("Parts no hand plays as written were cut out before rating this pass")}">${icon("info")}</span>` : ""
+          c.play.vibro === "adjusted" ? `<span class="skill-cut" data-tip="${t("Vibro parts cut out before rating")}">${icon("info")}</span>` : ""
         }${esc(c.map.version)}</div>
       </div>
       <span class="skill-chart-mods">${esc(modsText(c.play as Play))}</span>
