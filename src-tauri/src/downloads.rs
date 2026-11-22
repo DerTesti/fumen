@@ -443,6 +443,7 @@ fn agent(timeout: Duration) -> ureq::Agent {
 
 /// The set a beatmap belongs to, asked of the mirrors' beatmap lookups in turn.
 pub fn set_of_beatmap(beatmap: u32) -> Result<u32> {
+    crate::online::refuse_if_blocked()?;
     let agent = agent(Duration::from_secs(15));
     let mut failures = Vec::new();
     for (name, url) in LOOKUPS {
@@ -486,6 +487,7 @@ pub fn set_of_beatmap(beatmap: u32) -> Result<u32> {
 /// the download stops with a "cancelled" error). Returns the file and the mirror that delivered
 /// it.
 pub fn download_set(set: u32, dir: &Path, mirrors: &Mirrors, mut progress: impl FnMut(Progress) -> bool) -> Result<(PathBuf, &'static str)> {
+    crate::online::refuse_if_blocked()?;
     std::fs::create_dir_all(dir)?;
     let target = dir.join(format!("{set}.osz"));
     let part = dir.join(format!("{set}.osz.part"));
@@ -577,6 +579,7 @@ const CHART_MIRRORS: [(&str, fn(i64) -> String); 3] = [
 /// that can take it now gets it, else this waits for the soonest (resting ones are skipped).
 /// Ok(None): no mirror has it.
 pub fn download_chart(agent: &ureq::Agent, beatmap: i64, first: usize) -> Result<Option<String>> {
+    crate::online::refuse_if_blocked()?;
     let mut failures = Vec::new();
     let mut missing = 0;
     let mut left: Vec<usize> = (0..CHART_MIRRORS.len()).map(|k| (first + k) % CHART_MIRRORS.len()).filter(|&i| !off(CHART_MIRRORS[i].0)).collect();

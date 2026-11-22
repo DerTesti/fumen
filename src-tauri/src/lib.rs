@@ -1978,6 +1978,8 @@ async fn import_beatmaps(app: AppHandle, links: Vec<String>, target: Option<Stri
 }
 
 fn run_import(app: &AppHandle, state: &AppState, links: &[String], into_stable: bool) -> Result<ImportSummary> {
+    // a blocked Fumen downloads nothing (said once, not per link)
+    online::refuse_if_blocked()?;
     let emit = |index: usize, stage: &'static str, set: Option<u32>, title: Option<String>, message: Option<String>| {
         let p = ImportProgress { index, stage, set, title, done: 0, total: 0, message };
         let _ = app.emit("import-progress", p);

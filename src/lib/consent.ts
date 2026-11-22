@@ -190,7 +190,7 @@ function showOnline(b: FumenBlock): void {
   notice.innerHTML = blockCard({
     eyebrow: t("Online blocked"),
     title: t("Fumen's online features are blocked"),
-    note: t("Logging in, the cloud and comparing are off. Everything else in Fumen works as usual."),
+    note: t("Logging in, the cloud, comparing and downloading maps are off. Everything else in Fumen works as usual."),
     actions: `
       <button class="btn btn-ghost" type="button" data-act="privacy">${t("Privacy")}</button>
       <button class="btn btn-danger" type="button" data-act="close">${t("Got it")}</button>`,

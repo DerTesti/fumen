@@ -57,8 +57,20 @@ pub fn ensure() -> Result<()> {
     }
 }
 
-/// A block from fumen.dertesti.dev: "full" (Fumen shows only this) or "online" (no login, no
-/// cloud). `message` is the site's, with the reason and where to turn.
+/// Err while Fumen is blocked (online or full), whether the online features are on or not: for
+/// what goes online without them, the mirrors (searching, downloads, imports by link).
+pub fn refuse_if_blocked() -> Result<()> {
+    if cfg!(test) {
+        return Ok(());
+    }
+    match BLOCK.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        Some(b) => Err(Error::known("blocked", b.message.clone())),
+        None => Ok(()),
+    }
+}
+
+/// A block from fumen.dertesti.dev: "full" (Fumen shows only this) or "online" (nothing that
+/// goes online: no login, no cloud, no mirrors). `message` is the site's, with the reason and where to turn.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Block {
     pub scope: String,
