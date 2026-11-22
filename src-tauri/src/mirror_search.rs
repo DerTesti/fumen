@@ -170,6 +170,9 @@ enum Asked {
 
 /// Asks `mirror` within its budget (shared with the downloads); a "too many requests" rests it.
 fn ask(mirror: &'static str, req: ureq::RequestBuilder<ureq::typestate::WithoutBody>) -> Asked {
+    if downloads::off(mirror) {
+        return Asked::Failed("turned off".into());
+    }
     if !downloads::book(mirror, downloads::REQUEST, Duration::from_secs(5)) {
         return Asked::Failed("resting after too many requests".into());
     }

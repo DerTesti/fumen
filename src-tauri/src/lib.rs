@@ -2279,6 +2279,7 @@ pub fn run() {
             let settings_path = config_dir.join("settings.json");
             let settings = Settings::load(&settings_path);
             let conn = db::open(&data_dir.join("library.db"))?;
+            downloads::follow_rules(data_dir.join("mirror-rules.json"));
 
             let state = AppState {
                 db: Mutex::new(conn),

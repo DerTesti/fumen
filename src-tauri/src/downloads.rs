@@ -6,7 +6,9 @@
 //! a whole import, and that pauses a mirror when it says "too many requests" (for as long as its
 //! `Retry-After` asks) instead of failing sets. Every request to a mirror, from here, the search
 //! and the chart files, goes through one budget per mirror (see [`UNITS_PER_MINUTE`]), so Fumen
-//! stays under the mirrors' rate limits instead of running into them. Beatmap links (`/b/<id>`, `/beatmaps/<id>`) are
+//! stays under the mirrors' rate limits instead of running into them. fumen.dertesti.dev can
+//! slow a mirror down or turn it off for every Fumen without a release ([`follow_rules`]).
+//! Beatmap links (`/b/<id>`, `/beatmaps/<id>`) are
 //! turned into their set by the mirrors' beatmap lookups too.
 
 use std::collections::VecDeque;
@@ -65,20 +67,94 @@ struct Budget {
 }
 
 impl Budget {
-    fn free_at(&self, units: u32, now: Instant) -> Instant {
+    /// When a request costing `units` fits under `limit` units a minute.
+    fn free_at(&self, units: u32, limit: u32, now: Instant) -> Instant {
         let rest = self.rest_until.filter(|&t| t > now).unwrap_or(now);
         let mut used: u32 = self.spent.iter().map(|(_, u)| u).sum();
-        if used + units <= UNITS_PER_MINUTE {
+        if used + units <= limit {
             return rest;
         }
         for (t, u) in &self.spent {
             used -= u;
-            if used + units <= UNITS_PER_MINUTE {
+            if used + units <= limit {
                 return rest.max(*t + WINDOW);
             }
         }
         rest
     }
+}
+
+/// Where Fumen asks what to do with the mirrors.
+const RULES_URL: &str = "https://fumen.dertesti.dev/api/mirrors";
+/// How often a running Fumen asks again.
+const RULES_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+
+/// What fumen.dertesti.dev says about one mirror. It can only hold Fumen back: a mirror turned
+/// off, fewer downloads a minute than built in, or a mirror only as a last resort. It can't add a
+/// mirror or point one elsewhere.
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Rule {
+    #[serde(default)]
+    off: bool,
+    /// downloads a minute
+    per_minute: Option<u32>,
+    last_resort: Option<bool>,
+}
+
+#[derive(serde::Deserialize)]
+struct Rules {
+    #[serde(default)]
+    mirrors: std::collections::HashMap<String, Rule>,
+}
+
+static RULES: Mutex<Vec<(String, Rule)>> = Mutex::new(Vec::new());
+
+fn parse_rules(text: &str) -> Option<Vec<(String, Rule)>> {
+    let rules: Rules = serde_json::from_str(text).ok()?;
+    Some(rules.mirrors.into_iter().collect())
+}
+
+fn rule(mirror: &str) -> Rule {
+    RULES.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(n, _)| n == mirror).map(|(_, r)| *r).unwrap_or_default()
+}
+
+/// Whether fumen.dertesti.dev turned `mirror` off.
+pub fn off(mirror: &str) -> bool {
+    rule(mirror).off
+}
+
+/// Units a minute for `mirror`: what's built in, or less when the site says so.
+fn limit(mirror: &str) -> u32 {
+    rule(mirror).per_minute.map_or(UNITS_PER_MINUTE, |n| (n.max(1) * DOWNLOAD).min(UNITS_PER_MINUTE))
+}
+
+fn last_resort(i: usize) -> bool {
+    rule(MIRRORS[i].name).last_resort.unwrap_or(MIRRORS[i].last_resort)
+}
+
+/// Follows fumen.dertesti.dev's rules for the mirrors: the last ones it said (kept in `file`)
+/// right away, then what it says now and every few hours. Without an answer the last ones hold.
+pub fn follow_rules(file: PathBuf) {
+    if let Some(r) = std::fs::read_to_string(&file).ok().and_then(|t| parse_rules(&t)) {
+        *RULES.lock().unwrap_or_else(|e| e.into_inner()) = r;
+    }
+    std::thread::spawn(move || {
+        let agent = agent(Duration::from_secs(15));
+        loop {
+            if let Ok(mut res) = agent.get(RULES_URL).call() {
+                if res.status() == 200 {
+                    if let Some(text) = res.body_mut().with_config().limit(64 * 1024).read_to_string().ok() {
+                        if let Some(r) = parse_rules(&text) {
+                            *RULES.lock().unwrap_or_else(|e| e.into_inner()) = r;
+                            let _ = std::fs::write(&file, text);
+                        }
+                    }
+                }
+            }
+            std::thread::sleep(RULES_EVERY);
+        }
+    });
 }
 
 type Budgets = Mutex<Vec<(&'static str, Budget)>>;
@@ -117,18 +193,21 @@ fn in_budget<T>(all: &Budgets, mirror: &'static str, f: impl FnOnce(&mut Budget,
 
 /// When `mirror` can take a request costing `units` (now or earlier: right away).
 pub fn free_at(mirror: &'static str, units: u32) -> Instant {
-    with_budget(mirror, |b, now| b.free_at(units, now))
+    let limit = limit(mirror);
+    with_budget(mirror, |b, now| b.free_at(units, limit, now))
 }
 
 /// Whether `mirror` can take a request costing `units` right now.
 fn can_take(mirror: &'static str, units: u32) -> bool {
-    with_budget(mirror, |b, now| b.free_at(units, now) <= now)
+    let limit = limit(mirror);
+    with_budget(mirror, |b, now| b.free_at(units, limit, now) <= now)
 }
 
 /// Books a request costing `units` with `mirror` if it fits right now.
 pub fn try_book(mirror: &'static str, units: u32) -> bool {
+    let limit = limit(mirror);
     with_budget(mirror, |b, now| {
-        let fits = b.free_at(units, now) <= now;
+        let fits = b.free_at(units, limit, now) <= now;
         if fits {
             b.spent.push_back((now, units));
         }
@@ -137,8 +216,11 @@ pub fn try_book(mirror: &'static str, units: u32) -> bool {
 }
 
 /// Waits until `mirror` can take a request costing `units` and books it; false (nothing booked)
-/// when that's further off than `max`.
+/// when that's further off than `max` or the mirror is turned off.
 pub fn book(mirror: &'static str, units: u32, max: Duration) -> bool {
+    if off(mirror) {
+        return false;
+    }
     loop {
         let at = free_at(mirror, units);
         let now = Instant::now();
@@ -238,9 +320,9 @@ impl Mirrors {
         let now = Instant::now();
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let rests = |i: usize| state[i].rest_until.is_some_and(|t| t > now) || resting(MIRRORS[i].name);
-        let others_left = (0..MIRRORS.len()).any(|i| !MIRRORS[i].last_resort && may_have(tried[i]) && !rests(i));
+        let others_left = (0..MIRRORS.len()).any(|i| !last_resort(i) && may_have(tried[i]) && !rests(i));
         let best = (0..MIRRORS.len())
-            .filter(|&i| may_have(tried[i]) && !(MIRRORS[i].last_resort && others_left))
+            .filter(|&i| may_have(tried[i]) && !(last_resort(i) && others_left))
             .filter(|&i| !rests(i) && state[i].active < PER_MIRROR && can_take(MIRRORS[i].name, DOWNLOAD))
             .min_by_key(|&i| (matches!(tried[i], Tried::Failed(_)), state[i].active, state[i].started, i))?;
         if !try_book(MIRRORS[best].name, DOWNLOAD) {
@@ -410,6 +492,12 @@ pub fn download_set(set: u32, dir: &Path, mirrors: &Mirrors, mut progress: impl 
     let agent = agent(Duration::from_secs(300));
     let mut tried = [Tried::No; MIRRORS.len()];
     let mut why: Vec<String> = vec![String::new(); MIRRORS.len()];
+    // turned off on fumen.dertesti.dev: as if they didn't have it
+    for (i, m) in MIRRORS.iter().enumerate() {
+        if off(m.name) {
+            tried[i] = Tried::Missing;
+        }
+    }
     let mut waited_since: Option<Instant> = None;
     loop {
         let Some(i) = mirrors.pick(&tried) else {
@@ -468,7 +556,7 @@ pub fn download_set(set: u32, dir: &Path, mirrors: &Mirrors, mut progress: impl 
             }
         }
     }
-    if tried.iter().all(|t| *t == Tried::Missing) && why.iter().all(|w| w.starts_with("HTTP 404") || w.starts_with("HTTP 403") || w == NOT_ARCHIVE) {
+    if tried.iter().all(|t| *t == Tried::Missing) && why.iter().filter(|w| !w.is_empty()).all(|w| w.starts_with("HTTP 404") || w.starts_with("HTTP 403") || w == NOT_ARCHIVE) {
         return Err(Error::known("not-found", format!("No download mirror has this set ({})", reasons(&why))));
     }
     Err(Error::known("download-failed", format!("No download mirror could deliver this set ({})", reasons(&why))))
@@ -491,7 +579,7 @@ const CHART_MIRRORS: [(&str, fn(i64) -> String); 3] = [
 pub fn download_chart(agent: &ureq::Agent, beatmap: i64, first: usize) -> Result<Option<String>> {
     let mut failures = Vec::new();
     let mut missing = 0;
-    let mut left: Vec<usize> = (0..CHART_MIRRORS.len()).map(|k| (first + k) % CHART_MIRRORS.len()).collect();
+    let mut left: Vec<usize> = (0..CHART_MIRRORS.len()).map(|k| (first + k) % CHART_MIRRORS.len()).filter(|&i| !off(CHART_MIRRORS[i].0)).collect();
     while !left.is_empty() {
         let k = match left.iter().position(|&i| can_take(CHART_MIRRORS[i].0, DOWNLOAD)) {
             Some(k) => k,
@@ -680,16 +768,33 @@ mod tests {
         let mut b = Budget::default();
         // 40 downloads in a minute, the 41st waits for the first to drop out of the window
         for k in 0..40 {
-            assert!(b.free_at(DOWNLOAD, start) <= start, "download {k}");
+            assert!(b.free_at(DOWNLOAD, UNITS_PER_MINUTE, start) <= start, "download {k}");
             b.spent.push_back((start + Duration::from_millis(k * 100), DOWNLOAD));
         }
-        assert_eq!(b.free_at(DOWNLOAD, start), start + WINDOW);
+        assert_eq!(b.free_at(DOWNLOAD, UNITS_PER_MINUTE, start), start + WINDOW);
         // a lookup still fits only when a download's units are free
-        assert!(b.free_at(REQUEST, start) > start);
+        assert!(b.free_at(REQUEST, UNITS_PER_MINUTE, start) > start);
+        // a lower limit stops earlier
+        let mut b = Budget::default();
+        b.spent.push_back((start, DOWNLOAD));
+        assert_eq!(b.free_at(DOWNLOAD, DOWNLOAD, start), start + WINDOW);
         // a rest wins over a free budget
         let mut b = Budget::default();
         b.rest_until = Some(start + Duration::from_secs(90));
-        assert_eq!(b.free_at(REQUEST, start), start + Duration::from_secs(90));
+        assert_eq!(b.free_at(REQUEST, UNITS_PER_MINUTE, start), start + Duration::from_secs(90));
+    }
+
+    #[test]
+    fn rules_from_the_site() {
+        let r = parse_rules(r#"{"version":1,"mirrors":{"catboy.best":{"off":true},"nekoha.moe":{"perMinute":10,"lastResort":true},"x":{}}}"#).unwrap();
+        let get = |n: &str| r.iter().find(|(m, _)| m == n).map(|(_, r)| *r).unwrap();
+        assert_eq!(get("catboy.best"), Rule { off: true, per_minute: None, last_resort: None });
+        assert_eq!(get("nekoha.moe"), Rule { off: false, per_minute: Some(10), last_resort: Some(true) });
+        assert_eq!(parse_rules("{}").unwrap(), vec![]);
+        assert!(parse_rules("not json").is_none());
+        // nothing said: what's built in
+        assert_eq!(limit("osu.direct"), UNITS_PER_MINUTE);
+        assert!(!off("osu.direct"));
     }
 
     #[test]

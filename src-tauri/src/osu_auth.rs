@@ -294,6 +294,8 @@ fn token_request(ep: &Endpoints, kind: &str, body: &serde_json::Value) -> Result
     if status != 200 {
         let message = text("message").unwrap_or_else(|| format!("Fumen's login server said {status}."));
         return Err(match (status, kind) {
+            // this osu! account may not use Fumen's login: the site says why
+            (403, _) if text("error").as_deref() == Some("blocked") => Error::known("osu-logged-out", message),
             (400 | 401, "refresh") => Error::known("osu-logged-out", "Your osu! login has run out. Log in again."),
             (503, _) => Error::known("login-unavailable", message),
             _ => Error::known("login-failed", message),
