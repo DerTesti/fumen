@@ -140,6 +140,9 @@ export interface Skill {
   value: number | null;
   /** plays behind it */
   plays: number;
+  /** the plays that carry it: worth more than the rating Etterna's blend settled on (the value
+   * before its ×1.05); the others add nothing */
+  carrying: number;
   /** its best plays, best first, with what each is worth in it */
   top: (Counted & { worth: number })[];
 }
@@ -160,7 +163,9 @@ export function skills(charts: Counted[]): SkillSheet {
       .sort((a, b) => ssrOf(b, k) - ssrOf(a, k))
       .slice(0, TOP)
       .map((c) => ({ ...c, worth: ssrOf(c, k) }));
-    return { skillset, value: rated.length ? aggregate(rated.map((c) => ssrOf(c, k))) : null, plays: rated.length, top };
+    const value = rated.length ? aggregate(rated.map((c) => ssrOf(c, k))) : null;
+    const carrying = value === null ? 0 : rated.filter((c) => ssrOf(c, k) > value / 1.05).length;
+    return { skillset, value, plays: rated.length, carrying, top };
   });
   const known = list.map((s) => s.value).filter((v): v is number => v !== null);
   return { skills: list, overall: known.length ? aggregate(known, 0.1, 1.125) : null, plays: charts.length };

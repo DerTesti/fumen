@@ -42,6 +42,8 @@ const PATTERN_OF: Partial<Record<MsdSkill, PatternName>> = { stream: "stream", j
 interface Line {
   key: GoalSkill;
   value: number | null;
+  /** skillsets: the plays that carry it (above the rating), overall: none */
+  carrying?: number;
   top: (Counted & { worth: number })[];
 }
 
@@ -50,7 +52,7 @@ const lineIndex = (key: GoalSkill): number => (key === "overall" ? 0 : SKILLSETS
 
 const linesOf = (sheet: SkillSheet, charts: Counted[]): Line[] => [
   { key: "overall", value: sheet.overall, top: charts.slice(0, TOP).map((c) => ({ ...c, worth: c.ssr[0] })) },
-  ...sheet.skills.map((s): Line => ({ key: s.skillset, value: s.value, top: s.top })),
+  ...sheet.skills.map((s): Line => ({ key: s.skillset, value: s.value, carrying: s.carrying, top: s.top })),
 ];
 
 /** The compared player's charts that practise your skillsets (their indices, into `maps`). */
@@ -296,7 +298,16 @@ export class SkillsView {
         <div class="skill-top">
           <button class="skill-head" type="button" aria-expanded="${open}"${any ? "" : " disabled"}>
             <span class="skill-name">${label}</span>
-            <span class="skill-charts">${best ? t("best play {value}", { value: fixed(best.worth, 2) }) : t("no passes yet")}</span>
+            <span class="skill-charts">${
+              best
+                ? [
+                    t("best play {value}", { value: fixed(best.worth, 2) }),
+                    l.carrying ? `<span data-tip="${t("Plays worth more than this skill: only they lift it, the rest adds nothing")}">${tn(l.carrying, "{n} play carries it", "{n} plays carry it")}</span>` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : t("no passes yet")
+            }</span>
             ${delta}
             <b class="skill-value num">${l.value !== null ? fixed(l.value, 2) : "–"}</b>
             ${any ? icon("chevron-down", "skill-chev") : `<span></span>`}

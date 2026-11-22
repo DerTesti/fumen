@@ -18,6 +18,8 @@ export const skills: Record<string, string> = {
     "Jeder Pass wird mit Etternas Rechner MinaCalc bewertet: das Chart bei der Rate, mit der du es gespielt hast, für deine Accuracy, wie Etterna sie zählt (Wife, aus deinen Judgements berechnet). Das ist, was das Play in jedem Skillset wert ist. Ein Skillset fasst alle deine Plays darin so zusammen, wie Etterna es tut: Deine besten zählen am meisten, und es braucht eine ordentliche Zahl guter Plays, bis es auf deinem Niveau ist. Overall fasst die sieben zusammen. Jedes Chart zählt einmal pro Rate, nur Passes, und nicht mit Mods, die ändern, was du spielst, wie Hold Off.",
   "Since {when}": "Seit {when}",
   "best play {value}": "bestes Play {value}",
+  "{n} play carries it|{n} plays carry it": "{n} Play trägt ihn|{n} Plays tragen ihn",
+  "Plays worth more than this skill: only they lift it, the rest adds nothing": "Plays, die mehr wert sind als dieser Skill: Nur sie heben ihn, der Rest trägt nichts bei",
   "Set a goal for {skill}": "Ziel für {skill} setzen",
   "{wife} as Etterna counts it": "{wife}, wie Etterna es zählt",
   "What this play is worth in {skill}": "Was dieses Play in {skill} wert ist",

@@ -71,6 +71,9 @@ describe("skills", () => {
     const js = sheet.skills[K("jumpstream")];
     expect(js.value).toBeCloseTo(aggregate([21, 19, 16 * 0.8]));
     expect(js.top.map((c) => c.worth)).toEqual([21, 19, 16 * 0.8]);
+    // the plays above the rating carry it
+    expect(js.carrying).toBe([21, 19, 16 * 0.8].filter((v) => v > js.value! / 1.05).length);
+    expect(js.carrying).toBeGreaterThan(0);
     // a skillset's best plays are its own
     expect(sheet.skills[K("jackspeed")].top.map((c) => c.map.id)).toEqual(["b", "c", "a"]);
     expect(sheet.overall).toBeCloseTo(aggregate(sheet.skills.map((s) => s.value!), 0.1, 1.125));
@@ -139,7 +142,7 @@ describe("practice", () => {
   const jack = { jackspeed: 1 };
   const aim = { from: 20, base: 20, lo: 20.2, ideal: 21, hi: 22 };
   const sk = (skillset: MsdSkill, value: number | null): Skill => ({
-    skillset, value, plays: value === null ? 0 : 5, top: value === null ? [] : [{ worth: value } as never],
+    skillset, value, plays: value === null ? 0 : 5, carrying: value === null ? 0 : 3, top: value === null ? [] : [{ worth: value } as never],
   });
 
   it("aims a little above your best plays, or under the weakest for a skillset without any", () => {
