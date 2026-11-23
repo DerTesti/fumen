@@ -8,14 +8,15 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { follow } from "../lib/tosu-follow";
 import { heart, type HeartDevice } from "../lib/heart";
 import { lang, LANGS, switchLang, t, tn } from "../lib/i18n";
-import { esc, fixed, MODE_LABEL, num, relativeTime } from "../lib/format";
+import { bytes, esc, fixed, MODE_LABEL, num, relativeTime } from "../lib/format";
+import { cloudEvents, cloudOn, cloudState, syncCloud } from "../lib/cloud-scores";
 import { collectionEvents, fumenCollections, loadCollections, putIntoLazer, saveCollectionDb } from "../lib/collections";
 import { syncHistory } from "../lib/history";
 import { needOnline } from "../lib/consent";
 import { canUpdate, checkForUpdate, downloadText, installUpdate, updateEvents, updateState } from "../lib/updater";
 import { describeScan, isScanning, runScan } from "../lib/scan";
 import { DEFAULT_ACCENT, events, flushPrefs, refreshStatus, setPrefs, store } from "../lib/store";
-import type { OsuAccount, UiPrefs } from "../lib/types";
+import type { CloudSync, OsuAccount, UiPrefs } from "../lib/types";
 import { attachSegIndicator, openMenu, toast, uiConfirm, uiPrompt } from "../ui/controls";
 import { importSets, openImport } from "./import";
 import { icon, type IconName } from "../ui/icons";
@@ -84,6 +85,17 @@ export async function loginWithOsu(): Promise<void> {
   }
 }
 
+/** What a sync of the cloud's scores did, as a toast. */
+function cloudToast(r: CloudSync): void {
+  const words = [
+    r.added ? tn(r.added, "{n} play saved", "{n} plays saved") : "",
+    r.replaysAdded ? tn(r.replaysAdded, "{n} replay saved", "{n} replays saved") : "",
+    r.restored ? tn(r.restored, "{n} play from the cloud in History", "{n} plays from the cloud in History") : "",
+  ].filter(Boolean);
+  toast(words.length ? words.join(", ") : t("The cloud is up to date."), { kind: "success", timeout: 4000 });
+  if (r.full) toast(t("Your space in the cloud is full (1 GB). What's there stays, new plays don't fit any more."), { kind: "danger", timeout: 8000 });
+}
+
 /** a signal's strength in words, from dBm */
 const signal = (rssi: number): string => (rssi >= -60 ? t("strong") : rssi >= -75 ? t("good") : t("weak"));
 
@@ -130,6 +142,7 @@ export class SettingsView {
       overlayEvents.on("change", () => this.renderObs()),
       heart.bus.on("status", () => this.renderHeart()),
       heart.bus.on("reading", () => this.renderPulse()),
+      cloudEvents.on("state", () => this.renderCloudScores()),
     );
     // tosu and Discord come and go on their own
     const tosuTimer = window.setInterval(() => {
@@ -179,6 +192,7 @@ export class SettingsView {
         <section class="settings-section" data-section="osu" role="tabpanel">
           ${head("osu")}
           <div class="setting-row" data-row="account"></div>
+          <div class="setting-row" data-row="cloud-scores"></div>
         </section>
 
         <section class="settings-section" data-section="library" role="tabpanel">
@@ -805,6 +819,98 @@ export class SettingsView {
         </div>
         <button class="btn btn-primary btn-sm s-login" type="button"${accountKnown ? "" : " disabled"}>${t("Log in with osu!")}</button>`;
     }
+    this.renderCloudScores();
+  }
+
+  /** Scores in the cloud: the switch, what's there, and the ways to get maps back or delete it all. */
+  renderCloudScores(): void {
+    const row = this.el.querySelector<HTMLElement>('[data-row="cloud-scores"]');
+    if (!row) return;
+    const on = cloudOn();
+    const s = cloudState();
+    const logged = !!account;
+    let status = "";
+    if (on && s.busy) status = s.of ? t("Saving… {done} of {of} replays", { done: num(s.done ?? 0), of: num(s.of) }) : t("Saving…");
+    else if (on && s.error) status = `<span class="is-error">${esc(s.error)}</span>`;
+    else if (on && s.last) {
+      const l = s.last;
+      status = [
+        tn(l.scores, "{n} play", "{n} plays"),
+        tn(l.replays, "{n} replay", "{n} replays"),
+        t("{used} of {limit}", { used: bytes(l.bytes), limit: bytes(l.limit) }),
+        t("saved {when}", { when: relativeTime(s.at ?? Date.now()) }),
+      ].join(" · ");
+    } else if (on) status = t("Saved after you play and when the library updates.");
+    row.innerHTML = `
+      <div class="setting-text">
+        <div class="setting-title">${t("Scores in the cloud")}</div>
+        <div class="setting-desc">${t("Your plays from osu!lazer and osu!stable, their replays and the list of your maps, kept on Fumen's server under your osu! login. On a new PC or after setting Fumen up again, your history and skills come back and your maps download again. Free, up to 1 GB, and only your login gets them.")}${logged ? "" : ` ${t("Log in with osu! first.")}`}</div>
+        ${status ? `<div class="setting-desc num s-cloud-status">${status}</div>` : ""}
+        ${
+          logged
+            ? `<div class="s-cloud-acts">
+                ${on ? `<button class="btn btn-sm s-cloud-sync" type="button"${s.busy ? " disabled" : ""}>${icon("refresh")}${t("Save now")}</button>` : ""}
+                ${on ? `<button class="btn btn-sm s-cloud-maps" type="button">${icon("download")}${t("Download missing maps")}</button>` : ""}
+                <button class="btn btn-ghost btn-sm s-cloud-delete" type="button"${s.busy ? " disabled" : ""}>${icon("trash")}${t("Delete everything in the cloud")}</button>
+              </div>`
+            : ""
+        }
+      </div>
+      <input type="checkbox" role="switch" data-setting="cloudScores" aria-label="${t("Scores in the cloud")}" ${on ? "checked" : ""}${logged && store.settings?.online ? "" : " disabled"} />`;
+  }
+
+  private async setCloudScores(input: HTMLInputElement): Promise<void> {
+    const on = input.checked;
+    input.disabled = true;
+    try {
+      store.settings = await api.updateSettings({ cloudScores: on });
+      this.renderCloudScores();
+      if (on) cloudToast(await syncCloud(true));
+    } catch (e) {
+      toast(t("Couldn't save them: {error}", { error: asApiError(e).message }), { kind: "danger", timeout: 6000 });
+    } finally {
+      this.renderCloudScores();
+    }
+  }
+
+  private async cloudMaps(b: HTMLButtonElement): Promise<void> {
+    b.disabled = true;
+    try {
+      const ids = await api.cloudMissingSets();
+      if (!ids.length) return void toast(t("Every set in your map list is in the library."), { kind: "success", timeout: 3000 });
+      const ok = await uiConfirm(
+        tn(
+          ids.length,
+          "Your map list in the cloud has {n} set this library doesn't have. Fumen downloads it from the mirrors and puts it into osu!lazer, in the background.",
+          "Your map list in the cloud has {n} sets this library doesn't have. Fumen downloads them from the mirrors and puts them into osu!lazer, in the background. With many sets that takes a while.",
+        ),
+        { title: t("Download your maps again?"), confirmLabel: t("Download them") },
+      );
+      if (ok && importSets(ids.map((id) => ({ id, title: t("Set {id}", { id }) }))) !== "none") openImport();
+    } catch (e) {
+      toast(t("Couldn't get the map list: {error}", { error: asApiError(e).message }), { kind: "danger", timeout: 6000 });
+    } finally {
+      b.disabled = false;
+    }
+  }
+
+  private async cloudDelete(b: HTMLButtonElement): Promise<void> {
+    const ok = await uiConfirm(
+      t("Your plays, replays, map list and collections go from Fumen's server. Your plays in osu!lazer and osu!stable stay as they are, and so does everything on osu!. This can't be undone."),
+      { title: t("Delete everything in the cloud?"), confirmLabel: t("Delete it"), danger: true },
+    );
+    if (!ok) return;
+    b.disabled = true;
+    try {
+      await api.cloudDeleteAll();
+      // it would only fill up again
+      if (store.settings?.cloudScores) store.settings = await api.updateSettings({ cloudScores: false });
+      toast(t("Everything in the cloud is deleted."), { kind: "success", timeout: 3000 });
+    } catch (e) {
+      toast(t("Couldn't delete it: {error}", { error: asApiError(e).message }), { kind: "danger", timeout: 6000 });
+    } finally {
+      this.renderCloudScores();
+    }
   }
 
   private async cloudPush(b: HTMLButtonElement): Promise<void> {
@@ -1012,6 +1118,15 @@ export class SettingsView {
       void heart.forget().catch(() => {});
       return this.renderHeart();
     }
+    if (target.closest(".s-cloud-sync")) {
+      const b = target.closest<HTMLButtonElement>(".s-cloud-sync")!;
+      b.disabled = true;
+      return void syncCloud()
+        .then(cloudToast, (e) => toast(t("Couldn't save them: {error}", { error: asApiError(e).message }), { kind: "danger", timeout: 6000 }))
+        .finally(() => this.renderCloudScores());
+    }
+    if (target.closest(".s-cloud-maps")) return void this.cloudMaps(target.closest<HTMLButtonElement>(".s-cloud-maps")!);
+    if (target.closest(".s-cloud-delete")) return void this.cloudDelete(target.closest<HTMLButtonElement>(".s-cloud-delete")!);
     if (target.closest(".s-cloud-push")) return void this.cloudPush(target.closest<HTMLButtonElement>(".s-cloud-push")!);
     if (target.closest(".s-cloud-pull")) return void this.cloudPull(target.closest<HTMLButtonElement>(".s-cloud-pull")!);
     if (target.closest(".s-cols-lazer")) return void putIntoLazer(fumenCollections());
@@ -1119,6 +1234,8 @@ export class SettingsView {
 
     } else if (input.dataset.setting === "online") {
       void this.setOnline(input);
+    } else if (input.dataset.setting === "cloudScores") {
+      void this.setCloudScores(input);
     } else if (input.dataset.setting === "autoRescan") {
       api.updateSettings({ autoRescan: input.checked }).then((s) => (store.settings = s));
     } else if (input.dataset.setting === "useStable") {

@@ -43,6 +43,7 @@ import type {
   LivePlay,
   PoolChoice,
   PoolRow,
+  CloudSync,
 } from "./types";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
@@ -240,6 +241,12 @@ export const api = {
   addToCollection: (id: string, maps: string[]) => invoke<number>("add_to_collection", { id, maps }),
   /** how many were in it */
   removeFromCollection: (id: string, maps: string[]) => invoke<number>("remove_from_collection", { id, maps }),
+  /** the player's scores, replays and map list in the cloud (lib/cloud-scores) */
+  cloudScoresSync: (fetch = false) => invoke<CloudSync>("cloud_scores_sync", { fetch }),
+  /** osu! set ids in the cloud's map list that the library doesn't have */
+  cloudMissingSets: () => invoke<number[]>("cloud_missing_sets"),
+  /** scores, replays, map list and collections, all gone from the cloud */
+  cloudDeleteAll: () => invoke<void>("cloud_delete_all"),
   /** the player's goals, oldest first (lib/goals.ts) */
   getGoals: () => invoke<Goal[]>("get_goals"),
   putGoal: (goal: Goal) => invoke<void>("put_goal", { goal }),
@@ -253,6 +260,11 @@ export function onScanProgress(cb: (p: ScanProgress) => void): Promise<UnlistenF
 /** The plays changed (sync, login, logout); `library`: the library's best scores may have too. */
 export function onCareProgress(cb: (p: { done: number; total: number }) => void): Promise<UnlistenFn> {
   return listen<{ done: number; total: number }>("care-progress", (e) => cb(e.payload));
+}
+
+/** Replays going up to the cloud: how many of how many. */
+export function onCloudProgress(cb: (p: { done: number; of: number }) => void): Promise<UnlistenFn> {
+  return listen<{ done: number; of: number }>("cloud-progress", (e) => cb(e.payload));
 }
 
 /** A play just happened (lazer saved its replay). */

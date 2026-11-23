@@ -636,6 +636,14 @@ export async function invoke<T>(cmd: string, args: Record<string, unknown> = {},
           return { md5: a.md5, mode: a.mode, started: a.started, ended: a.ended, outcome: a.outcome, rate: a.rate, map };
         }) as T;
     }
+    // scores in the cloud (src-tauri/src/cloud_scores.rs): a made-up cloud that fills as asked
+    case "cloud_scores_sync":
+      await new Promise((r) => setTimeout(r, 900));
+      return { added: 12, replaysAdded: 9, scores: 1240, replays: 980, sets: 4535, bytes: 14_800_000, limit: 1_000_000_000, restored: 0, full: false, pulled: false } as T;
+    case "cloud_missing_sets":
+      return [1001, 1002, 1003] as T;
+    case "cloud_delete_all":
+      return undefined as T;
     case "live_plays":
       return (await previewPlays()) as T;
     case "live_play":

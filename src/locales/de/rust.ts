@@ -155,4 +155,9 @@ export const rust: Record<string, string> = {
   "That device doesn't share a heart rate.": "Dieses Gerät teilt keinen Puls.",
   "Kodou isn't open, or isn't sharing.": "Kodou ist nicht offen oder teilt gerade nicht.",
   "Kodou lost its heart rate monitor.": "Kodou hat die Verbindung zum Pulsmesser verloren.",
+  // scores in the cloud
+  "The cloud has no replay for this score.": "Die Cloud hat kein Replay zu diesem Score.",
+  "The replay from the cloud wasn't the right one.": "Das Replay aus der Cloud war nicht das richtige.",
+  "Your space in the cloud is full (1 GB).": "Dein Platz in der Cloud ist voll (1 GB).",
+  "Your scores are being saved already.": "Deine Scores werden schon gespeichert.",
 };

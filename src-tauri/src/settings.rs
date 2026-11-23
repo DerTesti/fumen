@@ -30,6 +30,9 @@ pub struct Settings {
     pub online: bool,
     /// Where tosu is (tosu.rs): picked, or remembered from seeing it run.
     pub tosu_path: Option<String>,
+    /// The player's scores, replays and map list kept in the cloud (cloud_scores.rs): turned on in
+    /// Settings › osu! account, off unless they do.
+    pub cloud_scores: bool,
     pub ui: Map<String, Value>,
 }
 
@@ -44,6 +47,7 @@ impl Default for Settings {
             terms_asked: false,
             online: false,
             tosu_path: None,
+            cloud_scores: false,
             ui: Map::new(),
         }
     }

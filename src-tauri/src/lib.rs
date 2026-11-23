@@ -5,6 +5,7 @@ mod care;
 mod catch;
 mod chart;
 mod cloud;
+mod cloud_scores;
 mod replay;
 mod charts;
 mod clips;
@@ -941,11 +942,17 @@ async fn replays_for_map(app: AppHandle, id: String) -> Result<Vec<replay::Repla
         .map_err(|e| Error::known("internal", e.to_string()))?
 }
 
-/// A lazer score's replay: its frames, read from lazer's files.
+/// A lazer score's replay: its frames, read from lazer's files. A play from the cloud
+/// ("cloud:<hash>") comes from there, or from this PC's copy of it.
 #[tauri::command]
 async fn get_replay(app: AppHandle, id: String) -> Result<replay::Replay> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
+        if let Some(hash) = id.strip_prefix("cloud:") {
+            online::ensure()?;
+            let bytes = cloud_scores::replay(&state.data_dir, &osu_auth::Endpoints::default(), state.storage().as_deref(), hash)?;
+            return replay::parse(&bytes);
+        }
         let storage = state
             .storage()
             .ok_or_else(|| Error::known("lazer-not-found", "osu!lazer's data folder wasn't found. Pick it in Settings."))?;
@@ -1052,6 +1059,7 @@ async fn set_online(app: AppHandle, on: bool) -> Result<Settings> {
             online::set(was);
             out?;
             osu_scores::clear(&state.db())?;
+            cloud_scores::forget_here(&state.data_dir, &state.db())?;
             let _ = app.emit("history-changed", true);
         }
         let updated = {
@@ -1101,6 +1109,8 @@ async fn osu_logout(app: AppHandle) -> Result<()> {
         let state = app.state::<AppState>();
         osu_auth::logout(&state.data_dir, &osu_auth::Endpoints::default())?;
         osu_scores::clear(&state.db())?;
+        // the cloud's plays belong to that login
+        cloud_scores::forget_here(&state.data_dir, &state.db())?;
         let _ = app.emit("history-changed", true);
         Ok(())
     })
@@ -1119,6 +1129,66 @@ async fn get_history(app: AppHandle) -> Result<tauri::ipc::Response> {
         let files = state.files();
         let conn = state.db();
         osu_scores::history_json(&conn, account.as_ref(), Some(&files)).map(tauri::ipc::Response::new)
+    })
+    .await
+    .map_err(|e| Error::known("internal", e.to_string()))?
+}
+
+/// One sync of the cloud's scores at a time.
+static CLOUD_SYNCING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Sends this PC's own plays, replays and map list to the cloud (what it doesn't have yet) and
+/// takes in the plays saved from elsewhere; `fetch` takes them in even when nothing seems new.
+#[tauri::command]
+async fn cloud_scores_sync(app: AppHandle, fetch: Option<bool>) -> Result<cloud_scores::SyncSummary> {
+    tauri::async_runtime::spawn_blocking(move || {
+        online::ensure()?;
+        if CLOUD_SYNCING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Err(Error::known("cloud-busy", "Your scores are being saved already."));
+        }
+        let out = (|| {
+            let state = app.state::<AppState>();
+            let local = cloud_scores::gather(&state.db(), state.storage().as_deref())?;
+            let out = cloud_scores::sync(&state.data_dir, &osu_auth::Endpoints::default(), &state.db, local, fetch.unwrap_or(false), |done, of| {
+                let _ = app.emit("cloud-progress", serde_json::json!({ "done": done, "of": of }));
+            })?;
+            if out.pulled {
+                let _ = app.emit("history-changed", true);
+            }
+            Ok(out)
+        })();
+        CLOUD_SYNCING.store(false, std::sync::atomic::Ordering::SeqCst);
+        out
+    })
+    .await
+    .map_err(|e| Error::known("internal", e.to_string()))?
+}
+
+/// The sets in the cloud's map list that this library doesn't have (osu! set ids).
+#[tauri::command]
+async fn cloud_missing_sets(app: AppHandle) -> Result<Vec<i64>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        online::ensure()?;
+        let state = app.state::<AppState>();
+        let list = cloud_scores::map_list(&state.data_dir, &osu_auth::Endpoints::default())?;
+        let conn = state.db();
+        let mut st = conn.prepare("SELECT DISTINCT online_id FROM sets WHERE online_id > 0")?;
+        let have: std::collections::HashSet<i64> = st.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        Ok(list.into_iter().filter(|id| !have.contains(id)).collect())
+    })
+    .await
+    .map_err(|e| Error::known("internal", e.to_string()))?
+}
+
+/// Deletes everything of this login's in the cloud: scores, replays, map list and collections.
+#[tauri::command]
+async fn cloud_delete_all(app: AppHandle) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        online::ensure()?;
+        let state = app.state::<AppState>();
+        cloud_scores::delete_all(&state.data_dir, &osu_auth::Endpoints::default(), &state.db)?;
+        let _ = app.emit("history-changed", true);
+        Ok(())
     })
     .await
     .map_err(|e| Error::known("internal", e.to_string()))?
@@ -2496,6 +2566,9 @@ pub fn run() {
             online_replays_for_map,
             get_online_replay,
             cloud_push_collections,
+            cloud_scores_sync,
+            cloud_missing_sets,
+            cloud_delete_all,
             cloud_pull_collections,
             osu_account,
             osu_login,

@@ -379,6 +379,7 @@ pub fn open(path: &Path) -> Result<Connection> {
     migrate(&mut conn)?;
     ensure_columns(&conn)?;
     ensure_chart_columns(&conn)?;
+    crate::cloud_scores::ensure_table(&conn)?;
     Ok(conn)
 }
 

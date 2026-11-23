@@ -197,7 +197,7 @@ export class ReplayPanel {
     for (const e of list) {
       const mods = e.mods.filter((m) => m !== "CL");
       entries.push({
-        label: `${e.user ?? t("Someone")} · ${e.accuracy !== undefined ? pct(e.accuracy) : "–"}${mods.length ? ` · ${mods.join("")}` : ""}`,
+        label: `${e.user ?? t("Someone")} · ${e.accuracy !== undefined ? pct(e.accuracy) : "–"}${mods.length ? ` · ${mods.join("")}` : ""}${e.id.startsWith("cloud:") ? ` · ${t("from the cloud")}` : ""}`,
         hint: e.date ? date(e.date) : undefined,
         checked: this.playing?.entry.id === e.id,
         radio: "replay",

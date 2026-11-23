@@ -475,7 +475,27 @@ export interface Settings {
   online: boolean;
   /** where tosu is (picked, or remembered from seeing it run) */
   tosuPath: string | null;
+  /** the player's scores, replays and map list kept in the cloud (lib/cloud-scores) */
+  cloudScores: boolean;
   ui: Partial<UiPrefs>;
+}
+
+/** What a sync of the cloud's scores did (src-tauri/src/cloud_scores.rs). */
+export interface CloudSync {
+  /** plays and replays sent this time */
+  added: number;
+  replaysAdded: number;
+  /** what the cloud has now */
+  scores: number;
+  replays: number;
+  sets: number;
+  bytes: number;
+  limit: number;
+  /** plays from the cloud this library doesn't have itself */
+  restored: number;
+  /** the cloud got full on the way */
+  full: boolean;
+  pulled: boolean;
 }
 
 export type AccentMode = "dynamic" | "fixed";

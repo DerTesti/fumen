@@ -57,4 +57,6 @@ export const player: Record<string, string> = {
   "not much going on": "wenig los",
   "of {n}": "von {n}",
   "{sr} stars": "{sr} Sterne",
+  // replays from the cloud
+  "from the cloud": "aus der Cloud",
 };

@@ -68,6 +68,7 @@ import {
 import { initGoals } from "./lib/goals-store";
 import { collectionMenu, newCollection } from "./views/actions";
 import { initHistory, mapIndexOf, syncIfStale } from "./lib/history";
+import { initCloudScores } from "./lib/cloud-scores";
 import { downloadText, initUpdater, installUpdate, updateEvents, type UpdateState } from "./lib/updater";
 import { HistoryView } from "./views/history";
 import { HomeView } from "./views/home";
@@ -932,6 +933,7 @@ async function boot(): Promise<void> {
   // the plays: kept current, and read from osu! when the last sync is old
   initHistory();
   void syncIfStale();
+  initCloudScores();
   initUpdater();
   initGoals();
   initCollections();

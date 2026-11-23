@@ -33,11 +33,16 @@ pub struct ReplayEntry {
     pub statistics: Option<String>,
 }
 
-/// The lazer scores on a library difficulty (by its id) that have a replay, best first.
+/// The lazer scores on a library difficulty (by its id) that have a replay, best first, and the
+/// cloud's plays on it with one that lazer doesn't have (their id is "cloud:" and the replay's hash).
 pub fn list(conn: &Connection, map_id: &str) -> Result<Vec<ReplayEntry>> {
     let mut st = conn.prepare(
         "SELECT id, user, date, accuracy, total_score, rank, max_combo, mods, statistics FROM scores
-         WHERE map_md5 = (SELECT md5 FROM maps WHERE id = ?1) AND replay IS NOT NULL ORDER BY total_score DESC LIMIT 100",
+         WHERE map_md5 = (SELECT md5 FROM maps WHERE id = ?1) AND replay IS NOT NULL
+         UNION ALL
+         SELECT 'cloud:' || c.replay, c.user, c.date, c.accuracy, c.score, c.rank, c.combo, c.mods, c.statistics FROM cloud_scores c
+         WHERE c.md5 = (SELECT md5 FROM maps WHERE id = ?1) AND c.replay IS NOT NULL AND NOT EXISTS (SELECT 1 FROM scores l WHERE l.replay = c.replay)
+         ORDER BY 5 DESC LIMIT 100",
     )?;
     let rows = st.query_map([map_id], |r| {
         let mods: Option<String> = r.get(7)?;

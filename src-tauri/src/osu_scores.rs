@@ -995,8 +995,12 @@ fn merge(conn: &Connection) -> Result<Merged> {
         "SELECT map_md5, ruleset, total_score, accuracy, max_combo, rank, pp, date, mods, statistics, online_id, id LIKE 'st-%'
          FROM scores WHERE {} AND NOT (id LIKE 'st-%' AND EXISTS (
              SELECT 1 FROM scores l WHERE l.id NOT LIKE 'st-%' AND l.map_md5 = scores.map_md5 AND ABS(l.date - scores.date) <= {STABLE_COPY_MS}))
+         UNION ALL
+         SELECT c.md5, c.ruleset, c.score, c.accuracy, c.combo, c.rank, c.pp, c.date, c.mods, c.statistics, c.online_id, c.stable
+         FROM cloud_scores c WHERE {}
          ORDER BY date DESC",
-        player.sql()
+        player.sql(),
+        crate::cloud_scores::NOT_LOCAL
     ))?;
     let mut rows = st.query([player.param()])?;
     while let Some(r) = rows.next()? {
