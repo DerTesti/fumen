@@ -67,6 +67,47 @@ pub struct Block {
     pub message: String,
 }
 
+/// The build key of Fumen's own builds (build.rs); None in one built by anyone else.
+const BUILD_KEY: Option<&str> = option_env!("FUMEN_BUILD_KEY");
+
+/// Whether this is one of Fumen's own builds (one that can use fumen.dertesti.dev).
+pub fn is_official() -> bool {
+    BUILD_KEY.is_some()
+}
+
+/// HMAC-SHA256 (RFC 2104).
+fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut block = [0u8; 64];
+    if key.len() > 64 {
+        block[..32].copy_from_slice(&Sha256::digest(key));
+    } else {
+        block[..key.len()].copy_from_slice(key);
+    }
+    let mut inner = Sha256::new();
+    inner.update(block.map(|b| b ^ 0x36));
+    inner.update(message);
+    let mut outer = Sha256::new();
+    outer.update(block.map(|b| b ^ 0x5c));
+    outer.update(inner.finalize());
+    outer.finalize().into()
+}
+
+/// The X-Fumen-Build header for a request: "<unix seconds>.<HMAC of seconds, method and path>",
+/// which the site takes as a sign it comes from one of Fumen's own builds.
+fn build_proof(key: &str, at: u64, method: &str, path: &str) -> String {
+    let mac = hmac_sha256(key.as_bytes(), format!("{at}\n{method}\n{path}").as_bytes());
+    format!("{at}.{}", mac.iter().map(|b| format!("{b:02x}")).collect::<String>())
+}
+
+/// A request to fumen.dertesti.dev, signed when this is one of Fumen's own builds. `path` is the
+/// URL's path ("/api/check").
+pub fn signed<B>(req: ureq::RequestBuilder<B>, method: &str, path: &str) -> ureq::RequestBuilder<B> {
+    let Some(key) = BUILD_KEY else { return req };
+    let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    req.header("X-Fumen-Build", &build_proof(key, at, method, path))
+}
+
 /// Where a full block is noted.
 const NOTE: &str = "block.json";
 
@@ -279,13 +320,19 @@ pub fn check(data_dir: &Path, site: &str, machine: bool) -> Result<Option<Block>
         }
     }
     let agent = agent();
-    let mut req = agent.post(&format!("{site}/api/check")).header("Content-Type", "application/json");
+    let mut req = signed(agent.post(&format!("{site}/api/check")), "POST", "/api/check").header("Content-Type", "application/json");
     if let Some(token) = crate::osu_auth::current_token(data_dir) {
         req = req.header("Authorization", &format!("Bearer {token}"));
     }
     let mut res = req.send(body.to_string()).map_err(|e| Error::known("check-failed", format!("fumen.dertesti.dev didn't answer ({e})")))?;
     if res.status() != 200 {
-        return Err(Error::known("check-failed", format!("fumen.dertesti.dev answered {}", res.status().as_u16())));
+        let status = res.status().as_u16();
+        let said: serde_json::Value = res.body_mut().read_to_string().ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        // a Fumen someone else built: the site says so
+        if said["error"] == "unofficial" {
+            return Err(Error::known("unofficial", said["message"].as_str().unwrap_or("This Fumen can't use fumen.dertesti.dev.").to_string()));
+        }
+        return Err(Error::known("check-failed", format!("fumen.dertesti.dev answered {status}")));
     }
     let text = res.body_mut().read_to_string().unwrap_or_default();
     let answer: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
@@ -304,7 +351,7 @@ pub fn forget_machine(site: String) {
             return;
         }
         let body = serde_json::json!({ "machines": codes });
-        let _ = agent().post(&format!("{site}/api/forget-machine")).header("Content-Type", "application/json").send(body.to_string());
+        let _ = signed(agent().post(&format!("{site}/api/forget-machine")), "POST", "/api/forget-machine").header("Content-Type", "application/json").send(body.to_string());
     });
 }
 
@@ -328,6 +375,16 @@ mod tests {
         assert!(codes.len() <= 4 && codes.iter().all(|c| c.len() == 64));
         assert_eq!(machine_codes(), codes);
         println!("this computer: {} codes", codes.len());
+    }
+
+    #[test]
+    fn signs_like_the_site_checks() {
+        // RFC 4231, test case 2
+        let mac = hmac_sha256(b"Jefe", b"what do ya want for nothing?");
+        assert_eq!(mac.iter().map(|b| format!("{b:02x}")).collect::<String>(), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
+        // the same proof site/server.test.mjs expects
+        let key = "0123456789abcdef".repeat(4);
+        assert_eq!(build_proof(&key, 1_800_000_000, "POST", "/api/check"), "1800000000.792a70eb0117e97059080835fecd749c31a35866b80fae1a54a33fc5a54b4a62");
     }
 
     #[test]

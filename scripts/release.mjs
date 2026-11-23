@@ -9,7 +9,8 @@
 // the app shows it after the update, and GitHub gets the English lines.
 //
 // Needs a clean, pushed main; the updater's private key in ~/.tauri/fumen-updater.key (or
-// TAURI_SIGNING_PRIVATE_KEY, with TAURI_SIGNING_PRIVATE_KEY_PASSWORD if it has one); gh logged in;
+// TAURI_SIGNING_PRIVATE_KEY, with TAURI_SIGNING_PRIVATE_KEY_PASSWORD if it has one); the build key
+// in ~/.tauri/fumen-build.key (or FUMEN_BUILD_KEY, the same as BUILD_KEY on the server); gh logged in;
 // SSH to the VPS as the site deploy does ("vps", or VPS_HOST). Lose the key and installed copies
 // can't update any more: keep a copy of it somewhere safe.
 import { execFileSync } from "node:child_process";
@@ -62,6 +63,12 @@ if (!env.TAURI_SIGNING_PRIVATE_KEY) {
   env.TAURI_SIGNING_PRIVATE_KEY = readFileSync(keyFile, "utf8").trim();
 }
 env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ??= "";
+// …and the build key (src-tauri/build.rs): without it the release couldn't use fumen.dertesti.dev
+if (!env.FUMEN_BUILD_KEY) {
+  const buildKey = join(homedir(), ".tauri", "fumen-build.key");
+  if (!existsSync(buildKey)) fail(`No build key: ${buildKey} (or FUMEN_BUILD_KEY). Without it, the release can't use fumen.dertesti.dev.`);
+  env.FUMEN_BUILD_KEY = readFileSync(buildKey, "utf8").trim();
+}
 
 // ── notes: the version's entry in the changelog, which the app shows after the update ──
 const changelog = JSON.parse(readFileSync(join(root, "src", "lib", "changelog.json"), "utf8"));

@@ -133,8 +133,7 @@ fn failed(status: u16, body: &str) -> Error {
 pub fn push(data_dir: &Path, ep: &Endpoints, collections: Vec<CloudCollection>) -> Result<PushSummary> {
     let body = serde_json::to_string(&serde_json::json!({ "collections": collections }))?;
     osu_auth::with_token(data_dir, ep, |token| {
-        let res = agent()
-            .put(&format!("{}/api/collections", ep.site))
+        let res = crate::online::signed(agent().put(&format!("{}/api/collections", ep.site)), "PUT", "/api/collections")
             .header("Authorization", &format!("Bearer {token}"))
             .header("Content-Type", "application/json")
             .send(body.as_str());
@@ -152,7 +151,7 @@ pub fn push(data_dir: &Path, ep: &Endpoints, collections: Vec<CloudCollection>) 
 /// What's in the cloud for this login.
 pub fn fetch(data_dir: &Path, ep: &Endpoints) -> Result<Saved> {
     osu_auth::with_token(data_dir, ep, |token| {
-        let res = agent().get(&format!("{}/api/collections", ep.site)).header("Authorization", &format!("Bearer {token}")).call();
+        let res = crate::online::signed(agent().get(&format!("{}/api/collections", ep.site)), "GET", "/api/collections").header("Authorization", &format!("Bearer {token}")).call();
         let mut res = res.map_err(|e| Error::known("cloud-failed", format!("Fumen's server didn't answer ({e})")))?;
         let status = res.status().as_u16();
         let text = res.body_mut().with_config().limit(16 * 1024 * 1024).read_to_string().unwrap_or_default();
