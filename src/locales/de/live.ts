@@ -144,4 +144,7 @@ export const live: Record<string, string> = {
   "RMSSD over the half minute around each moment: lower is more stress. A tendency, not a measurement.":
     "RMSSD über die halbe Minute um jede Stelle: niedriger heißt mehr Stress. Eine Tendenz, kein Messwert.",
   "Pulse climbing while the HRV falls": "Puls steigt, HRV fällt",
+  // tosu letting Fumen in
+  "Fumen put itself on tosu's allowed addresses and started tosu again, so osu!'s data comes through now.": "Fumen hat sich bei tosu als erlaubte Adresse eingetragen und tosu neu gestartet, jetzt kommen die Daten aus osu! an.",
+  "Fumen put itself on tosu's allowed addresses, so osu!'s data comes through.": "Fumen hat sich bei tosu als erlaubte Adresse eingetragen, damit die Daten aus osu! ankommen.",
 };

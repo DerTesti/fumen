@@ -377,6 +377,62 @@ async fn start_tosu(app: AppHandle) -> Result<()> {
     .map_err(|e| Error::known("internal", e.to_string()))?
 }
 
+/// What letting Fumen's window into tosu took.
+#[derive(serde::Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct TosuAccess {
+    /// Fumen's window put on tosu's ALLOWED_IPS
+    changed: bool,
+    /// tosu started again to read it
+    restarted: bool,
+}
+
+/// tosu is started again for Fumen's window at most once per run of Fumen.
+static TOSU_RESTARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Lets Fumen's window into tosu (Windows: it's on tosu's ALLOWED_IPS, `tosu.rs`). A running tosu
+/// reads its settings again by itself; when it still turns the window away, it's started again.
+#[tauri::command]
+async fn tosu_let_in(app: AppHandle) -> Result<TosuAccess> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut out = TosuAccess::default();
+        if !cfg!(windows) {
+            return Ok(out);
+        }
+        let state = app.state::<AppState>();
+        let running = tosu::running().filter(|p| tosu::is_tosu(p));
+        let Some(exe) = running.clone().or_else(|| saved_tosu(&state)).or_else(tosu::guess) else { return Ok(out) };
+        out.changed = tosu::allow_window(&exe)?;
+        if running.is_none() {
+            return Ok(out);
+        }
+        let listed = tosu::env_path(&exe).and_then(|f| std::fs::read_to_string(f).ok()).is_some_and(|t| tosu::add_window(&t).is_none());
+        // a moment for tosu to see its settings changed
+        let tries = if out.changed { 8 } else { 1 };
+        for i in 0..tries {
+            match tosu::lets_window_in() {
+                Some(false) => {}
+                // in, or tosu doesn't answer here: nothing to do about it
+                _ => return Ok(out),
+            }
+            if i + 1 < tries {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+        }
+        if !listed || TOSU_RESTARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Ok(out);
+        }
+        if tosu::stop() {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            tosu::start(&exe)?;
+            out.restarted = true;
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| Error::known("internal", e.to_string()))?
+}
+
 /// Keeps a try at a map (src/lib/attempts.ts); its id.
 #[tauri::command]
 fn save_attempt(state: State<'_, AppState>, attempt: attempts::Attempt) -> Result<i64> {
@@ -2556,6 +2612,7 @@ pub fn run() {
             tries_between,
             set_tosu_path,
             start_tosu,
+            tosu_let_in,
             live_replay,
             pool_choices,
             pool_rows,

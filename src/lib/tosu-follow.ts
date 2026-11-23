@@ -4,6 +4,8 @@
  * main.ts opens the visualizer when a map starts (`play`), closes it when you leave the map or osu!
  * (`leave`), and opens the score page after a pass. */
 import { api, isTauri } from "./api";
+import { t } from "./i18n";
+import { toast } from "../ui/controls";
 import { startAnalyser } from "./eq";
 import { Emitter, store } from "./store";
 import { AttemptTracker, type Attempt } from "./attempts";
@@ -218,6 +220,23 @@ class Follow {
     }
   }
 
+  /** when Fumen last asked to be let into tosu */
+  private letInAt = 0;
+
+  /** Puts Fumen's window on tosu's allowed addresses (Windows; tosu turns it away until then),
+   * at most every half minute. */
+  private letIn(): void {
+    if (!isTauri || Date.now() - this.letInAt < 30_000) return;
+    this.letInAt = Date.now();
+    api
+      .tosuLetIn()
+      .then((r) => {
+        if (r.restarted) toast(t("Fumen put itself on tosu's allowed addresses and started tosu again, so osu!'s data comes through now."), { kind: "success", timeout: 6000 });
+        else if (r.changed) toast(t("Fumen put itself on tosu's allowed addresses, so osu!'s data comes through."), { kind: "success", timeout: 6000 });
+      })
+      .catch((e) => console.warn("[tosu] let in", e));
+  }
+
   private connect(): void {
     let ws: WebSocket;
     try {
@@ -227,8 +246,10 @@ class Follow {
       return;
     }
     this.ws = ws;
+    let heard = false;
     ws.onmessage = (e) => {
       if (this.ws !== ws) return;
+      heard = true;
       let msg: unknown;
       try {
         msg = JSON.parse(String(e.data));
@@ -241,6 +262,8 @@ class Follow {
     ws.onclose = () => {
       if (this.ws !== ws) return;
       this.ws = null;
+      // turned away (or not there): tosu may not know Fumen's window yet
+      if (!heard) this.letIn();
       this.lost();
       if (this.status.kind !== "off") this.set({ kind: "connecting" });
       this.retry = window.setTimeout(() => this.connect(), RETRY);

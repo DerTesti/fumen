@@ -129,6 +129,8 @@ export const api = {
   tosuStatus: () => invoke<{ running: boolean; path: string | null }>("tosu_status"),
   setTosuPath: (path: string) => invoke<Settings>("set_tosu_path", { path }),
   startTosu: () => invoke<void>("start_tosu"),
+  /** Fumen's window on tosu's allowed addresses (Windows), tosu started again if it had to be */
+  tosuLetIn: () => invoke<{ changed: boolean; restarted: boolean }>("tosu_let_in"),
   /** every try at a map (lib/attempts) */
   saveAttempt: (attempt: Attempt) => invoke<number>("save_attempt", { attempt }),
   attemptsForMap: (md5: string, limit?: number) => invoke<Attempt[]>("attempts_for_map", { md5, limit }),
