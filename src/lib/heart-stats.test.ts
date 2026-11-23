@@ -108,10 +108,10 @@ describe("the pulse over many tries", () => {
     hrv: null,
   });
   const list = [
-    tri(1, "a", at(12, 20), 120, 150, 90, "pass", 140),
-    tri(2, "a", at(12, 21), 130, 170, 100),
+    { ...tri(1, "a", at(12, 20), 120, 150, 90, "pass", 140), hrv: 40 },
+    { ...tri(2, "a", at(12, 21), 130, 170, 100), hrv: 20 },
     tri(3, "b", at(13, 19), 110, 130, 80, "fail", 125),
-    tri(4, "a", at(13, 22), 140, 181, 110, "pass", null),
+    { ...tri(4, "a", at(13, 22), 140, 181, 110, "pass", null), hrv: 30 },
   ];
 
   it("puts them together", () => {
@@ -123,6 +123,10 @@ describe("the pulse over many tries", () => {
     expect(s.fast).toBe(132.5);
     expect(s.passAvg).toBe(130);
     expect(s.restAvg).toBe(120);
+    // the HRV only from the tries that have one: passes calmer than the rest here
+    expect(s.hrv).toBe(30);
+    expect(s.passHrv).toBe(35);
+    expect(s.restHrv).toBe(20);
   });
 
   it("by day, oldest first, and by difficulty, the most played first", () => {
@@ -131,10 +135,11 @@ describe("the pulse over many tries", () => {
       [dayOf(at(12, 12)), 125, 170, 2],
       [dayOf(at(13, 12)), 125, 181, 2],
     ]);
-    expect(s.maps.map((m) => [m.md5, m.tries, m.max, m.min, m.fast])).toEqual([
-      ["a", 3, 181, 90, 140],
-      ["b", 1, 130, 80, 125],
+    expect(s.maps.map((m) => [m.md5, m.tries, m.max, m.min, m.fast, m.hrv])).toEqual([
+      ["a", 3, 181, 90, 140, 30],
+      ["b", 1, 130, 80, 125, null],
     ]);
+    expect(s.days.map((d) => d.hrv)).toEqual([30, 30]);
   });
 
   it("is nothing without tries", () => {

@@ -174,6 +174,8 @@ export interface HeartMap {
   max: number;
   min: number;
   fast: number | null;
+  /** the HRV over its tries that have one (RMSSD, ms) */
+  hrv: number | null;
   last: number;
 }
 
@@ -190,8 +192,12 @@ export interface HeartTotals {
   /** passes against the rest */
   passAvg: number | null;
   restAvg: number | null;
-  /** per day: the average and the highest, oldest first */
-  days: { day: string; avg: number; max: number; tries: number }[];
+  /** the HRV over the tries that have one (RMSSD, ms), and passes against the rest */
+  hrv: number | null;
+  passHrv: number | null;
+  restHrv: number | null;
+  /** per day: the average, the highest and the HRV, oldest first */
+  days: { day: string; avg: number; max: number; hrv: number | null; tries: number }[];
   /** per difficulty, the most played first */
   maps: HeartMap[];
 }
@@ -219,13 +225,15 @@ export function totals(list: readonly HeartTry[]): HeartTotals | null {
     byMap.set(x.md5, [...(byMap.get(x.md5) ?? []), x]);
   }
   const fasts = list.flatMap((x) => (x.fast === null ? [] : [x.fast]));
+  /** the tries' HRVs, those without one left out */
+  const hrvOf = (xs: readonly HeartTry[]): number | null => mean(xs.flatMap((x) => (x.hrv == null ? [] : [x.hrv])));
   const days = [...byDay.entries()]
-    .map(([day, xs]) => ({ day, avg: mean(xs.map((x) => x.avg))!, max: Math.max(...xs.map((x) => x.max)), tries: xs.length }))
+    .map(([day, xs]) => ({ day, avg: mean(xs.map((x) => x.avg))!, max: Math.max(...xs.map((x) => x.max)), hrv: hrvOf(xs), tries: xs.length }))
     .sort((a, b) => a.day.localeCompare(b.day));
   const maps = [...byMap.entries()]
     .map(([md5, xs]) => {
       const f = xs.flatMap((x) => (x.fast === null ? [] : [x.fast]));
-      return { md5, mode: xs[0].mode, tries: xs.length, avg: mean(xs.map((x) => x.avg))!, max: Math.max(...xs.map((x) => x.max)), min: Math.min(...xs.map((x) => x.min)), fast: mean(f), last: Math.max(...xs.map((x) => x.started)) };
+      return { md5, mode: xs[0].mode, tries: xs.length, avg: mean(xs.map((x) => x.avg))!, max: Math.max(...xs.map((x) => x.max)), min: Math.min(...xs.map((x) => x.min)), fast: mean(f), hrv: hrvOf(xs), last: Math.max(...xs.map((x) => x.started)) };
     })
     .sort((a, b) => b.tries - a.tries || b.last - a.last);
   return {
@@ -236,6 +244,9 @@ export function totals(list: readonly HeartTry[]): HeartTotals | null {
     fast: mean(fasts),
     passAvg: mean(list.filter((x) => x.outcome === "pass").map((x) => x.avg)),
     restAvg: mean(list.filter((x) => x.outcome !== "pass").map((x) => x.avg)),
+    hrv: hrvOf(list),
+    passHrv: hrvOf(list.filter((x) => x.outcome === "pass")),
+    restHrv: hrvOf(list.filter((x) => x.outcome !== "pass")),
     days,
     maps,
   };

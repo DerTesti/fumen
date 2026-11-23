@@ -166,7 +166,7 @@
 .prow-add:hover { color: var(--t1); }
 
 /* ---------- Heart rate ---------- */
-.hr-tiles { margin: 0 0 6px; }
+.hr-tiles { margin: 0 0 6px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .hr-tiles .tile-v small { font-size: var(--fs-12); font-weight: 600; color: var(--t3); }
 .hr-days { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 4px; height: 120px; padding: 12px 14px; align-items: end; }
 .hr-day { position: relative; height: 100%; }
@@ -174,7 +174,7 @@
 .hr-day:hover .hr-day-avg { background: color-mix(in srgb, var(--danger) 70%, transparent); }
 .hr-day-max { position: absolute; left: 50%; width: min(86%, 34px); transform: translateX(-50%); height: 2px; border-radius: 1px; background: var(--danger); }
 .hr-days-axis { padding: 0 14px; }
-.prow.hrow { grid-template-columns: 64px minmax(160px, 1fr) 54px 76px 64px 64px 64px 104px; cursor: pointer; }
+.prow.hrow { grid-template-columns: 64px minmax(160px, 1fr) 54px 76px 64px 64px 64px 56px 104px; cursor: pointer; }
 .prow.hrow:hover { background: var(--tint-hover); }
 .prow.hrow-head { min-height: 0; padding-top: 14px; padding-bottom: 4px; cursor: default; }
 .prow.hrow-head:hover { background: none; }
@@ -182,9 +182,13 @@
 .hrow-head .hr-val { align-self: end; color: var(--t3); font-size: var(--fs-10); font-weight: 600; line-height: 1.2; }
 .hr-val { text-align: right; color: var(--t2); font-weight: 600; }
 .hr-max { color: var(--t1); }
+.hr-hrv { color: var(--t3); }
 
 @container (max-width: 760px) {
   .hist-synced { display: none; }
+}
+@container (max-width: 980px) {
+  .hr-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @container (max-width: 680px) {
   .hist-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -193,7 +197,7 @@
   .prow { grid-template-columns: 64px minmax(140px, 1fr) 30px 66px 60px 30px; }
   .prow.has-pos { grid-template-columns: 36px 64px minmax(140px, 1fr) 30px 66px 60px 30px; }
   .prow.mrow { grid-template-columns: 64px minmax(140px, 1fr) 96px 30px 66px 30px; }
-  .prow.hrow { grid-template-columns: 64px minmax(140px, 1fr) 76px 56px 56px 56px; }
+  .prow.hrow { grid-template-columns: 64px minmax(140px, 1fr) 76px 56px 56px 56px 48px; }
   .hrow-head .hrow-title { grid-column: 1 / 3; }
   .prow :is(.prow-sr, .prow-mods, .prow-when) { display: none; }
 }
@@ -266,3 +270,4 @@
 .mplay-web:hover { color: var(--t1); }
 .mplay-web .ic { width: 14px; height: 14px; }
 .plays-all { margin-top: 6px; }
+.hr-tip { cursor: help; text-decoration: underline dotted var(--t4); text-underline-offset: 3px; }

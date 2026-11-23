@@ -247,7 +247,7 @@ export class HistoryView {
       ${pulseDays(sum)}
       <div class="prow hrow hrow-head label-caps">
         <span class="hrow-title">${t("By difficulty")}</span><span></span>
-        <span class="hr-val">${t("Average")}</span><span class="hr-val">${t("Highest")}</span><span class="hr-val">${t("Fastest part")}</span><span class="prow-when"></span>
+        <span class="hr-val">${t("Average")}</span><span class="hr-val">${t("Highest")}</span><span class="hr-val">${t("Fastest part")}</span><span class="hr-val">HRV</span><span class="prow-when"></span>
       </div>
       ${listed
         .map(
@@ -256,6 +256,7 @@ export class HistoryView {
             <span class="hr-val num" data-tip="${t("Average")}">${Math.round(m.avg)}</span>
             <span class="hr-val hr-max num" data-tip="${t("Highest")}">${m.max}</span>
             <span class="hr-val num" data-tip="${t("In the fastest part")}">${m.fast === null ? "–" : Math.round(m.fast)}</span>
+            <span class="hr-val hr-hrv num" data-tip="${t("HRV over these tries, in ms. Lower means more tense.")}">${m.hrv === null ? "–" : Math.round(m.hrv)}</span>
             <span class="prow-when">${playWhen(m.last)}</span>
           </div>`,
         )
@@ -279,6 +280,15 @@ export class HistoryView {
         t("In the fastest parts"),
         s.fast === null ? "–" : bpm(s.fast),
         s.passAvg !== null && s.restAvg !== null ? t("passes {a}, the rest {b} on average", { a: Math.round(s.passAvg), b: Math.round(s.restAvg) }) : t("on average"),
+      ),
+      tile(
+        `<span class="hr-tip" data-tip="${t("How evenly your heart beats, as RMSSD. It drops when you're tense, so a higher number on passes means you play better calm.")}">HRV</span>`,
+        s.hrv === null ? "–" : `${Math.round(s.hrv)}<small> ms</small>`,
+        s.hrv === null
+          ? t("needs a strap that sends the beats' spacing")
+          : s.passHrv !== null && s.restHrv !== null
+            ? t("passes {a}, the rest {b}", { a: Math.round(s.passHrv), b: Math.round(s.restHrv) })
+            : t("how evenly your heart beats"),
       ),
     ].join("");
   }
@@ -558,7 +568,7 @@ function pulseDays(s: HeartTotals): string {
     <div class="label-caps hist-day">${t("By day")}</div>
     <div class="panel hr-days" style="--n:${days.length}">${days
       .map(
-        (d) => `<div class="hr-day" data-tip="${esc(label(d.day))} · ${t("average {a}, highest {b}", { a: Math.round(d.avg), b: d.max })} · ${tn(d.tries, "{n} try", "{n} tries")}">
+        (d) => `<div class="hr-day" data-tip="${esc(label(d.day))} · ${t("average {a}, highest {b}", { a: Math.round(d.avg), b: d.max })}${d.hrv === null ? "" : ` · HRV ${Math.round(d.hrv)} ms`} · ${tn(d.tries, "{n} try", "{n} tries")}">
           <i class="hr-day-avg" style="height:${y(d.avg)}%"></i><b class="hr-day-max" style="bottom:${y(d.max)}%"></b></div>`,
       )
       .join("")}</div>
