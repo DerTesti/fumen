@@ -12,7 +12,8 @@
       "New: A Your week tab in History. It puts your plays into sittings and shows when you played, for how long, which skills went up and which goals came closer, next to the week before. Fails and restarts count too while Fumen follows osu! through tosu. Click a sitting to see its maps.",
       "New: Scores in the cloud, in Settings › osu!. Turned on, Fumen keeps your plays from osu!lazer and osu!stable, their replays and the list of your maps on its server under your osu! login, and saves new ones after you play. On a new PC or after setting Fumen up again, your history and skills come back, the replays play again, and Download missing maps gets your maps back. It is free, holds up to 1 GB, and Delete everything in the cloud removes all of it.",
       "New: Searching and downloading maps, logging in with osu!, the cloud and comparing are now online features with terms, shown once at the first start and once to everyone after this update. With them accepted, Fumen checks at each start whether it's blocked, and that check also counts the start. With Only local, all of it stays off and everything else in Fumen works as before. If you were logged in and pick Only local, Fumen logs you out.",
-      "New: Settings › About has a switch for the online features and a link to the privacy page."
+      "New: Settings › About has a switch for the online features and a link to the privacy page.",
+      "Fix: On Windows, following osu! through tosu never got any data, although Fumen found tosu and showed it running. tosu turned Fumen's window away. Fumen now puts itself on tosu's allowed addresses and starts tosu again if it has to."
     ],
     "de": [
       "Neu: Storyboards im Visualizer. Das Storyboard einer Map läuft statt des Covers, mit Hintergrund und Video darunter. Abschalten geht in den Einstellungen des Visualizers.",
@@ -24,7 +25,8 @@
       "Neu: Ein Tab Deine Woche im Verlauf. Er fasst deine Plays zu Sitzungen zusammen und zeigt, wann und wie lange du gespielt hast, welche Skills gestiegen und welche Ziele näher gekommen sind, neben der Woche davor. Fails und Neustarts zählen mit, solange Fumen osu! über tosu folgt. Ein Klick auf eine Sitzung zeigt ihre Maps.",
       "Neu: Scores in der Cloud, unter Einstellungen › osu!. Eingeschaltet hält Fumen deine Plays aus osu!lazer und osu!stable, ihre Replays und die Liste deiner Maps auf seinem Server unter deiner osu!-Anmeldung und speichert neue nach dem Spielen. Auf einem neuen PC oder nach einer Neuinstallation sind dein Verlauf und deine Skills wieder da, die Replays laufen wieder, und Fehlende Maps laden holt deine Maps zurück. Es ist kostenlos, fasst bis 1 GB, und Alles in der Cloud löschen entfernt alles.",
       "Neu: Maps suchen und herunterladen, die Anmeldung mit osu!, die Cloud und der Vergleich sind jetzt Online-Funktionen mit Nutzungsbedingungen. Die zeigt Fumen einmal beim ersten Start und nach diesem Update einmal allen. Nimmst du sie an, prüft Fumen bei jedem Start, ob es gesperrt ist, und zählt dabei auch den Start. Mit Nur lokal bleibt das alles aus, und alles andere in Fumen funktioniert wie bisher. Warst du angemeldet und wählst Nur lokal, meldet Fumen dich ab.",
-      "Neu: Unter Einstellungen › Über gibt es einen Schalter für die Online-Funktionen und einen Link zur Datenschutzseite."
+      "Neu: Unter Einstellungen › Über gibt es einen Schalter für die Online-Funktionen und einen Link zur Datenschutzseite.",
+      "Fix: Unter Windows kamen über tosu nie Daten an, obwohl Fumen tosu gefunden und als laufend angezeigt hat. tosu hat Fumens Fenster abgewiesen. Jetzt trägt sich Fumen bei tosu als erlaubte Adresse ein und startet tosu neu, falls nötig."
     ]
   },
   {
