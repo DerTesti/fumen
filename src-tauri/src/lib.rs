@@ -394,6 +394,12 @@ fn attempts_since(state: State<'_, AppState>, since: i64) -> Result<Vec<attempts
     attempts::since(&state.db(), since)
 }
 
+/// The tries between `from` and `to` (unix ms) in short, oldest first (History's sittings).
+#[tauri::command]
+fn tries_between(state: State<'_, AppState>, from: i64, to: i64) -> Result<Vec<attempts::TryTime>> {
+    attempts::between(&state.db(), from, to)
+}
+
 /// The library difficulty with this MD5 (lazer's before stable's), for following what osu! plays.
 #[tauri::command]
 fn map_by_md5(state: State<'_, AppState>, md5: String) -> Result<Option<String>> {
@@ -2477,6 +2483,7 @@ pub fn run() {
             save_attempt,
             attempts_for_map,
             attempts_since,
+            tries_between,
             set_tosu_path,
             start_tosu,
             live_replay,

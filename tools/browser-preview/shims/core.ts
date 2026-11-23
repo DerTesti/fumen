@@ -625,6 +625,17 @@ export async function invoke<T>(cmd: string, args: Record<string, unknown> = {},
         .slice(0, (args.limit as number | undefined) ?? 200) as T;
     case "attempts_since":
       return previewAttempts().filter((a) => (a.started as number) >= (args.since as number)) as T;
+    case "tries_between": {
+      const snap = (await fetch("/__fumen/snapshot").then((r) => r.json())) as { maps: { id: string }[] };
+      return previewAttempts()
+        .filter((a) => (a.started as number) >= (args.from as number) && (a.started as number) < (args.to as number))
+        .reverse()
+        .map((a) => {
+          const n = /^0{26}([0-9a-f]{6})$/.exec(String(a.md5));
+          const map = n ? (snap.maps[parseInt(n[1], 16)]?.id ?? null) : snap.maps.some((m) => m.id === a.md5) ? a.md5 : null;
+          return { md5: a.md5, mode: a.mode, started: a.started, ended: a.ended, outcome: a.outcome, rate: a.rate, map };
+        }) as T;
+    }
     case "live_plays":
       return (await previewPlays()) as T;
     case "live_play":

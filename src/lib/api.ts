@@ -10,6 +10,7 @@ import { fromRust } from "./i18n";
 import type { ChartMods } from "./mods";
 import type { Match, MatchPatch } from "./matches";
 import type { Pool, PoolKind } from "./pools";
+import type { SitTry } from "./sittings";
 import type {
   CareReport, ApiError,
   ChartData,
@@ -131,6 +132,8 @@ export const api = {
   saveAttempt: (attempt: Attempt) => invoke<number>("save_attempt", { attempt }),
   attemptsForMap: (md5: string, limit?: number) => invoke<Attempt[]>("attempts_for_map", { md5, limit }),
   attemptsSince: (since: number) => invoke<Attempt[]>("attempts_since", { since }),
+  /** the tries between two times in short, oldest first (History's sittings, lib/sittings) */
+  triesBetween: (from: number, to: number) => invoke<SitTry[]>("tries_between", { from, to }),
   /** the heart rate monitor (src-tauri/src/heart.rs, lib/heart) */
   heartScan: () => invoke<HeartDevice[]>("heart_scan"),
   heartConnect: (id: string, name: string) => invoke<void>("heart_connect", { id, name }),

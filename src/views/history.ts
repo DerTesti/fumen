@@ -6,16 +6,23 @@
  */
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api, asApiError, osuCoverUrl, osuMapUrl, osuScoreUrl, thumbUrl } from "../lib/api";
-import { date, displayArtist, displayTitle, esc, MODE_LABEL, MODE_SHORT, num, pct, rankInfo, relativeTime, srChip } from "../lib/format";
+import { date, displayArtist, displayTitle, esc, fixed, MODE_LABEL, MODE_SHORT, num, pct, rankInfo, relativeTime, srChip } from "../lib/format";
+import { bestAcc, goalTarget, goalTitle, goalValue, progress, skillName, type Goal } from "../lib/goals";
+import { goalEvents, goalsNow, loadGoals } from "../lib/goals-store";
 import {
   historyEvents, historyNow, isSyncing, loadHistory, mapIndexOf, modsText, playScoreTip, playTarget, playWhen, playWhenTip, syncHistory,
   timeOfDay,
 } from "../lib/history";
 import { totals, type HeartTotals, type HeartTry } from "../lib/heart-stats";
+import {
+  byDay, dayShift, mapsOf, sitEvents, sittings, skillsMoved, spent, valuesAt, weekShift, weekStart, weekSum, type SitTry, type Sitting,
+} from "../lib/sittings";
+import { keysOf, SKILL_LABEL, SKILLSETS, skillHistory, type LeftOut, type SkillPoint } from "../lib/skills";
+import { leftOutNow } from "../lib/skills-left-out";
 import { go, goSection } from "../lib/router";
 import { follow } from "../lib/tosu-follow";
 import { events, setPrefs, store } from "../lib/store";
-import type { History, OsuAccount, OsuModeStats, Play } from "../lib/types";
+import type { History, MapRow, OsuAccount, OsuModeStats, Play } from "../lib/types";
 import { attachSegIndicator, openMenu, toast, type MenuEntry } from "../ui/controls";
 import { icon } from "../ui/icons";
 import { openSet } from "./actions";
@@ -35,7 +42,7 @@ const MODES = [
   { mode: 3, label: "mania" },
 ];
 
-type Tab = "recent" | "top" | "most" | "heart";
+type Tab = "recent" | "week" | "top" | "most" | "heart";
 /** difficulties listed in the pulse tab at most */
 const PULSE_MAPS = 50;
 /** days in the pulse tab's chart at most */
@@ -70,6 +77,14 @@ export class HistoryView {
   private pulseTries: HeartTry[] | null = null;
   /** a difficulty's library id by its MD5 (null: not in the library) */
   private pulseIds = new Map<string, string | null>();
+  /** the Monday of the week "Your week" shows */
+  private weekAt = weekStart(Date.now());
+  /** the tries by the Monday of their week, read a week and the one before at a time */
+  private weekTries = new Map<number, SitTry[]>();
+  /** the sitting opened in "Your week" (when it started) */
+  private openSitting: number | null = null;
+  /** how the skills grew per key mode, for "Your week" (worked out again when the plays change) */
+  private points: { plays: Play[]; maps: MapRow[]; leftOut: LeftOut; byKeys: Map<number, SkillPoint[]> } | null = null;
 
   constructor() {
     this.el = document.createElement("section");
@@ -100,7 +115,12 @@ export class HistoryView {
       // a try with a pulse came in: the pulse tab counts it
       follow.bus.on("attempt", (a) => {
         if (a.heart) void this.loadPulse().then(() => this.tab === "heart" && this.renderList());
+        // and the week it's in
+        const monday = weekStart(a.started);
+        if (this.tab === "week" && this.weekAt === monday) void this.loadWeek(monday, true).then(() => this.tab === "week" && this.renderList());
+        else this.weekTries.delete(monday);
       }),
+      goalEvents.on("goals", () => this.tab === "week" && this.renderList()),
     );
     void this.refresh();
   }
@@ -126,6 +146,7 @@ export class HistoryView {
     // "synced … ago" moves on while the view is hidden (the rest stays, scroll position too)
     this.renderSync();
     if (this.tab === "heart") void this.loadPulse().then(() => this.renderList());
+    if (this.tab === "week") void this.loadWeek(this.weekAt, true).then(() => this.tab === "week" && this.renderList());
   }
 
   // ── rendering ─────────────────────────────────────────────────────────
@@ -169,6 +190,7 @@ export class HistoryView {
       <section class="section hist-lists">
         <div class="seg-tabs hist-tabs" role="tablist" aria-label="${t("Plays")}">
           <button type="button" data-tab="recent">${t("Recent")}</button>
+          <button type="button" data-tab="week">${t("Your week")}</button>
           <button type="button" data-tab="top">${t("Top plays")}</button>
           <button type="button" data-tab="most">${t("Most played")}</button>
           <button type="button" data-tab="heart">${t("Heart rate")}</button>
@@ -219,7 +241,16 @@ export class HistoryView {
     if (!h || !list) return;
     this.el.querySelectorAll<HTMLElement>(".hist-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === this.tab));
     const plays = this.plays(h);
-    list.innerHTML = this.tab === "recent" ? this.recent(plays) : this.tab === "top" ? this.top(plays) : this.tab === "heart" ? this.pulse() : this.most(h, plays);
+    list.innerHTML =
+      this.tab === "recent"
+        ? this.recent(plays)
+        : this.tab === "week"
+          ? this.week(h, plays)
+          : this.tab === "top"
+            ? this.top(plays)
+            : this.tab === "heart"
+              ? this.pulse()
+              : this.most(h, plays);
   }
 
   /** Your pulse over every try with it: what it comes to, by day and by difficulty. */
@@ -291,6 +322,202 @@ export class HistoryView {
             : t("how evenly your heart beats"),
       ),
     ].join("");
+  }
+
+  // ── your week ─────────────────────────────────────────────────────────
+
+  /** The tries of a week and of the week before (read again with `fresh`). */
+  private async loadWeek(monday: number, fresh = false): Promise<void> {
+    const before = weekShift(monday, -1);
+    if (!fresh && this.weekTries.has(monday) && this.weekTries.has(before)) return;
+    const list = await api.triesBetween(before, weekShift(monday, 1)).catch(() => [] as SitTry[]);
+    this.weekTries.set(before, list.filter((a) => a.started < monday));
+    this.weekTries.set(monday, list.filter((a) => a.started >= monday));
+  }
+
+  /** How the skills grew in a key mode, kept until the plays, the library or what's left out change. */
+  private skillPoints(h: History, keys: number): SkillPoint[] {
+    const maps = store.snap!.maps;
+    const leftOut = leftOutNow();
+    let m = this.points;
+    if (!m || m.plays !== h.plays || m.maps !== maps || m.leftOut !== leftOut) this.points = m = { plays: h.plays, maps, leftOut, byKeys: new Map() };
+    let p = m.byKeys.get(keys);
+    if (!p) m.byKeys.set(keys, (p = skillHistory(h.plays, mapIndexOf, maps, keys, leftOut)));
+    return p;
+  }
+
+  /** A week: when you played, in sittings, and what it did for your skills and goals. */
+  private week(h: History, plays: Play[]): string {
+    const from = this.weekAt;
+    const to = weekShift(from, 1);
+    const prev = weekShift(from, -1);
+    const tries = this.weekTries.get(from);
+    const triesBefore = this.weekTries.get(prev);
+    const oldest = plays.length ? plays[plays.length - 1].date : Date.now();
+    const nav = weekNav(from, from > weekStart(oldest));
+    if (!tries || !triesBefore) {
+      void this.loadWeek(from).then(() => this.tab === "week" && this.weekAt === from && this.renderList());
+      return `${nav}<div class="skeleton" style="height:280px"></div>`;
+    }
+    const mode = store.prefs.mode;
+    const ofMode = (l: SitTry[]) => (mode < 0 ? l : l.filter((a) => a.mode === mode));
+    const lengthOf = (p: Play): number | null => {
+      const i = mapIndexOf(p.map);
+      if (i !== undefined) return store.snap!.maps[i].length || null;
+      return (p.beatmap !== undefined ? h.beatmaps[p.beatmap]?.length : undefined) || null;
+    };
+    const list = sittings(sitEvents(plays, ofMode(tries), lengthOf, from, to));
+    if (!list.length) {
+      this.rows = [];
+      return `${nav}<div class="empty-state wk-empty">${icon("clock")}
+        <div class="empty-title">${from === weekStart(Date.now()) ? t("Nothing played this week yet") : t("Nothing played that week")}</div>
+        <div class="empty-sub">${t("Every map you play shows up here in sittings, with the time it took and what it did for your skills.")}</div>
+      </div>`;
+    }
+    const sum = weekSum(list);
+    const last = weekSum(sittings(sitEvents(plays, ofMode(triesBefore), lengthOf, prev, from)));
+    const diff = sum.playing - last.playing;
+    const vsLast = !last.playing
+      ? t("nothing the week before")
+      : Math.abs(diff) < 5 * 60_000
+        ? t("about as much as the week before")
+        : diff > 0
+          ? t("{time} more than the week before", { time: spent(diff) })
+          : t("{time} less than the week before", { time: spent(-diff) });
+    const left = sum.quits + sum.retries;
+    const top = mapsOf(list.flatMap((s) => s.events))[0];
+    const topName = top ? this.describe({ map: top.events[0].map, beatmap: top.events[0].beatmap, mode: top.events[0].mode }).title : "";
+    const tiles = [
+      tile(t("Time played"), spent(sum.playing), vsLast),
+      tile(t("Sittings"), num(sum.sittings), tn(sum.days, "on {n} day, longest {time}", "on {n} days, longest {time}", { time: spent(sum.longest) })),
+      tile(
+        t("Tries"),
+        num(sum.tries),
+        [tn(sum.passes, "{n} pass", "{n} passes"), sum.fails ? tn(sum.fails, "{n} fail", "{n} fails") : "", left ? t("{n} left early", { n: num(left) }) : ""].filter(Boolean).join(", "),
+      ),
+      tile(t("Difficulties"), num(sum.maps), top && top.events.length > 1 ? t("most: {title}", { title: esc(topName) }) : ""),
+    ].join("");
+    const note = !ofMode(tries).length
+      ? `<p class="hist-note">${t("Fails and restarts count too while Fumen follows osu! through tosu (Settings, While you play).")}</p>`
+      : "";
+    return `${nav}
+      <div class="hist-tiles wk-tiles">${tiles}</div>
+      <div class="label-caps hist-day">${t("When you played")}</div>
+      ${weekChart(list, from)}
+      ${this.weekSkills(h, list, from, to)}
+      ${this.weekGoals(h, from, to)}
+      <div class="label-caps hist-day">${t("Sittings")}</div>
+      ${this.sittingsList(list)}
+      ${note}`;
+  }
+
+  /** The skills a week's passes moved, per key mode played. */
+  private weekSkills(h: History, list: Sitting[], from: number, to: number): string {
+    const mode = store.prefs.mode;
+    if (mode >= 0 && mode !== 3) return "";
+    const maps = store.snap!.maps;
+    const keys = new Set<number>();
+    for (const s of list)
+      for (const e of s.events) {
+        const i = e.outcome === "pass" && e.mode === 3 ? mapIndexOf(e.map) : undefined;
+        if (i !== undefined && maps[i].mode === 3) keys.add(keysOf(maps[i]));
+      }
+    const moved = [...keys].sort((a, b) => a - b).flatMap((k) => skillsMoved(this.skillPoints(h, k), from, to).map((s) => ({ ...s, keys: k })));
+    if (!moved.length) return "";
+    return `
+      <div class="label-caps hist-day">${t("Skills that went up")}</div>
+      <div class="wk-moves">${moved
+        .map(
+          (m) => `<div class="panel wk-move">
+            <span class="wk-move-name">${esc(m.index === 0 ? skillName("overall") : SKILL_LABEL[SKILLSETS[m.index - 1]])} ${m.keys}K</span>
+            <span class="wk-move-vals num">${m.before === null ? "" : `${fixed(m.before, 2)} → `}<b>${fixed(m.after, 2)}</b></span>
+            <span class="wk-move-up num">${m.before === null ? t("new") : `+${fixed(m.after - m.before, 2)}`}</span>
+          </div>`,
+        )
+        .join("")}</div>`;
+  }
+
+  /** The goals a week brought closer or reached. */
+  private weekGoals(h: History, from: number, to: number): string {
+    const goals = goalsNow();
+    if (!goals) {
+      void loadGoals().catch(() => {});
+      return "";
+    }
+    const mode = store.prefs.mode;
+    const cards: string[] = [];
+    for (const g of goals) {
+      if (g.created >= to || (g.done && g.done < from)) continue;
+      let before: number | null = null;
+      let after: number | null = null;
+      if (g.kind === "skill") {
+        if (mode >= 0 && mode !== 3) continue;
+        const points = this.skillPoints(h, g.keys);
+        const k = g.skillset === "overall" ? 0 : SKILLSETS.indexOf(g.skillset) + 1;
+        before = valuesAt(points, from)?.[k] ?? null;
+        after = valuesAt(points, to)?.[k] ?? null;
+      } else if (g.kind === "chart") {
+        const i = mapIndexOf(g.map);
+        if (mode >= 0 && i !== undefined && store.snap!.maps[i].mode !== mode) continue;
+        before = bestAcc(h.plays.filter((p) => p.date < from), g);
+        after = bestAcc(h.plays.filter((p) => p.date < to), g);
+      } else if (mode >= 0 && RULESET_NAMES.indexOf(g.ruleset) !== mode) continue;
+      const reached = !!g.done && g.done >= from && g.done < to;
+      if (!reached && (after === null || (before !== null && after <= before + 1e-9))) continue;
+      const open: Goal = { ...g, done: undefined };
+      const p0 = before === null ? 0 : progress(open, before);
+      const p1 = reached ? 1 : progress(open, after);
+      const values = after === null ? "" : before === null ? esc(goalValue(g, after)) : `${esc(goalValue(g, before))} → ${esc(goalValue(g, after))}`;
+      cards.push(`
+        <div class="panel goal wk-goal">
+          <div class="goal-head">${icon(reached ? "check" : "flag", reached ? "goal-ic wk-goal-done" : "goal-ic")}<span class="goal-title">${esc(goalTitle(g))}</span></div>
+          <div class="goal-bar wk-goal-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(p1 * 100)}"><span style="--p:${p1.toFixed(3)}"></span><i style="--p:${p0.toFixed(3)}"></i></div>
+          <div class="goal-line num"><span>${reached ? t("Reached") : values}</span><span class="goal-to">${esc(goalTarget(g))}</span></div>
+        </div>`);
+    }
+    if (!cards.length) return "";
+    return `<div class="label-caps hist-day">${t("Goals that came closer")}</div><div class="goals-grid wk-goals">${cards.join("")}</div>`;
+  }
+
+  /** The week's sittings, the latest first; the open one with its difficulties. */
+  private sittingsList(list: Sitting[]): string {
+    const rows: Row[] = [];
+    const html = [...list]
+      .reverse()
+      .map((s) => {
+        const open = this.openSitting === s.start;
+        const left = s.quits + s.retries;
+        const out = [s.passes ? tn(s.passes, "{n} pass", "{n} passes") : "", s.fails ? tn(s.fails, "{n} fail", "{n} fails") : "", left ? t("{n} left early", { n: num(left) }) : ""]
+          .filter(Boolean)
+          .join(", ");
+        const maps = open
+          ? `<div class="wk-sit-maps">${mapsOf(s.events)
+              .map((m) => {
+                const e = m.events[0];
+                const play = m.best ?? m.events.find((x) => x.play)?.play;
+                const i = rows.push({ map: e.map, beatmap: e.beatmap, beatmapId: play?.beatmapId, mode: e.mode, play: m.best }) - 1;
+                return `${this.rowStart(rows[i], i, "", "prow srow")}
+                  <span class="prow-count num">${tn(m.events.length, "<b>{n}</b> try", "<b>{n}</b> tries")}</span>
+                  <span class="prow-count num">${tn(m.passes, "<b>{n}</b> pass", "<b>{n}</b> passes")}</span>
+                  <span class="prow-acc num">${m.best ? pct(m.best.acc) : ""}</span>
+                ${this.rowEnd(rows[i], mapIndexOf(e.map) !== undefined)}`;
+              })
+              .join("")}</div>`
+          : "";
+        return `
+          <div class="wk-sitting${open ? " open" : ""}" data-sitting="${s.start}">
+            <button type="button" class="wk-sit-head" aria-expanded="${open}">
+              <span class="wk-sit-when"><b>${esc(dayLabel(s.start))}</b> <span class="num">${timeOfDay(s.start)}–${timeOfDay(s.end)}</span></span>
+              <span class="wk-sit-time num">${spent(s.playing)}</span>
+              <span class="wk-sit-out"><span class="num">${tn(s.events.length, "<b>{n}</b> try", "<b>{n}</b> tries")}</span><span>${out}</span></span>
+              <span class="wk-sit-maps-n num">${tn(s.maps, "{n} difficulty", "{n} difficulties")}</span>
+              ${icon("chevron-down", "wk-sit-chev")}
+            </button>${maps}
+          </div>`;
+      })
+      .join("");
+    this.rows = rows;
+    return `<div class="wk-sittings">${html}</div>`;
   }
 
   private recent(plays: Play[]): string {
@@ -474,6 +701,27 @@ export class HistoryView {
         return this.renderList();
       }
       if (target.closest(".hist-sync-btn")) return void this.sync();
+      const step = target.closest<HTMLButtonElement>(".wk-prev, .wk-next");
+      if (step) {
+        this.weekAt = weekShift(this.weekAt, step.classList.contains("wk-prev") ? -1 : 1);
+        this.openSitting = null;
+        return this.renderList();
+      }
+      if (target.closest(".wk-now")) {
+        this.weekAt = weekStart(Date.now());
+        this.openSitting = null;
+        return this.renderList();
+      }
+      // a sitting: its row opens and closes it, its block in the week opens it
+      const sit = target.closest<HTMLElement>(".wk-sit-head, .wk-block");
+      if (sit) {
+        const block = sit.classList.contains("wk-block");
+        const start = Number(block ? sit.dataset.sit : sit.closest<HTMLElement>("[data-sitting]")?.dataset.sitting);
+        this.openSitting = this.openSitting === start && !block ? null : start;
+        this.renderList();
+        if (block) this.el.querySelector(`[data-sitting="${start}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        return;
+      }
       if (target.closest(".hist-heart-setup")) return goSection({ name: "settings", section: "play" });
       const hrow = target.closest<HTMLElement>(".hrow[data-md5]");
       if (hrow) return go({ name: "tries", md5: hrow.dataset.md5! });
@@ -594,6 +842,62 @@ function playTiles(plays: Play[]): string {
     tile(t("Days played"), num(days.length), tn(longestStreak(days), "longest streak {n} day", "longest streak {n} days")),
     tile(t("Accuracy"), passes.length ? pct(acc) : "–", passes.length ? tn(passes.length, "average of the last {n} pass", "average of the last {n} passes") : t("no passes yet")),
   ].join("");
+}
+
+// ── your week ─────────────────────────────────────────────────────────────
+
+const weekDayFmt = new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" });
+const weekDayYearFmt = new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", year: "numeric" });
+const dayNameFmt = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric" });
+
+/** "This week", "Last week" or the days, with the way to the weeks before and after. */
+function weekNav(monday: number, earlier: boolean): string {
+  const now = weekStart(Date.now());
+  const sunday = dayShift(monday, 6);
+  const fmt = new Date(monday).getFullYear() === new Date().getFullYear() ? weekDayFmt : weekDayYearFmt;
+  const days = fmt.formatRange(new Date(monday), new Date(sunday));
+  const name = monday === now ? t("This week") : monday === weekShift(now, -1) ? t("Last week") : days;
+  return `
+    <div class="wk-nav">
+      <button class="icon-btn wk-prev" type="button" data-tip="${t("The week before")}" aria-label="${t("The week before")}"${earlier ? "" : " disabled"}>${icon("chevron-left")}</button>
+      <div class="wk-name"><b>${esc(name)}</b>${name === days ? "" : `<span class="num">${esc(days)}</span>`}</div>
+      <button class="icon-btn wk-next" type="button" data-tip="${t("The week after")}" aria-label="${t("The week after")}"${monday < now ? "" : " disabled"}>${icon("chevron-right")}</button>
+      ${monday < weekShift(now, -1) ? `<button class="btn btn-ghost btn-sm wk-now" type="button">${t("This week")}</button>` : ""}
+    </div>`;
+}
+
+/** What a sitting was, for its block in the week. */
+function sittingTip(s: Sitting): string {
+  return [`${timeOfDay(s.start)}–${timeOfDay(s.end)}`, spent(s.playing), tn(s.events.length, "{n} try", "{n} tries"), tn(s.passes, "{n} pass", "{n} passes")].join(" · ");
+}
+
+/** The seven days as lines through the day, each sitting a block where it was. */
+function weekChart(list: Sitting[], monday: number): string {
+  const today = dayNumber(Date.now());
+  const perDay = byDay(list, monday);
+  const days = perDay.map((ms, d) => {
+    const from = dayShift(monday, d);
+    const to = dayShift(monday, d + 1);
+    const blocks = list
+      .filter((s) => s.end > from && s.start < to)
+      .map((s) => {
+        const a = Math.max(s.start, from);
+        const b = Math.min(s.end, to);
+        const left = ((a - from) / (to - from)) * 100;
+        const width = Math.max(0.6, ((b - a) / (to - from)) * 100);
+        return `<b class="wk-block" data-sit="${s.start}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" data-tip="${esc(sittingTip(s))}"></b>`;
+      })
+      .join("");
+    const n = dayNumber(from);
+    return `<div class="wk-day${n === today ? " today" : n > today ? " future" : ""}">
+        <span class="wk-day-name">${esc(dayNameFmt.format(new Date(from)))}</span>
+        <div class="wk-track">${blocks}</div>
+        <span class="wk-day-sum num">${ms ? spent(ms) : ""}</span>
+      </div>`;
+  });
+  return `<div class="panel wk-days">${days.join("")}
+      <div class="wk-day wk-hours num"><span></span><div class="wk-axis"><span>0</span><span>6</span><span>12</span><span>18</span><span>24</span></div><span></span></div>
+    </div>`;
 }
 
 // ── activity ──────────────────────────────────────────────────────────────

@@ -85,6 +85,20 @@ pub struct HeartTry {
     pub hrv: Option<f64>,
 }
 
+/// A try in short, for History's sittings: when, at what and how it ended.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TryTime {
+    pub md5: String,
+    pub mode: u8,
+    pub started: i64,
+    pub ended: i64,
+    pub outcome: String,
+    pub rate: f64,
+    /// the library difficulty with its MD5 (lazer's before stable's)
+    pub map: Option<String>,
+}
+
 const OUTCOMES: [&str; 4] = ["pass", "fail", "quit", "retry"];
 
 fn check(a: &Attempt) -> Result<()> {
@@ -241,6 +255,27 @@ pub fn since(conn: &Connection, since: i64) -> Result<Vec<Attempt>> {
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+/// The tries that began between `from` and `to` (unix ms) in short, oldest first.
+pub fn between(conn: &Connection, from: i64, to: i64) -> Result<Vec<TryTime>> {
+    let mut st = conn.prepare(
+        "SELECT a.md5, a.mode, a.started, a.ended, a.outcome, a.rate,
+           (SELECT m.id FROM maps m JOIN sets s ON s.id = m.set_id WHERE m.md5 = a.md5 ORDER BY s.source = 'stable' LIMIT 1)
+         FROM attempts a WHERE a.started >= ?1 AND a.started < ?2 ORDER BY a.started LIMIT 100000",
+    )?;
+    let rows = st.query_map([from, to], |r| {
+        Ok(TryTime {
+            md5: r.get(0)?,
+            mode: r.get(1)?,
+            started: r.get(2)?,
+            ended: r.get(3)?,
+            outcome: r.get(4)?,
+            rate: r.get(5)?,
+            map: r.get(6)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,6 +321,9 @@ mod tests {
         assert_eq!(got[1].md5, "0123456789abcdef0123456789abcdef");
         assert_eq!(got[1].misses_at, vec![30_100, 31_900, 33_400]);
         assert_eq!(since(&conn, 2000).unwrap().len(), 1);
+        let short = between(&conn, 0, 5000).unwrap();
+        assert_eq!((short.len(), short[0].outcome.as_str(), short[0].ended, short[0].map.clone()), (1, "fail", 31_000, None));
+        assert_eq!(between(&conn, 0, 5001).unwrap()[1].outcome, "pass");
         assert!(got[0].heart.is_none() && heart_tries(&conn).unwrap().is_empty());
         // with the pulse during it
         let mut h = attempt("pass", 9000);

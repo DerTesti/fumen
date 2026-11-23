@@ -184,6 +184,97 @@
 .hr-max { color: var(--t1); }
 .hr-hrv { color: var(--t3); }
 
+/* ---------- Your week ---------- */
+.wk-nav { display: flex; align-items: center; gap: 4px; margin: 0 0 12px; }
+.wk-name { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding: 0 6px; }
+.wk-name b { font-size: var(--fs-15); font-weight: 700; color: var(--t1); white-space: nowrap; }
+.wk-name span { font-size: var(--fs-12); color: var(--t3); white-space: nowrap; }
+.wk-now { margin-left: auto; }
+.wk-empty { padding-top: 40px; }
+.wk-empty .empty-sub { max-width: 420px; margin-inline: auto; }
+.wk-tiles { margin: 0 0 6px; }
+
+/* the days, each a line from midnight to midnight with the sittings on it */
+.wk-days { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px 10px; }
+.wk-day { display: grid; grid-template-columns: 64px minmax(0, 1fr) 84px; align-items: center; column-gap: 12px; }
+.wk-day-name { font-size: var(--fs-12); color: var(--t2); white-space: nowrap; }
+.wk-day.today .wk-day-name { color: var(--t1); font-weight: 600; }
+.wk-day.future { opacity: .4; }
+.wk-day-sum { text-align: right; font-size: var(--fs-12); font-weight: 600; color: var(--t2); white-space: nowrap; }
+.wk-track {
+  position: relative;
+  height: 18px;
+  border-radius: var(--r-xs);
+  background:
+    repeating-linear-gradient(to right, transparent 0 calc(25% - 1px), var(--stroke-dim) calc(25% - 1px) 25%),
+    var(--fill-subtle);
+}
+.wk-block {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  min-width: 4px;
+  border-radius: 3px;
+  background: var(--accent);
+  cursor: pointer;
+  transition: filter .12s var(--ease-std);
+}
+.wk-block:hover { filter: brightness(1.15); }
+.wk-hours { margin-top: -2px; }
+.wk-axis { position: relative; height: 14px; font-size: var(--fs-10); color: var(--t3); }
+.wk-axis span { position: absolute; top: 0; transform: translateX(-50%); }
+.wk-axis span:nth-child(1) { left: 0; transform: none; }
+.wk-axis span:nth-child(2) { left: 25%; }
+.wk-axis span:nth-child(3) { left: 50%; }
+.wk-axis span:nth-child(4) { left: 75%; }
+.wk-axis span:nth-child(5) { right: 0; transform: none; }
+
+/* skills that went up */
+.wk-moves { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+.wk-move { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 10px; padding: 10px 14px; }
+.wk-move-name { font-size: var(--fs-12); font-weight: 600; color: var(--t1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wk-move-vals { grid-row: 2; font-size: var(--fs-12); color: var(--t3); }
+.wk-move-vals b { color: var(--t1); font-weight: 600; }
+.wk-move-up { grid-row: 1 / 3; grid-column: 2; align-self: center; font-size: var(--fs-13); font-weight: 700; color: var(--success); }
+
+/* goals: where they were (solid) and what the week added (lighter) */
+.wk-goal { padding-top: 12px; }
+.wk-goal-bar { position: relative; }
+.wk-goal-bar > span { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.wk-goal-bar > i { position: absolute; inset: 0; border-radius: inherit; background: var(--accent); transform: scaleX(var(--p, 0)); transform-origin: left; }
+.wk-goal-done { color: var(--success); }
+
+/* the sittings */
+.wk-sittings { display: flex; flex-direction: column; }
+.wk-sit-head {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.2fr) 84px minmax(0, 2fr) 120px 16px;
+  column-gap: 12px;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 10px;
+  border-radius: var(--r-lg);
+  font-size: var(--fs-12);
+  color: var(--t2);
+  text-align: left;
+  outline-offset: -2px;
+  transition: background .12s var(--ease-std);
+}
+.wk-sit-head > * { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wk-sit-head:hover { background: var(--tint-hover); }
+.wk-sit-when b { color: var(--t1); font-weight: 600; }
+.wk-sit-when .num { color: var(--t3); }
+.wk-sit-time { text-align: right; font-weight: 600; color: var(--t1); }
+.wk-sit-out { display: flex; gap: 10px; color: var(--t3); }
+.wk-sit-out b { color: var(--t1); font-weight: 600; }
+.wk-sit-maps-n { text-align: right; color: var(--t3); }
+.wk-sit-chev { width: 16px; height: 16px; color: var(--t3); transition: transform .18s var(--ease-std); }
+.wk-sitting.open .wk-sit-chev { transform: rotate(180deg); }
+.wk-sitting.open > .wk-sit-head { background: var(--tint-hover); }
+.wk-sit-maps { padding: 2px 0 8px 14px; animation: fade-in .2s var(--ease-std); }
+.prow.srow { grid-template-columns: 64px minmax(160px, 1fr) 54px 76px 86px 66px 30px; }
+
 @container (max-width: 760px) {
   .hist-synced { display: none; }
 }
@@ -198,6 +289,10 @@
   .prow.has-pos { grid-template-columns: 36px 64px minmax(140px, 1fr) 30px 66px 60px 30px; }
   .prow.mrow { grid-template-columns: 64px minmax(140px, 1fr) 96px 30px 66px 30px; }
   .prow.hrow { grid-template-columns: 64px minmax(140px, 1fr) 76px 56px 56px 56px 48px; }
+  .prow.srow { grid-template-columns: 64px minmax(140px, 1fr) 76px 86px 66px 30px; }
+  .wk-sit-head { grid-template-columns: minmax(120px, 1fr) 76px minmax(0, 1.4fr) 16px; }
+  .wk-sit-maps-n { display: none; }
+  .wk-sit-out > span:last-child { display: none; }
   .hrow-head .hrow-title { grid-column: 1 / 3; }
   .prow :is(.prow-sr, .prow-mods, .prow-when) { display: none; }
 }
