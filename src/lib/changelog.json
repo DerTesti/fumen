@@ -1,7 +1,7 @@
 [
   {
     "version": "1.5.0",
-    "date": "2026-11-16",
+    "date": "2026-11-24",
     "en": [
       "New: Storyboards in the visualizer. A map's storyboard plays in place of the cover, with its background and video under it. You can turn it off in the visualizer's settings.",
       "New: Your HRV for every try, with a heart rate monitor that sends the spacing of your beats (chest straps like Moofit's do). The pulse graph gets a second curve and marks where your nerves kicked in: your pulse climbing while your HRV drops. History's Heart rate tab shows your HRV too, for each map and for passes against the rest.",
