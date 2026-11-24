@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.5.2",
+    "date": "2026-11-24",
+    "en": [
+      "Fix: Dropdowns in dialogs, like the skillset in New goal, open in front of the dialog again."
+    ],
+    "de": [
+      "Fix: Dropdowns in Dialogen, wie das Skillset bei Neues Ziel, gehen wieder vor dem Dialog auf."
+    ]
+  },
+  {
     "version": "1.5.1",
     "date": "2026-11-24",
     "en": [
