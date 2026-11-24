@@ -144,4 +144,7 @@ export const skills: Record<string, string> = {
   "Doesn't count: you left this map out.": "Zählt nicht: Du hast diese Map rausgenommen.",
   "Vibro parts were cut out before rating.": "Vibro-Stellen wurden vor der Bewertung herausgeschnitten.",
   "Worth far more than your {skill}, maybe overrated.": "Weit mehr wert als dein {skill}, vielleicht überbewertet.",
+  "{n} osu!mania pass is on a chart you don't have, so it doesn't count here yet.|{n} osu!mania passes are on charts you don't have, so they don't count here yet.":
+    "{n} osu!mania Pass ist auf einer Chart, die du nicht hast, und zählt deshalb hier noch nicht.|{n} osu!mania Passes sind auf Charts, die du nicht hast, und zählen deshalb hier noch nicht.",
+  "Download the set|Download the {n} sets": "Set herunterladen|Die {n} Sets herunterladen",
 };

@@ -18,7 +18,7 @@ import { countAgain, leaveOut, leftOutList, leftOutNow } from "../lib/skills-lef
 import { renderTrend, type TrendRange } from "./skill-trends";
 import { similarTo } from "../lib/similar";
 import { events, store } from "../lib/store";
-import type { MapRow, MsdSkill, PatternName, Play } from "../lib/types";
+import type { History, MapRow, MsdSkill, PatternName, Play } from "../lib/types";
 import { attachSegIndicator, openMenu, toast, type MenuEntry } from "../ui/controls";
 import { icon } from "../ui/icons";
 import { openSet, setMenu } from "./actions";
@@ -210,6 +210,7 @@ export class SkillsView {
           <div class="empty-title">${t("Skills come from your osu!mania plays")}</div>
           <div class="empty-sub">${t("Fumen rates your osu!mania passes the way Etterna does. Once you've passed some 4K to 7K charts that are in your library, you'll see here what you're good at.")}</div>
         </div>
+        ${missingHtml(h)}
         ${this.goalsHtml(ctx)}`;
       return;
     }
@@ -259,6 +260,7 @@ export class SkillsView {
         <section class="panel skills-radar">${radar(now, then, this.goalMarks(keys), versus && { name: versus.name, sheet: versus.sheet })}</section>
         <section class="panel skills-list">${lines.map((l, i) => this.row(l, before[i], now.plays, then.plays, versus && { name: versus.name, line: versus.lines[i], plays: versus.sheet.plays, charts: versus.charts })).join("")}</section>
       </div>
+      ${missingHtml(h)}
       ${this.goalsHtml(ctx)}
       ${this.practiceHtml(plan, rows, played, passed, theirPractice)}
       ${leftOutHtml(foundVibro(h.plays, mapIndexOf, snap.maps, keys))}`;
@@ -662,6 +664,10 @@ export class SkillsView {
       if (pick) return this.startCompare(pick.dataset.name!);
       const like = target.closest<HTMLElement>(".like-btn");
       if (like) return this.likeMenu(like, like.closest<HTMLElement>("[data-their]")!.dataset.their!);
+      if (target.closest(".skills-missing-get")) {
+        const h = historyNow();
+        return h && openImport(missingSets(h).map((id) => `https://osu.ppy.sh/beatmapsets/${id}`).join("\n"));
+      }
       const add = target.closest<HTMLElement>(".skill-chart[data-add]");
       if (add) return openImport(`https://osu.ppy.sh/beatmapsets/${add.dataset.add}`);
       const k = target.closest<HTMLElement>(".skills-keys [data-keys]");
@@ -1024,5 +1030,33 @@ function radar(now: SkillSheet, then: SkillSheet, goals: (number | null)[], vs: 
       ${hasThen ? `<span class="lg-then">${t("90 days ago")}</span>` : ""}
       ${vs ? `<span class="lg-them">${esc(vs.name)}</span>` : ""}
       ${goals.some((v) => v !== null) ? `<span class="lg-goal">${t("Goal")}</span>` : ""}
+    </div>`;
+}
+
+/** osu!mania passes osu! knows (top plays, recent ones, the cloud's) on charts that aren't in the
+ *  library: MinaCalc needs the chart to rate them, so they don't count yet. */
+function missingPasses(h: History): { passes: number; sets: number[] } {
+  const sets = new Set<number>();
+  let passes = 0;
+  for (const p of h.plays) {
+    if (p.mode !== 3 || p.failed || p.map !== undefined || p.beatmap === undefined) continue;
+    const b = h.beatmaps[p.beatmap];
+    if (!b?.setId || b.mode !== 3) continue;
+    passes++;
+    sets.add(b.setId);
+  }
+  return { passes, sets: [...sets] };
+}
+
+const missingSets = (h: History): number[] => missingPasses(h).sets;
+
+/** The note that some passes are on charts you don't have, with a button that downloads them. */
+function missingHtml(h: History): string {
+  const { passes, sets } = missingPasses(h);
+  if (!sets.length) return "";
+  return `
+    <div class="skills-missing">${icon("info")}
+      <span>${tn(passes, "{n} osu!mania pass is on a chart you don't have, so it doesn't count here yet.", "{n} osu!mania passes are on charts you don't have, so they don't count here yet.")}</span>
+      <button class="btn btn-sm skills-missing-get" type="button">${icon("download")}<span>${tn(sets.length, "Download the set", "Download the {n} sets")}</span></button>
     </div>`;
 }

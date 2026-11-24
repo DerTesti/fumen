@@ -3,9 +3,11 @@
     "version": "1.5.2",
     "date": "2026-11-24",
     "en": [
+      "New: The Skills page tells you when some of your osu!mania passes are on charts you don't have, like top plays from another PC, and downloads them with one button. Then they count.",
       "Fix: Dropdowns in dialogs, like the skillset in New goal, open in front of the dialog again."
     ],
     "de": [
+      "Neu: Die Skills-Seite sagt dir, wenn osu!mania Passes auf Charts liegen, die du nicht hast, etwa Top Plays von einem anderen PC, und lädt sie mit einem Button herunter. Dann zählen sie mit.",
       "Fix: Dropdowns in Dialogen, wie das Skillset bei Neues Ziel, gehen wieder vor dem Dialog auf."
     ]
   },

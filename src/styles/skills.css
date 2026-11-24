@@ -313,3 +313,18 @@
 .skill-them-head { padding: 10px 8px 4px; font-size: var(--fs-11); font-weight: 600; color: var(--t3); }
 .skill-them-head:first-child { padding-top: 2px; }
 .skill-chart.them:not([data-map]):not([data-add]) { cursor: default; }
+
+/* passes on charts that aren't in the library */
+.skills-missing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 10px 14px;
+  border-radius: var(--r-xl);
+  background: var(--fill-subtle);
+  font-size: var(--fs-12);
+  color: var(--t2);
+}
+.skills-missing > span { flex: 1; min-width: 0; }
+.skills-missing > .ic:first-child { flex: none; color: var(--t3); }
