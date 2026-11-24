@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.5.1",
+    "date": "2026-11-24",
+    "en": [
+      "New: Browse has the osu!lazer and osu!stable switch too, while imports into osu!stable are turned on in Settings."
+    ],
+    "de": [
+      "Neu: Auch Browse hat den Schalter für osu!lazer und osu!stable, solange Importe in osu!stable in den Einstellungen an sind."
+    ]
+  },
+  {
     "version": "1.5.0",
     "date": "2026-11-24",
     "en": [

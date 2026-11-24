@@ -83,14 +83,31 @@ let target: Target = "lazer";
 let stableAsked = false;
 
 /** imports into osu!stable are turned on and stable is there */
-const stableAllowed = (): boolean => !!store.settings?.stableImport && !!store.status?.stable?.install;
+export const stableAllowed = (): boolean => !!store.settings?.stableImport && !!store.status?.stable?.install;
 /** where the next import really goes (stable only while it's allowed) */
 const goesTo = (): Target => (target === "stable" && stableAllowed() ? "stable" : "lazer");
 /** where Browse's sets go right now */
 export const importTarget = (): Target => goesTo();
 
 /** a set's import moved along (Browse follows its sets with it) */
-export const importEvents = new Emitter<{ set: number }>();
+export const importEvents = new Emitter<{ set: number; target: Target }>();
+
+/** Sends the next imports to osu!lazer or osu!stable (Add beatmaps and Browse share it). Stable
+ *  asks first, once a session; false when that was turned down. */
+export async function chooseImportTarget(to: Target): Promise<boolean> {
+  if (to === target) return true;
+  if (to === "stable" && !stableAsked) {
+    const ok = await uiConfirm(
+      t("The sets go into osu!stable's Songs folder, and stable imports them with its own code the next time it starts. This is the one place Fumen writes into stable's files; it can't check or undo stable's import."),
+      { title: t("Import into osu!stable?"), confirmLabel: t("Into osu!stable"), danger: true },
+    );
+    if (!ok) return false;
+    stableAsked = true;
+  }
+  target = to;
+  importEvents.emit("target", to);
+  return true;
+}
 /** how each set's last import ended, this session (a queued import replaces the job before) */
 const ended = new Map<number, Row>();
 
@@ -314,18 +331,8 @@ class ImportDialog {
     dialog = null;
   }
 
-  /** stable asks first, once a session */
   private async pickTarget(to: Target): Promise<void> {
-    if (to === target) return;
-    if (to === "stable" && !stableAsked) {
-      const ok = await uiConfirm(
-        t("The sets go into osu!stable's Songs folder, and stable imports them with its own code the next time it starts. This is the one place Fumen writes into stable's files; it can't check or undo stable's import."),
-        { title: t("Import into osu!stable?"), confirmLabel: t("Into osu!stable"), danger: true },
-      );
-      if (!ok) return;
-      stableAsked = true;
-    }
-    target = to;
+    if (to === target || !(await chooseImportTarget(to))) return;
     if (job && !job.running && !showsRows(job)) job = null;
     this.render();
   }

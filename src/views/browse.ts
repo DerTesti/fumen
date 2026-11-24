@@ -19,7 +19,7 @@ import { icon } from "../ui/icons";
 import { closeLazerHtml, wireCloseLazer } from "../ui/osu-launch";
 import { starRange } from "../ui/star-range";
 import { openSet } from "./actions";
-import { importEvents, importSets, importTarget, openImport, setImportState, type SetImport } from "./import";
+import { chooseImportTarget, importEvents, importSets, importTarget, openImport, setImportState, stableAllowed, type SetImport } from "./import";
 import { fromRust, t, tn } from "../lib/i18n";
 import { needOnline } from "../lib/consent";
 
@@ -160,7 +160,11 @@ export class BrowseView {
       <header class="view-head br-head">
         <div>
           <h1 class="view-title">${t("Browse")}</h1>
-          <div class="view-sub">${t("osu!'s beatmaps, found through the mirrors. What you add goes into osu!lazer.")}</div>
+          <div class="view-sub"></div>
+        </div>
+        <div class="seg-pill br-target" aria-label="${t("Where the beatmaps go")}" hidden>
+          <button type="button" data-target="lazer">osu!lazer</button>
+          <button type="button" data-target="stable">osu!stable</button>
         </div>
       </header>
       <div class="lib-toolbar br-toolbar">
@@ -190,6 +194,12 @@ export class BrowseView {
     // what narrows and orders the search sits right with it
     this.el.querySelector(".br-refine")!.appendChild(sort.el);
     attachSegIndicator(this.el.querySelector(".lib-modes")!);
+    attachSegIndicator(this.el.querySelector(".br-target")!);
+    this.el.querySelector(".br-target")!.addEventListener("click", (e) => {
+      const b = (e.target as Element).closest<HTMLElement>("[data-target]");
+      if (b) void chooseImportTarget(b.dataset.target as "lazer" | "stable");
+    });
+    this.renderTarget();
     this.syncControls();
     this.bind();
 
@@ -201,6 +211,8 @@ export class BrowseView {
 
     this.offs.push(
       importEvents.on("set", (id) => this.renderAction(id)),
+      importEvents.on("target", () => this.targetChanged()),
+      events.on("status", () => this.renderTarget()),
       events.on("library", () => this.renderList()),
       events.on("importing", () => void this.refreshStatus()),
       events.on("prefs", (p) => {
@@ -217,9 +229,35 @@ export class BrowseView {
 
   /** The page came on screen: osu!lazer may have opened or closed meanwhile. */
   shown(): void {
+    // imports into stable may have been turned on or off in Settings
+    if (this.shownTarget !== importTarget()) this.targetChanged();
+    else this.renderTarget();
     void this.refreshStatus();
     // the online features turned on elsewhere meanwhile
     if (this.offline && store.settings?.online) this.search();
+  }
+
+  /** where the sets went when the page last drew them */
+  private shownTarget = importTarget();
+
+  /** The osu!lazer / osu!stable switch (only while imports into stable are turned on) and the line
+   *  under the title. */
+  private renderTarget(): void {
+    const pill = this.el.querySelector<HTMLElement>(".br-target")!;
+    pill.hidden = !stableAllowed();
+    const to = importTarget();
+    pill.querySelectorAll<HTMLElement>("[data-target]").forEach((b) => b.classList.toggle("active", b.dataset.target === to));
+    this.el.querySelector(".view-sub")!.textContent =
+      to === "stable" ? t("osu!'s beatmaps, found through the mirrors. What you add goes into osu!stable.") : t("osu!'s beatmaps, found through the mirrors. What you add goes into osu!lazer.");
+  }
+
+  /** The sets go somewhere else now: what's there already and the buttons change with it. */
+  private targetChanged(): void {
+    this.shownTarget = importTarget();
+    this.renderTarget();
+    this.renderLazer();
+    this.renderSummary();
+    this.renderList();
   }
 
   private readonly onPreview = () => {

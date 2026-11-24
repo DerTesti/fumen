@@ -131,6 +131,8 @@ export const manage: Record<string, string> = {
   "No mirror has a preview of this set": "Kein Mirror hat eine Vorschau dieses Sets",
   "osu!'s beatmaps, found through the mirrors. What you add goes into osu!lazer.":
     "Die Beatmaps von osu!, gefunden über die Mirrors. Was du hinzufügst, geht in osu!lazer.",
+  "osu!'s beatmaps, found through the mirrors. What you add goes into osu!stable.":
+    "Die Beatmaps von osu!, gefunden über die Mirrors. Was du hinzufügst, geht in osu!stable.",
   "Title, artist, mapper or tags": "Titel, Artist, Mapper oder Tags",
   "Search the mirrors": "Die Mirrors durchsuchen",
   "Sort the sets by": "Sets sortieren nach",
