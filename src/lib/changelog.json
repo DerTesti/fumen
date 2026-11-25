@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.5.4",
+    "date": "2026-11-25",
+    "en": [
+      "Fix: A chart Etterna's calculator can't handle no longer crashes Fumen while it analyses the library, which could also keep Fumen from starting again. That chart just has no MSD now."
+    ],
+    "de": [
+      "Fix: Eine Chart, mit der Etternas Rechner nicht klarkommt, lässt Fumen beim Analysieren der Library nicht mehr abstürzen. Das konnte auch verhindern, dass Fumen wieder startet. Die Chart hat jetzt einfach keine MSD."
+    ]
+  },
+  {
     "version": "1.5.3",
     "date": "2026-11-25",
     "en": [

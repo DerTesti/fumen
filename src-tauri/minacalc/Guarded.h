@@ -13,11 +13,10 @@ extern "C" {
 int guarded_calc_at_rate(CalcHandle *calc, const NoteInfo *rows, size_t num_rows, float music_rate, float score_goal, unsigned int keycount,
                          CalcMode mode, Ssr *out);
 
+int guarded_selftest();
+
 int guarded_calc_all_rates(CalcHandle *calc, const NoteInfo *rows, size_t num_rows, unsigned int keycount, CalcMode mode,
                            MsdForAllRates *out);
-
-int guarded_calc_rates(CalcHandle *calc, const NoteInfo *rows, size_t num_rows, const float *rates, size_t num_rates,
-                       unsigned int keycount, CalcMode mode, Ssr *out_scores);
 
 #ifdef __cplusplus
 }

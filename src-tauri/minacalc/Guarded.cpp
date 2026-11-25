@@ -8,6 +8,12 @@ extern "C" {
 
 namespace {
 
+// throws like MinaCalc does on a chart it can't handle (for guarded_selftest)
+[[gnu::noinline]] int throws_out_of_range(int i) {
+	std::vector<int> none;
+	return none.at(static_cast<size_t>(i));
+}
+
 constexpr size_t SKILLSET_COUNT = 8;
 
 Ssr to_ssr(const std::vector<float> &skillsets) {
@@ -58,24 +64,10 @@ int guarded_calc_all_rates(CalcHandle *calc, const NoteInfo *rows, size_t num_ro
 	}
 }
 
-int guarded_calc_rates(CalcHandle *calc, const NoteInfo *rows, size_t num_rows, const float *rates, size_t num_rates,
-                       unsigned int keycount, CalcMode mode, Ssr *out_scores) {
+// for Rust's test that the try above survives the compiler: 1 when the exception was caught here
+int guarded_selftest() {
 	try {
-		std::vector<NoteInfo> note_info(rows, rows + num_rows);
-		auto *calculator = reinterpret_cast<Calc *>(calc);
-		std::vector<Ssr> scores;
-		scores.reserve(num_rates);
-		for (size_t i = 0; i < num_rates; ++i) {
-			auto skillsets = MinaSDCalc(note_info, rates[i], calculator->default_score_goal, keycount, mode == CalcMode::SSR, calculator);
-			if (skillsets.size() < SKILLSET_COUNT) {
-				return 2;
-			}
-			scores.push_back(to_ssr(skillsets));
-		}
-		for (size_t i = 0; i < num_rates; ++i) {
-			out_scores[i] = scores[i];
-		}
-		return 0;
+		return throws_out_of_range(3) == 0 ? 0 : 2;
 	} catch (...) {
 		return 1;
 	}

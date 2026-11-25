@@ -37,14 +37,28 @@ extern "C" {
     fn calc_version() -> c_int;
     fn create_calc() -> *mut c_void;
     fn destroy_calc(calc: *mut c_void);
+    // MinaCalc only through minacalc/Guarded.cpp: it catches every C++ exception (MinaCalc throws
+    // std::out_of_range on some charts) and answers 0 when done, else a code with `out` untouched.
+    // An exception that reached Rust would abort the whole app, on every start.
     /// mode 0: MSD (the chart's difficulty), 1: SSR (a score's rating)
-    fn calc_at_rate(calc: *mut c_void, rows: *mut NoteInfo, num_rows: usize, music_rate: c_float, score_goal: c_float, keycount: c_uint, mode: c_int) -> Ssr;
-    fn calc_all_rates(calc: *mut c_void, rows: *const NoteInfo, num_rows: usize, keycount: c_uint, mode: c_int) -> AllRates;
+    fn guarded_calc_at_rate(
+        calc: *mut c_void,
+        rows: *const NoteInfo,
+        num_rows: usize,
+        music_rate: c_float,
+        score_goal: c_float,
+        keycount: c_uint,
+        mode: c_int,
+        out: *mut Ssr,
+    ) -> c_int;
+    #[cfg(test)]
+    fn guarded_selftest() -> c_int;
+    fn guarded_calc_all_rates(calc: *mut c_void, rows: *const NoteInfo, num_rows: usize, keycount: c_uint, mode: c_int, out: *mut AllRates) -> c_int;
 }
 
 /// MinaCalc's MSD at 0.7× to 2.0×, a tenth apart
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 struct AllRates {
     msds: [Ssr; 14],
 }
@@ -179,11 +193,17 @@ impl Msd {
 
 /// MinaCalc at one rate: MSD (`ssr` off) or a score's SSR at `goal` (Wife%, 0–1).
 fn at_rate(chart: &Chart, rate: f64, goal: f64, ssr: bool) -> Option<Msd> {
-    let mut rows = rateable(chart)?;
-    let out = CALC.with(|c| {
-        // SAFETY: the rows live through the call, the calculator is this thread's own
-        unsafe { calc_at_rate(c.0, rows.as_mut_ptr(), rows.len(), rate.clamp(0.5, 3.0) as f32, goal.clamp(0.0, 1.0) as f32, chart.keys as c_uint, ssr as c_int) }
+    let rows = rateable(chart)?;
+    let mut out = Ssr::default();
+    let code = CALC.with(|c| {
+        // SAFETY: the rows and `out` live through the call, the calculator is this thread's own
+        unsafe {
+            guarded_calc_at_rate(c.0, rows.as_ptr(), rows.len(), rate.clamp(0.5, 3.0) as f32, goal.clamp(0.0, 1.0) as f32, chart.keys as c_uint, ssr as c_int, &mut out)
+        }
     });
+    if code != 0 {
+        return None;
+    }
     let msd = Msd::from(out);
     (msd.overall > 0.0).then_some(msd)
 }
@@ -203,10 +223,14 @@ pub fn ssr(chart: &Chart, rate: f64, wife: f64) -> Option<Msd> {
 /// The MSD at every rate from 0.7× to 2.0×, a tenth apart, in one go.
 pub fn all_rates(chart: &Chart) -> Option<Vec<Msd>> {
     let rows = rateable(chart)?;
-    let all = CALC.with(|c| {
+    let mut all = AllRates::default();
+    let code = CALC.with(|c| {
         // SAFETY: as above
-        unsafe { calc_all_rates(c.0, rows.as_ptr(), rows.len(), chart.keys as c_uint, 0) }
+        unsafe { guarded_calc_all_rates(c.0, rows.as_ptr(), rows.len(), chart.keys as c_uint, 0, &mut all) }
     });
+    if code != 0 {
+        return None;
+    }
     let out: Vec<Msd> = all.msds.iter().map(|s| Msd::from(*s)).collect();
     out.iter().any(|m| m.overall > 0.0).then_some(out)
 }
@@ -220,6 +244,13 @@ mod tests {
         let width = 512 / keys as i32;
         let objects: String = notes.iter().map(|&(t, lane)| format!("{},192,{t},1,0,0:0:0:0:\n", lane as i32 * width + width / 2)).collect();
         parse(&format!("osu file format v14\n\n[General]\nMode: 3\n\n[Difficulty]\nCircleSize:{keys}\nOverallDifficulty:8\n\n[TimingPoints]\n0,250,4,2,0,100,1,0\n\n[HitObjects]\n{objects}"))
+    }
+
+    /// The guard's try survives the compiler: an exception thrown inside it comes back as a code,
+    /// not as a crash of the whole app.
+    #[test]
+    fn exceptions_stay_in_cpp() {
+        assert_eq!(unsafe { guarded_selftest() }, 1);
     }
 
     #[test]
@@ -305,3 +336,4 @@ mod tests {
         }
     }
 }
+

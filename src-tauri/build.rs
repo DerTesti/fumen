@@ -10,6 +10,9 @@ fn main() {
         .include("minacalc")
         .include("minacalc/MinaCalc")
         .file("minacalc/API.cpp")
+        // the entry points Rust calls: MinaCalc behind a C++ try, so an exception from it never
+        // reaches Rust (which would abort the whole app)
+        .file("minacalc/Guarded.cpp")
         .file("minacalc/MinaCalc/MinaCalc.cpp")
         .compile("minacalc");
     println!("cargo:rerun-if-changed=minacalc");
