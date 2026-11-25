@@ -5,8 +5,10 @@
 //! Downloads share a [`Mirrors`] pool that spreads them over the mirrors, so no single one sees
 //! a whole import, and that pauses a mirror when it says "too many requests" (for as long as its
 //! `Retry-After` asks) instead of failing sets. Every request to a mirror, from here, the search
-//! and the chart files, goes through one budget per mirror (see [`UNITS_PER_MINUTE`]), so Fumen
-//! stays under the mirrors' rate limits instead of running into them. fumen.dertesti.dev can
+//! and the chart files, goes through one budget per mirror (see [`UNITS_PER_MINUTE`]), plus the
+//! limits a mirror publishes for itself ([`caps`]: osu.direct's downloads an hour and requests a
+//! minute), so Fumen stays under the mirrors' rate limits instead of running into them. What a
+//! mirror's answers say is left of its limits counts too ([`note_limits`]). fumen.dertesti.dev can
 //! slow a mirror down or turn it off for every Fumen without a release ([`follow_rules`]).
 //! Beatmap links (`/b/<id>`, `/beatmaps/<id>`) are
 //! turned into their set by the mirrors' beatmap lookups too.
@@ -15,7 +17,7 @@ use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::error::{Error, Result};
 
@@ -59,9 +61,57 @@ pub const DOWNLOAD: u32 = 20;
 /// What a lookup or search costs.
 pub const REQUEST: u32 = 1;
 
+/** What a request to a mirror is, for its limits. */
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Ask {
+    /// a whole set (`.osz`)
+    Set,
+    /// a difficulty's `.osu` file
+    File,
+    /// a lookup or a search
+    Request,
+}
+
+impl Ask {
+    fn units(self) -> u32 {
+        match self {
+            Ask::Request => REQUEST,
+            Ask::Set | Ask::File => DOWNLOAD,
+        }
+    }
+}
+
+/// A limit a mirror publishes for each computer: at most `max` within `span`, of set downloads
+/// only or of every request.
+struct Cap {
+    span: Duration,
+    max: u32,
+    sets_only: bool,
+}
+
+/// osu.direct's published limits (osu.direct/api/docs), with some room: 200 set downloads an hour
+/// (/api/d), 120 requests a minute and 25 in 5 seconds (everything under /api, downloads too).
+const OSU_DIRECT: [Cap; 3] = [
+    Cap { span: Duration::from_secs(3600), max: 180, sets_only: true },
+    Cap { span: Duration::from_secs(60), max: 100, sets_only: false },
+    Cap { span: Duration::from_secs(5), max: 20, sets_only: false },
+];
+/// the longest span of any cap: what a budget remembers
+const LONGEST_CAP: Duration = Duration::from_secs(3600);
+
+/// The limits `mirror` publishes, on top of the budget every mirror has.
+fn caps(mirror: &str) -> &'static [Cap] {
+    match mirror {
+        "osu.direct" => &OSU_DIRECT,
+        _ => &[],
+    }
+}
+
 #[derive(Default)]
 struct Budget {
     spent: VecDeque<(Instant, u32)>,
+    /// every request of the last hour, for the caps
+    log: VecDeque<(Instant, Ask)>,
     /// after "too many requests": nothing goes to the mirror until then
     rest_until: Option<Instant>,
 }
@@ -81,6 +131,29 @@ impl Budget {
             }
         }
         rest
+    }
+
+    /// When `ask` fits under every cap (`now` when it does already).
+    fn caps_free_at(&self, ask: Ask, caps: &[Cap], now: Instant) -> Instant {
+        let mut at = now;
+        for c in caps {
+            if c.sets_only && ask != Ask::Set {
+                continue;
+            }
+            let inside: Vec<Instant> =
+                self.log.iter().filter(|(t, a)| now.duration_since(*t) < c.span && (!c.sets_only || *a == Ask::Set)).map(|(t, _)| *t).collect();
+            if inside.len() as u32 >= c.max {
+                // the oldest ones have to drop out of the span first
+                let k = inside.len() + 1 - c.max as usize;
+                at = at.max(inside[k - 1] + c.span);
+            }
+        }
+        at
+    }
+
+    /// When `ask` fits `limit` units a minute, the caps and any rest.
+    fn ask_free_at(&self, ask: Ask, limit: u32, caps: &[Cap], now: Instant) -> Instant {
+        self.free_at(ask.units(), limit, now).max(self.caps_free_at(ask, caps, now))
     }
 }
 
@@ -188,44 +261,47 @@ fn in_budget<T>(all: &Budgets, mirror: &'static str, f: impl FnOnce(&mut Budget,
     while b.spent.front().is_some_and(|(t, _)| now.duration_since(*t) >= WINDOW) {
         b.spent.pop_front();
     }
+    while b.log.front().is_some_and(|(t, _)| now.duration_since(*t) >= LONGEST_CAP) {
+        b.log.pop_front();
+    }
     f(b, now)
 }
 
-/// When `mirror` can take a request costing `units` (now or earlier: right away).
-pub fn free_at(mirror: &'static str, units: u32) -> Instant {
+/// When `mirror` can take `ask` (now or earlier: right away).
+pub fn free_at(mirror: &'static str, ask: Ask) -> Instant {
     let limit = limit(mirror);
-    with_budget(mirror, |b, now| b.free_at(units, limit, now))
+    with_budget(mirror, |b, now| b.ask_free_at(ask, limit, caps(mirror), now))
 }
 
-/// Whether `mirror` can take a request costing `units` right now.
-fn can_take(mirror: &'static str, units: u32) -> bool {
-    let limit = limit(mirror);
-    with_budget(mirror, |b, now| b.free_at(units, limit, now) <= now)
+/// Whether `mirror` can take `ask` right now.
+fn can_take(mirror: &'static str, ask: Ask) -> bool {
+    free_at(mirror, ask) <= Instant::now()
 }
 
-/// Books a request costing `units` with `mirror` if it fits right now.
-pub fn try_book(mirror: &'static str, units: u32) -> bool {
+/// Books `ask` with `mirror` if it fits right now.
+pub fn try_book(mirror: &'static str, ask: Ask) -> bool {
     let limit = limit(mirror);
     with_budget(mirror, |b, now| {
-        let fits = b.free_at(units, limit, now) <= now;
+        let fits = b.ask_free_at(ask, limit, caps(mirror), now) <= now;
         if fits {
-            b.spent.push_back((now, units));
+            b.spent.push_back((now, ask.units()));
+            b.log.push_back((now, ask));
         }
         fits
     })
 }
 
-/// Waits until `mirror` can take a request costing `units` and books it; false (nothing booked)
-/// when that's further off than `max` or the mirror is turned off.
-pub fn book(mirror: &'static str, units: u32, max: Duration) -> bool {
+/// Waits until `mirror` can take `ask` and books it; false (nothing booked) when that's
+/// further off than `max` or the mirror is turned off.
+pub fn book(mirror: &'static str, ask: Ask, max: Duration) -> bool {
     if off(mirror) {
         return false;
     }
     loop {
-        let at = free_at(mirror, units);
+        let at = free_at(mirror, ask);
         let now = Instant::now();
         if at <= now {
-            if try_book(mirror, units) {
+            if try_book(mirror, ask) {
                 return true;
             }
             continue;
@@ -243,6 +319,39 @@ pub fn rest(mirror: &'static str, d: Duration) {
         let until = now + d.min(MAX_REST);
         b.rest_until = Some(b.rest_until.map_or(until, |t| t.max(until)));
     });
+}
+
+/// How long a mirror's limit headers ask it to be left alone, given `header` (a number header by
+/// name) and the time in unix seconds: until a budget it counts for this computer refills, once
+/// it's used up (osu.direct sends these on every /api answer). None: there's room left.
+fn limits_wait(header: impl Fn(&str) -> Option<u64>, now_unix: u64) -> Option<Duration> {
+    // resets come as seconds from now, or as a unix time
+    let until = |reset: Option<u64>| reset.map(|r| Duration::from_secs(if r > 1_000_000_000 { r.saturating_sub(now_unix) } else { r }.max(1)));
+    let mut wait: Option<Duration> = None;
+    let mut more = |d: Option<Duration>| wait = wait.max(d);
+    if header("x-download-budget-remaining") == Some(0) {
+        more(until(header("x-download-budget-reset")));
+    }
+    // not enough for another big set today
+    if header("x-download-budget-bytes-remaining").is_some_and(|b| b < 256 * 1024 * 1024) {
+        more(until(header("x-download-budget-bytes-reset")));
+    }
+    if header("x-ratelimit-remaining") == Some(0) {
+        more(until(header("x-ratelimit-reset")));
+    }
+    if header("x-ratelimit-burst-remaining") == Some(0) {
+        more(until(header("x-ratelimit-burst-reset")));
+    }
+    wait
+}
+
+/// Rests `mirror` when its answer says a limit of its is used up for now.
+pub fn note_limits(mirror: &'static str, res: &ureq::http::Response<ureq::Body>) {
+    let header = |name: &str| res.headers().get(name).and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse::<u64>().ok());
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    if let Some(d) = limits_wait(header, now) {
+        rest(mirror, d);
+    }
 }
 
 fn resting(mirror: &'static str) -> bool {
@@ -323,9 +432,9 @@ impl Mirrors {
         let others_left = (0..MIRRORS.len()).any(|i| !last_resort(i) && may_have(tried[i]) && !rests(i));
         let best = (0..MIRRORS.len())
             .filter(|&i| may_have(tried[i]) && !(last_resort(i) && others_left))
-            .filter(|&i| !rests(i) && state[i].active < PER_MIRROR && can_take(MIRRORS[i].name, DOWNLOAD))
+            .filter(|&i| !rests(i) && state[i].active < PER_MIRROR && can_take(MIRRORS[i].name, Ask::Set))
             .min_by_key(|&i| (matches!(tried[i], Tried::Failed(_)), state[i].active, state[i].started, i))?;
-        if !try_book(MIRRORS[best].name, DOWNLOAD) {
+        if !try_book(MIRRORS[best].name, Ask::Set) {
             return None;
         }
         state[best].active += 1;
@@ -377,7 +486,7 @@ impl Mirrors {
             .map(|i| {
                 // busy with other sets: soon
                 let own = state[i].rest_until.filter(|&t| t > now).unwrap_or(now);
-                own.max(free_at(MIRRORS[i].name, DOWNLOAD))
+                own.max(free_at(MIRRORS[i].name, Ask::Set))
             })
             .min()
     }
@@ -441,17 +550,32 @@ fn agent(timeout: Duration) -> ureq::Agent {
         .into()
 }
 
+/// The agent for set downloads: like `agent`, but redirects are followed in `fetch`.
+fn download_agent(timeout: Duration) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .user_agent(USER_AGENT)
+        .timeout_global(Some(timeout))
+        .https_only(true)
+        .max_redirects(0)
+        .http_status_as_error(false)
+        .build()
+        .into()
+}
+
 /// The set a beatmap belongs to, asked of the mirrors' beatmap lookups in turn.
 pub fn set_of_beatmap(beatmap: u32) -> Result<u32> {
     crate::online::ensure()?;
     let agent = agent(Duration::from_secs(15));
     let mut failures = Vec::new();
     for (name, url) in LOOKUPS {
-        if !book(name, REQUEST, Duration::from_secs(10)) {
+        if !book(name, Ask::Request, Duration::from_secs(10)) {
             failures.push(format!("{name} resting"));
             continue;
         }
         let answer = agent.get(&url(beatmap)).call();
+        if let Ok(res) = &answer {
+            note_limits(name, res);
+        }
         match answer {
             Ok(res) if res.status() == 429 => {
                 rest(name, retry_after(&res));
@@ -491,7 +615,7 @@ pub fn download_set(set: u32, dir: &Path, mirrors: &Mirrors, mut progress: impl 
     std::fs::create_dir_all(dir)?;
     let target = dir.join(format!("{set}.osz"));
     let part = dir.join(format!("{set}.osz.part"));
-    let agent = agent(Duration::from_secs(300));
+    let agent = download_agent(Duration::from_secs(300));
     let mut tried = [Tried::No; MIRRORS.len()];
     let mut why: Vec<String> = vec![String::new(); MIRRORS.len()];
     // turned off on fumen.dertesti.dev: as if they didn't have it
@@ -520,7 +644,7 @@ pub fn download_set(set: u32, dir: &Path, mirrors: &Mirrors, mut progress: impl 
         };
         waited_since = None;
         let mirror = &MIRRORS[i];
-        let outcome = fetch(&agent, &(mirror.url)(set), &part, &mut progress);
+        let outcome = fetch(&agent, mirror.name, &(mirror.url)(set), &part, &mut progress);
         match outcome {
             Ok(()) => {
                 mirrors.finished(i, None);
@@ -584,11 +708,11 @@ pub fn download_chart(agent: &ureq::Agent, beatmap: i64, first: usize) -> Result
     let mut missing = 0;
     let mut left: Vec<usize> = (0..CHART_MIRRORS.len()).map(|k| (first + k) % CHART_MIRRORS.len()).filter(|&i| !off(CHART_MIRRORS[i].0)).collect();
     while !left.is_empty() {
-        let k = match left.iter().position(|&i| can_take(CHART_MIRRORS[i].0, DOWNLOAD)) {
+        let k = match left.iter().position(|&i| can_take(CHART_MIRRORS[i].0, Ask::File)) {
             Some(k) => k,
             None => {
                 let now = Instant::now();
-                let soonest = left.iter().map(|&i| free_at(CHART_MIRRORS[i].0, DOWNLOAD)).min().unwrap_or(now);
+                let soonest = left.iter().map(|&i| free_at(CHART_MIRRORS[i].0, Ask::File)).min().unwrap_or(now);
                 if soonest.saturating_duration_since(now) > CHART_WAIT {
                     failures.extend(left.iter().map(|&i| format!("{} resting", CHART_MIRRORS[i].0)));
                     break;
@@ -598,11 +722,15 @@ pub fn download_chart(agent: &ureq::Agent, beatmap: i64, first: usize) -> Result
             }
         };
         let (name, url) = CHART_MIRRORS[left[k]];
-        if !try_book(name, DOWNLOAD) {
+        if !try_book(name, Ask::File) {
             continue;
         }
         left.remove(k);
-        match agent.get(&url(beatmap)).call() {
+        let answer = agent.get(&url(beatmap)).call();
+        if let Ok(res) = &answer {
+            note_limits(name, res);
+        }
+        match answer {
             Ok(res) if res.status() == 429 => {
                 rest(name, retry_after(&res));
                 failures.push(format!("{name} 429"));
@@ -653,8 +781,44 @@ pub fn retry_after(res: &ureq::http::Response<ureq::Body>) -> Duration {
         .unwrap_or(REST_AFTER_429)
 }
 
-fn fetch(agent: &ureq::Agent, url: &str, out: &Path, progress: &mut impl FnMut(Progress) -> bool) -> std::result::Result<(), Outcome> {
-    let mut res = agent.get(url).call().map_err(|e| Outcome::Failed(e.to_string()))?;
+/// Where a redirect from `base` to `location` goes (https only).
+fn redirect_target(base: &str, location: &str) -> Option<String> {
+    let origin_end = base.find("://").map(|i| i + 3).and_then(|s| base[s..].find('/').map(|j| s + j)).unwrap_or(base.len());
+    let target = if location.starts_with("https://") {
+        location.to_string()
+    } else if let Some(rest) = location.strip_prefix("//") {
+        format!("https://{rest}")
+    } else if location.starts_with('/') {
+        format!("{}{location}", &base[..origin_end])
+    } else if location.contains("://") {
+        return None;
+    } else {
+        let path = &base[..base[..base.find('?').unwrap_or(base.len())].rfind('/').map_or(base.len(), |i| i + 1).max(origin_end)];
+        format!("{}{}{location}", path, if path.ends_with('/') { "" } else { "/" })
+    };
+    target.starts_with("https://").then_some(target)
+}
+
+fn fetch(agent: &ureq::Agent, mirror: &'static str, url: &str, out: &Path, progress: &mut impl FnMut(Progress) -> bool) -> std::result::Result<(), Outcome> {
+    // redirects by hand, so the mirror's own answer (with its limit headers) is seen, not only the
+    // storage it sends the file from
+    let mut at = url.to_string();
+    let mut hops = 0;
+    let mut res = loop {
+        let res = agent.get(&at).call().map_err(|e| Outcome::Failed(e.to_string()))?;
+        if hops == 0 {
+            note_limits(mirror, &res);
+        }
+        if !res.status().is_redirection() {
+            break res;
+        }
+        hops += 1;
+        let next = res.headers().get("location").and_then(|v| v.to_str().ok()).and_then(|l| redirect_target(&at, l));
+        match next {
+            Some(n) if hops <= 5 => at = n,
+            _ => return Err(Outcome::Failed(format!("HTTP {} without a usable redirect", res.status().as_u16()))),
+        }
+    };
     let status = res.status().as_u16();
     match status {
         200 => {}
@@ -848,17 +1012,69 @@ mod tests {
         assert!(!USER_AGENT.contains("http") && !USER_AGENT.contains(".com"));
     }
 
+    #[test]
+    fn osu_direct_gets_its_own_limits() {
+        let start = Instant::now();
+        let mut b = Budget::default();
+        // 20 requests in 5 s, then the next waits for the first to drop out
+        for k in 0..20 {
+            assert!(b.caps_free_at(Ask::Request, &OSU_DIRECT, start) <= start, "request {k}");
+            b.log.push_back((start, Ask::Request));
+        }
+        assert_eq!(b.caps_free_at(Ask::Request, &OSU_DIRECT, start), start + Duration::from_secs(5));
+        // 180 sets an hour: spread out, so only the hourly cap holds them back
+        let mut b = Budget::default();
+        for k in 0..180u64 {
+            b.log.push_back((start + Duration::from_secs(k * 10), Ask::Set));
+        }
+        let now = start + Duration::from_secs(1800);
+        assert_eq!(b.caps_free_at(Ask::Set, &OSU_DIRECT, now), start + Duration::from_secs(3600));
+        // a request or a chart file isn't a set download
+        assert!(b.caps_free_at(Ask::File, &OSU_DIRECT, now) <= now);
+        // other mirrors only have the budget
+        assert!(caps("nekoha.moe").is_empty());
+        assert_eq!(caps("osu.direct").len(), 3);
+    }
+
+    #[test]
+    fn rests_when_the_headers_say_a_limit_is_used_up() {
+        let now = 1_795_640_000;
+        let with = |pairs: &[(&str, u64)]| {
+            let pairs: Vec<(String, u64)> = pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+            limits_wait(move |name| pairs.iter().find(|(k, _)| k == name).map(|(_, v)| *v), now)
+        };
+        // room left: no rest
+        assert_eq!(with(&[("x-download-budget-remaining", 197), ("x-download-budget-reset", now + 600), ("x-ratelimit-remaining", 119), ("x-ratelimit-reset", 60)]), None);
+        // the hour's downloads used up: until the reset (a unix time)
+        assert_eq!(with(&[("x-download-budget-remaining", 0), ("x-download-budget-reset", now + 600)]), Some(Duration::from_secs(600)));
+        // the minute's requests used up (seconds from now), and the burst (the longer one counts)
+        assert_eq!(with(&[("x-ratelimit-remaining", 0), ("x-ratelimit-reset", 42), ("x-ratelimit-burst-remaining", 0), ("x-ratelimit-burst-reset", 5)]), Some(Duration::from_secs(42)));
+        // under 256 MB left today: until the day is over
+        assert_eq!(with(&[("x-download-budget-bytes-remaining", 1000), ("x-download-budget-bytes-reset", now + 7200)]), Some(Duration::from_secs(7200)));
+    }
+
+    #[test]
+    fn redirects_stay_on_https() {
+        let base = "https://osu.direct/api/d/39804";
+        assert_eq!(redirect_target(base, "https://storage.osu.direct/a.osz?x=1").as_deref(), Some("https://storage.osu.direct/a.osz?x=1"));
+        assert_eq!(redirect_target(base, "/d/39804").as_deref(), Some("https://osu.direct/d/39804"));
+        assert_eq!(redirect_target(base, "//cdn.example/x").as_deref(), Some("https://cdn.example/x"));
+        assert_eq!(redirect_target(base, "file.osz").as_deref(), Some("https://osu.direct/api/d/file.osz"));
+        assert_eq!(redirect_target(base, "http://plain.example/x"), None);
+    }
+
     /// The mirrors and lookups answer with this user agent (needs the internet).
     #[test]
     #[ignore]
     fn mirrors_answer() {
         assert_eq!(set_of_beatmap(75).unwrap(), 1);
         let dir = std::env::temp_dir().join(format!("fumen-mirrors-{}", std::process::id()));
-        let agent = agent(Duration::from_secs(120));
-        for mirror in &MIRRORS {
+        // FUMEN_MIRRORS=osu.direct,nekoha.moe: only those
+        let only = std::env::var("FUMEN_MIRRORS").ok();
+        for mirror in MIRRORS.iter().filter(|m| only.as_ref().is_none_or(|o| o.split(',').any(|n| n == m.name))) {
             let out = dir.join(format!("{}.part", mirror.name));
             std::fs::create_dir_all(&dir).unwrap();
-            let r = fetch(&agent, &(mirror.url)(1), &out, &mut |_| true);
+            let r = fetch(&download_agent(Duration::from_secs(120)), mirror.name, &(mirror.url)(1), &out, &mut |_| true);
             println!("{}: {r:?}", mirror.name);
         }
         let _ = std::fs::remove_dir_all(&dir);

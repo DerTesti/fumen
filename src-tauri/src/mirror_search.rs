@@ -173,10 +173,14 @@ fn ask(mirror: &'static str, req: ureq::RequestBuilder<ureq::typestate::WithoutB
     if downloads::off(mirror) {
         return Asked::Failed("turned off".into());
     }
-    if !downloads::book(mirror, downloads::REQUEST, Duration::from_secs(5)) {
+    if !downloads::book(mirror, downloads::Ask::Request, Duration::from_secs(5)) {
         return Asked::Failed("resting after too many requests".into());
     }
-    match req.call() {
+    let answer = req.call();
+    if let Ok(res) = &answer {
+        downloads::note_limits(mirror, res);
+    }
+    match answer {
         Ok(res) if res.status() == 429 => {
             downloads::rest(mirror, downloads::retry_after(&res));
             Asked::Failed("HTTP 429".into())

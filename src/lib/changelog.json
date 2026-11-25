@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.5.3",
+    "date": "2026-11-25",
+    "en": [
+      "Changed: Fumen keeps to the limits osu.direct sets for each computer: at most 180 set downloads an hour and fewer requests at once. When a mirror says its limit is used up, Fumen waits until it fills up again. Big imports lean more on the other mirrors."
+    ],
+    "de": [
+      "Geändert: Fumen hält sich an die Limits, die osu.direct für jeden Computer setzt: höchstens 180 Set-Downloads pro Stunde und weniger Anfragen auf einmal. Sagt ein Mirror, dass sein Limit aufgebraucht ist, wartet Fumen, bis es wieder voll ist. Große Importe stützen sich mehr auf die anderen Mirrors."
+    ]
+  },
+  {
     "version": "1.5.2",
     "date": "2026-11-24",
     "en": [
