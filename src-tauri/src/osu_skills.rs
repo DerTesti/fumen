@@ -7,8 +7,9 @@
 //! (through `pp::osu_difficulty`, the same fork pp uses) together with a pattern pass over the
 //! `.osu` itself — wide-angle and snap jumps, flow streams, rhythm islands, slider paths, reading
 //! density and sustained 15-second load. Every eligible pass demonstrates a skill to the degree the
-//! chart demands it and you played it clean; a skillset's value is your best demonstrations,
-//! best-weighted. The scale is provisional, not osu!'s pp or any site's percentile.
+//! chart demands it and you played it clean; a skillset's value is the mean of your best five
+//! distinct-chart demonstrations, with missing evidence counted as zero. The scale is provisional,
+//! not osu!'s pp or any site's percentile.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
@@ -20,10 +21,13 @@ use crate::error::Result;
 use crate::pp;
 
 /// Bump when the model changes, so cached rows from an older model are ignored.
-const CACHE_VERSION: i64 = 8;
+const CACHE_VERSION: i64 = 10;
 
-// Absolute, mod-adjusted interval: 8 notes/s, independent of the timing-point BPM.
+// Always accept 8 notes/s; allow slower beat-relative streams up to 180 ms as well.
 const SPEED_MAX_GAP_MS: f64 = 125.0;
+// Keep the existing absolute flow/rest limits, without timing-point beat fractions.
+const FLOW_MAX_GAP_MS: f64 = 350.0;
+const ACTIVE_MAX_GAP_MS: f64 = 1000.0;
 
 /// The eleven skillsets, in order: id, label, group, description. Labels/descriptions are the
 /// model's own (the view shows them as given).
@@ -97,17 +101,13 @@ fn quantile(a: &[f64], q: f64) -> f64 {
     v.sort_by(|x, y| x.partial_cmp(y).unwrap());
     v[((v.len() - 1) as f64 * q).floor() as usize]
 }
-/// A skillset's value from your best-per-chart worths: 70% your single best, 30% a best-5 blend.
+/// Confirmed level: five equally weighted best-per-chart demonstrations.
+/// Missing demonstrations count as zero: one exceptional play contributes at most 20 points.
 fn skill_value(worths: &[f64]) -> f64 {
-    if worths.is_empty() {
-        return 0.0;
-    }
     let mut v = worths.to_vec();
     v.sort_by(|a, b| b.partial_cmp(a).unwrap());
     v.truncate(5);
-    let weight: f64 = (0..v.len()).map(|i| 0.6f64.powi(i as i32)).sum();
-    let confirmed = if weight == 0.0 { 0.0 } else { v.iter().enumerate().map(|(i, w)| w * 0.6f64.powi(i as i32)).sum::<f64>() / weight };
-    0.7 * v[0] + 0.3 * confirmed
+    v.iter().sum::<f64>() / 5.0
 }
 
 /// Overall from the known skill values: the strongest weighted most (0.8ⁿ), zeros ignored.
@@ -466,7 +466,6 @@ struct Ev {
     index: usize,
     time: f64,
     gap: f64,
-    beat_length: f64,
     active: bool,
     circle_pair: bool,
     fast: bool,
@@ -599,14 +598,15 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
         let gap = o.time - p.time;
         let move_time = (25.0f64).max(o.time - p.end_time);
         let distance = (o.x - p.end.x).hypot(o.y - p.end.y) / diameter;
-        let active = gap <= (1000.0f64).min(o.beat_length * 2.0);
+        let active = gap <= ACTIVE_MAX_GAP_MS;
         let circle_pair = p.kind == Kind::Circle && o.kind == Kind::Circle;
-        let fast = circle_pair && gap >= 25.0 && gap <= SPEED_MAX_GAP_MS;
+        let fast = circle_pair && gap >= 25.0
+            && (gap <= SPEED_MAX_GAP_MS || (gap <= 180.0 && gap <= o.beat_length * 0.34));
         let velocity = if active { distance / (move_time / 1000.0) } else { 0.0 };
         let mut internal_angle = 0.0;
         if i >= 2 {
             let before = &objects[i - 2];
-            if before.kind != Kind::Spinner && p.time - before.end_time < (1000.0f64).min(p.beat_length * 2.0) {
+            if before.kind != Kind::Spinner && p.time - before.end_time < ACTIVE_MAX_GAP_MS {
                 let (ax, ay) = (p.end.x - before.end.x, p.end.y - before.end.y);
                 let (bx, by) = (o.x - p.end.x, o.y - p.end.y);
                 let len = ax.hypot(ay) * bx.hypot(by);
@@ -619,7 +619,6 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
             index: i,
             time: o.time,
             gap,
-            beat_length: o.beat_length,
             active,
             circle_pair,
             fast,
@@ -655,7 +654,7 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
     let mut flow_runs: Vec<Vec<usize>> = Vec::new();
     let mut flowing: Vec<usize> = Vec::new();
     for (ei, e) in events.iter().enumerate() {
-        let valid = e.circle_pair && e.active && e.gap <= (350.0f64).min(e.beat_length * 0.6) && e.distance >= 0.35 && e.distance <= 3.5 && e.internal_angle > 0.5;
+        let valid = e.circle_pair && e.active && e.gap >= 25.0 && e.gap <= FLOW_MAX_GAP_MS && e.distance >= 0.35 && e.distance <= 3.5 && e.internal_angle > 0.5;
         let breaks = !flowing.is_empty() && (e.index != events[*flowing.last().unwrap()].index + 1 || (e.gap / events[*flowing.last().unwrap()].gap).log2().abs() > 0.3);
         if !valid || breaks {
             if flowing.len() >= 4 {
@@ -1146,6 +1145,16 @@ pub fn skills(read: impl Fn(&str) -> Option<Vec<u8>>, db: &Mutex<Connection>, ha
 mod tests {
     use super::*;
 
+    #[test]
+    fn skill_level_requires_five_distinct_map_demonstrations() {
+        assert_eq!(skill_value(&[]), 0.0);
+        assert_eq!(skill_value(&[100.0]), 20.0);
+        assert_eq!(skill_value(&[80.0; 5]), 80.0);
+        assert_eq!(skill_value(&[100.0, 60.0, 60.0, 60.0, 60.0]), 68.0);
+        assert_eq!(skill_value(&[1.0, 60.0, 100.0, 60.0, 60.0, 60.0]), 68.0);
+        assert!(skill_value(&[80.0, 80.0]) > skill_value(&[80.0]));
+    }
+
     const MAP: &str = "[General]\nMode: 0\n[Difficulty]\nCircleSize:4\nApproachRate:9\nOverallDifficulty:8\nSliderMultiplier:1.4\n[TimingPoints]\n0,300,4,1,0,100,1,0\n[HitObjects]\n256,192,0,1,0\n120,120,120,1,0\n400,260,240,1,0\n180,80,360,1,0\n256,192,480,2,0,L|356:192,1,100\n";
 
     #[test]
@@ -1282,12 +1291,57 @@ mod tests {
         assert!(speed_pattern(60000.0 / 280.0, 60000.0 / 560.0, 16, &[]).raw_demand[6] > 0.0);
     }
 
+    fn flow_pattern(beat_length: f64, gap: f64, rate: f64, zigzag: bool) -> Pattern {
+        let mut map = parse_beatmap(MAP);
+        map.timing[0].beat_length = beat_length;
+        map.objects = (0..24).map(|i| {
+            // Smooth circular path stays on the playfield; zigzag reverses every movement.
+            let angle = i as f64 * 0.4;
+            let (x, y) = if zigzag {
+                (if i % 2 == 0 { 100.0 } else { 200.0 }, 192.0)
+            } else {
+                (256.0 + 150.0 * angle.cos(), 192.0 + 150.0 * angle.sin())
+            };
+            Obj { x, y, time: i as f64 * gap, kind: Kind::Circle, end_time: i as f64 * gap,
+                repeats: 0, length: 0.0, curve_type: 0, control_points: Vec::new() }
+        }).collect();
+        analyze_beatmap(&map, &[], rate, None)
+    }
+
+    #[test]
+    fn flow_is_independent_of_bpm_including_shared_activity_and_angles() {
+        let slow_bpm = flow_pattern(500.0, 200.0, 1.0, false);
+        // Previously fails both the direct 0.6-beat and shared 2-beat gates.
+        let fast_bpm = flow_pattern(80.0, 200.0, 1.0, false);
+        assert!(slow_bpm.raw_demand[10] > 0.0);
+        assert_eq!(slow_bpm.support[10], fast_bpm.support[10]);
+        assert_eq!(slow_bpm.raw_demand[10], fast_bpm.raw_demand[10]);
+        assert!(flow_pattern(500.0, 350.0, 1.0, false).support[10] > 0.0);
+        assert_eq!(flow_pattern(500.0, 351.0, 1.0, false).support[10], 0.0);
+        assert_eq!(flow_pattern(500.0, 400.0, 1.0, false).support[10], 0.0);
+        assert!(flow_pattern(500.0, 400.0, 1.2, false).support[10] > 0.0);
+        assert_eq!(flow_pattern(500.0, 100.0, 1.0, true).support[10], 0.0);
+    }
+
     #[test]
     fn speed_interval_boundary_mods_and_minimum_run() {
         assert!(speed_pattern(500.0, 125.0, 4, &[]).raw_demand[6] > 0.0);
-        assert_eq!(speed_pattern(500.0, 126.0, 16, &[]).support[6], 0.0);
+        assert_eq!(speed_pattern(300.0, 126.0, 16, &[]).support[6], 0.0);
         assert_eq!(speed_pattern(500.0, 83.0, 3, &[]).support[6], 0.0);
         assert!(speed_pattern(500.0, 150.0, 16, &["DT".into()]).raw_demand[6] > 0.0);
-        assert_eq!(speed_pattern(500.0, 100.0, 16, &["HT".into()]).support[6], 0.0);
+        assert_eq!(speed_pattern(200.0, 100.0, 16, &["HT".into()]).support[6], 0.0);
+    }
+
+    #[test]
+    fn speed_accepts_slower_beat_relative_runs_with_absolute_ceiling() {
+        assert!(speed_pattern(500.0, 150.0, 16, &[]).support[6] > 0.0);
+        assert_eq!(speed_pattern(300.0, 150.0, 16, &[]).support[6], 0.0);
+        assert!(speed_pattern(600.0, 180.0, 16, &[]).support[6] > 0.0);
+        assert_eq!(speed_pattern(600.0, 181.0, 16, &[]).support[6], 0.0);
+        assert!(speed_pattern(500.0, 170.0, 16, &[]).support[6] > 0.0);
+        assert_eq!(speed_pattern(500.0, 171.0, 16, &[]).support[6], 0.0);
+        // Both gap and beat length must be rate-adjusted; original gap exceeds 180 ms.
+        assert!(speed_pattern(600.0, 200.0, 16, &["DT".into()]).support[6] > 0.0);
+        assert_eq!(speed_pattern(400.0, 200.0, 16, &["DT".into()]).support[6], 0.0);
     }
 }
