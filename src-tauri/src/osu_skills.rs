@@ -21,7 +21,7 @@ use crate::error::Result;
 use crate::pp;
 
 /// Bump when the model changes, so cached rows from an older model are ignored.
-const CACHE_VERSION: i64 = 10;
+const CACHE_VERSION: i64 = 12;
 
 // Always accept 8 notes/s; allow slower beat-relative streams up to 180 ms as well.
 const SPEED_MAX_GAP_MS: f64 = 125.0;
@@ -33,12 +33,12 @@ const ACTIVE_MAX_GAP_MS: f64 = 1000.0;
 /// model's own (the view shows them as given).
 pub const SKILLS: [(&str, &str, &str, &str); 11] = [
     ("wide-angle-aim", "Wide angle aim", "Aim", "Weite Richtungsverläufe zwischen den tatsächlichen Objekt- und Slider-Endpositionen."),
-    ("precision", "Precision", "Aim", "Aim-Schwierigkeit unter Berücksichtigung der effektiven Kreisgröße."),
+    ("precision", "Precision", "Aim", "Kleine Trefferflächen mit aktiven, kompakten Zielwechseln statt bloßer Jump-Distanz."),
     ("accuracy", "Accuracy", "Accuracy", "Timing-Präzision relativ zum 300er-Zeitfenster unter Tapping-, Rhythmus- und Aim-Belastung."),
-    ("snap-aim", "Snap aim", "Aim", "Räumlich anspruchsvolle Jumps außerhalb schneller Stream-Folgen."),
+    ("snap-aim", "Snap aim", "Aim", "Abrupte Geschwindigkeits- und Richtungswechsel bei weiten Bewegungen."),
     ("finger-control", "Finger control", "Tapping", "Wechsel aktiver Rhythmusinseln; Pausen und Slider-Haltezeiten zählen nicht als Komplexität."),
-    ("aim-stamina", "Aim stamina", "Aim", "Aim-Belastung in 15-Sekunden-Fenstern; Ruhezeiten senken die Belastung."),
-    ("speed", "Speed", "Tapping", "rosu-Speed-Schwierigkeit mit Nachweisen aus zusammenhängenden schnellen Circle-Folgen."),
+    ("aim-stamina", "Aim stamina", "Aim", "Aim-Belastung in 15-Sekunden-Fenstern und zusammenhängenden Passagen; Ruhezeiten unterbrechen den Nachweis."),
+    ("speed", "Speed", "Tapping", "rosu-Speed-Schwierigkeit, gewichtet nach tatsächlichem Tempo zusammenhängender schneller Circle-Folgen."),
     ("density-reading", "Density reading", "Reading", "Typische hohe Objektdichte im effektiven AR-Fenster, einschließlich Überlagerung."),
     ("tapping-stamina", "Tapping stamina", "Tapping", "Schnelles Tapping über zusammenhängende Abschnitte und 15-Sekunden-Fenster."),
     ("slider-control", "Slider control", "Tech", "Slider-Geschwindigkeit, Kurven, Wiederholungen und tatsächlicher Slider-Anteil."),
@@ -475,6 +475,29 @@ struct Ev {
     jump: f64,
     wide: f64,
     sustained_tap: f64,
+    precision: f64,
+}
+
+/// Longest uninterrupted qualifying passage, in played seconds. Every nonqualifying event,
+/// skipped object or long rest resets it, so bursts cannot be stitched across recovery time.
+fn longest_passage(events: &[Ev], qualifies: impl Fn(&Ev) -> bool) -> f64 {
+    let mut previous = None;
+    let mut duration: f64 = 0.0;
+    let mut longest: f64 = 0.0;
+    for e in events {
+        if !qualifies(e) {
+            duration = 0.0;
+            previous = None;
+            continue;
+        }
+        if previous != Some(e.index.saturating_sub(1)) {
+            duration = 0.0;
+        }
+        duration += e.gap / 1000.0;
+        longest = longest.max(duration);
+        previous = Some(e.index);
+    }
+    longest
 }
 
 fn rolling_load(events: &[Ev], get: impl Fn(&Ev) -> f64, seconds: f64) -> f64 {
@@ -604,6 +627,7 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
             && (gap <= SPEED_MAX_GAP_MS || (gap <= 180.0 && gap <= o.beat_length * 0.34));
         let velocity = if active { distance / (move_time / 1000.0) } else { 0.0 };
         let mut internal_angle = 0.0;
+        let mut snap_acceleration = 0.0;
         if i >= 2 {
             let before = &objects[i - 2];
             if before.kind != Kind::Spinner && p.time - before.end_time < ACTIVE_MAX_GAP_MS {
@@ -612,6 +636,19 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
                 let len = ax.hypot(ay) * bx.hypot(by);
                 if len > 0.0 {
                     internal_angle = 1.0 - clamp((ax * bx + ay * by) / len, -1.0, 1.0).acos() / std::f64::consts::PI;
+                }
+                // Compare actual inter-object movement vectors, in diameters/s. Slider travel
+                // itself is not an incoming jump: use the previous head and preceding end.
+                let previous_time = p.time - before.end_time;
+                if previous_time > 0.0 && previous_time < ACTIVE_MAX_GAP_MS {
+                    let previous_seconds = previous_time.max(25.0) / 1000.0;
+                    let seconds = move_time / 1000.0;
+                    let previous_vx = (p.x - before.end.x) / diameter / previous_seconds;
+                    let previous_vy = (p.y - before.end.y) / diameter / previous_seconds;
+                    let vx = (o.x - p.end.x) / diameter / seconds;
+                    let vy = (o.y - p.end.y) / diameter / seconds;
+                    snap_acceleration = (vx - previous_vx).hypot(vy - previous_vy)
+                        / ((previous_seconds + seconds) / 2.0);
                 }
             }
         }
@@ -625,9 +662,15 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
             distance,
             velocity,
             internal_angle,
-            jump: if active && !fast && distance >= 1.3 { velocity } else { 0.0 },
-            wide: if active && distance >= 1.3 { velocity * internal_angle } else { 0.0 },
+            jump: if active && distance >= 1.3 { snap_acceleration } else { 0.0 },
+            wide: if active && distance >= 1.3 { velocity * internal_angle.powi(2) } else { 0.0 },
             sustained_tap: if active && circle_pair && gap >= 25.0 && gap <= 300.0 { 1000.0 / gap } else { 0.0 },
+            // Small targets + active target changes; compact placement separates this from
+            // pure large-distance jumps. All references are provisional calibration choices.
+            precision: if active && distance > 0.35 {
+                clamp01((s.cs - 2.0) / 5.0) * clamp01(velocity / 10.0)
+                    / (1.0 + (distance / 2.0).powi(2))
+            } else { 0.0 },
         });
     }
 
@@ -716,14 +759,14 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
     let n = (events.len().max(1)) as f64;
     let mut support = [0.0f64; N_SKILLS];
     support[0] = events.iter().filter(|e| e.wide > 0.0).count() as f64; // wide-angle-aim
-    support[1] = events.iter().filter(|e| e.distance > 0.35 && e.active).count() as f64; // precision
+    support[1] = events.iter().filter(|e| e.precision > 0.0).count() as f64; // precision
     support[ACCURACY] = non_spinners as f64; // accuracy
     support[3] = events.iter().filter(|e| e.jump > 0.0).count() as f64; // snap-aim
     support[FINGER_CONTROL] = rhythm.len() as f64; // finger-control
     support[5] = events.iter().filter(|e| e.velocity > 2.0).count() as f64; // aim-stamina
     support[6] = fast_events as f64; // speed
     support[7] = non_spinners as f64; // density-reading
-    support[8] = events.iter().filter(|e| e.sustained_tap > 0.0).count() as f64; // tapping-stamina
+    support[8] = events.iter().filter(|e| e.sustained_tap >= 1000.0 / 180.0).count() as f64; // tapping-stamina
     support[9] = sliders.len() as f64; // slider-control
     support[10] = flow_runs.iter().flatten().count() as f64; // flow-aim
     let mut coverage = [0.0f64; N_SKILLS];
@@ -748,6 +791,11 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
     let speed_base = diff.map(|d| d.speed).filter(|v| v.is_finite()).unwrap_or(fast_nps / 3.5);
     let sustained_aim = rolling_load(&events, |e| e.velocity, 15.0);
     let sustained_tap = rolling_load(&events, |e| e.sustained_tap, 15.0);
+    let aim_passage = longest_passage(&events, |e| e.active && e.velocity > 2.0);
+    let tap_passage = longest_passage(&events, |e| e.sustained_tap >= 1000.0 / 180.0);
+    let stamina_tap_load = rolling_load(&events, |e| {
+        if e.sustained_tap >= 1000.0 / 180.0 { e.sustained_tap } else { 0.0 }
+    }, 15.0);
     // Geometry/timing only: no OD, stars or rosu components (which may themselves include OD).
     // Reuse supported fast runs so a single fast pair cannot supply the tempo bonus.
     let tempo_load = fast_nps * support_factor(6) * coverage_factor(6);
@@ -756,19 +804,23 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
 
     let pv = if peak_velocity == 0.0 { 1.0 } else { peak_velocity };
     let mut base = [0.0f64; N_SKILLS];
-    base[0] = 1.25 * aim_base * (weighted_top(&events.iter().map(|e| e.wide).collect::<Vec<_>>()) / pv).sqrt();
-    base[1] = aim_base * (s.cs / 4.0).sqrt();
+    // Separate physical demands instead of the same rosu aim base multiplied by similar gates.
+    // Provisional references: 4 diameters/s (wide) and 40 diameters/s² (snap).
+    base[0] = 1.25 * (weighted_top(&events.iter().map(|e| e.wide).collect::<Vec<_>>()) / 4.0).sqrt();
+    base[1] = aim_base * (s.cs / 4.0).sqrt()
+        * weighted_top(&events.iter().map(|e| e.precision).collect::<Vec<_>>());
     base[ACCURACY] = 30.0 / (4.0f64).max(s.great_hit_window / 2.0) * accuracy_load_factor;
-    base[3] = aim_base * (weighted_top(&events.iter().map(|e| e.jump).collect::<Vec<_>>()) / pv).sqrt();
+    base[3] = (weighted_top(&events.iter().map(|e| e.jump).collect::<Vec<_>>()) / 40.0).sqrt()
+        * weighted_top(&events.iter().map(|e| clamp01(e.jump / 80.0)).collect::<Vec<_>>());
     base[FINGER_CONTROL] = speed_base * (1.6f64).min(weighted_top(&rhythm) * 1.5);
-    base[5] = aim_base * clamp01(sustained_aim / pv).sqrt();
-    base[6] = speed_base;
+    // A short peak is insufficient: both window occupancy and uninterrupted duration matter.
+    base[5] = aim_base * clamp01(sustained_aim / pv) * clamp01(aim_passage / 15.0);
+    // Tempo is a pattern-strength multiplier, not just a yes/no support gate.
+    base[6] = speed_base * (fast_nps / 10.0).powf(1.5).min(1.5);
     base[7] = (quantile(&densities, 0.9).sqrt() / 1.3) * (1.0 + 0.06 * (4.0f64).min(quantile(&overlaps, 0.9))) * if s.hidden { 1.05 } else { 1.0 };
-    // tapping-stamina: the sustained tapping load against a stamina reference, on the speed scale.
-    // Was gated by sustained_tap / fast_nps (the burst peak), which docked anything that wasn't a
-    // pure held stream — so long streams (real stamina) read low.
-    // ponytail: 10.0 is the sustained taps/s load of demanding stamina, a calibration knob
-    base[8] = (if speed_base != 0.0 { speed_base } else { sustained_tap / 3.5 }) * clamp01(sustained_tap / 10.0).sqrt();
+    // Actual sustained tapping and passage length outweigh an isolated high speed component.
+    base[8] = (if speed_base != 0.0 { speed_base } else { stamina_tap_load / 3.5 })
+        * clamp01(stamina_tap_load / 10.0) * clamp01(tap_passage / 15.0);
     base[9] = weighted_top(&sliders);
     // flow-aim on the aim scale, gated by how fast the flow streams are against a flow reference —
     // not the map's peak velocity, which the jumps set and which suppressed flow on any mixed map
@@ -1291,6 +1343,46 @@ mod tests {
         assert!(speed_pattern(60000.0 / 280.0, 60000.0 / 560.0, 16, &[]).raw_demand[6] > 0.0);
     }
 
+    fn pattern_with_fixed_components(count: usize, gap: f64, cs: f64, spacing: f64, rest_every: Option<usize>) -> Pattern {
+        let mut map = parse_beatmap(MAP);
+        map.cs = cs;
+        map.objects = (0..count).map(|i| {
+            let time = i as f64 * gap + rest_every.map(|n| (i / n) as f64 * 2000.0).unwrap_or(0.0);
+            Obj { x: if i % 2 == 0 { 80.0 } else { 80.0 + spacing }, y: 192.0,
+                time, kind: Kind::Circle, end_time: time, repeats: 0, length: 0.0,
+                curve_type: 0, control_points: Vec::new() }
+        }).collect();
+        // Identical rosu components: differences must come from pattern recognition.
+        let diff = pp::OsuDiff { aim: 3.0, speed: 3.0, stars: 5.0, ar: 9.0, great_hit_window: 20.0 };
+        analyze_beatmap(&map, &[], 1.0, Some(&diff))
+    }
+
+    #[test]
+    fn precision_requires_small_targets_and_target_changes_not_just_aim() {
+        let compact = pattern_with_fixed_components(200, 150.0, 8.0, 80.0, None);
+        let large_targets = pattern_with_fixed_components(200, 150.0, 4.0, 80.0, None);
+        let big_jumps = pattern_with_fixed_components(200, 150.0, 8.0, 320.0, None);
+        let stationary = pattern_with_fixed_components(200, 150.0, 8.0, 0.0, None);
+        assert!(compact.raw_demand[1] > large_targets.raw_demand[1]);
+        assert!(compact.raw_demand[1] > big_jumps.raw_demand[1]);
+        assert_eq!(stationary.raw_demand[1], 0.0);
+        assert!(big_jumps.raw_demand[3] > compact.raw_demand[3]);
+    }
+
+    #[test]
+    fn speed_and_stamina_distinguish_bursts_sustained_load_and_recovery() {
+        let burst = pattern_with_fixed_components(24, 60.0, 4.0, 160.0, None);
+        let stream = pattern_with_fixed_components(240, 120.0, 4.0, 160.0, None);
+        let fragmented = pattern_with_fixed_components(240, 120.0, 4.0, 160.0, Some(24));
+        assert!(burst.raw_demand[6] > stream.raw_demand[6]);
+        assert!(stream.raw_demand[8] > burst.raw_demand[8] * 3.0);
+        assert!(stream.raw_demand[5] > burst.raw_demand[5] * 3.0);
+        assert!(stream.raw_demand[8] > fragmented.raw_demand[8] * 3.0);
+        assert!(stream.raw_demand[5] > fragmented.raw_demand[5] * 3.0);
+        let slow = pattern_with_fixed_components(240, 250.0, 4.0, 160.0, None);
+        assert_eq!(slow.raw_demand[8], 0.0);
+    }
+
     fn flow_pattern(beat_length: f64, gap: f64, rate: f64, zigzag: bool) -> Pattern {
         let mut map = parse_beatmap(MAP);
         map.timing[0].beat_length = beat_length;
@@ -1306,6 +1398,33 @@ mod tests {
                 repeats: 0, length: 0.0, curve_type: 0, control_points: Vec::new() }
         }).collect();
         analyze_beatmap(&map, &[], rate, None)
+    }
+
+    #[test]
+    fn wide_and_snap_distinguish_continuous_motion_from_reversals() {
+        let mut map = parse_beatmap(MAP);
+        // Three wide transitions per passage; rests separate passages and reset velocity history.
+        let make = |reverse: bool| (0..48).map(|i| {
+            let step = i % 4;
+            let x = if reverse { if step % 2 == 0 { 80.0 } else { 400.0 } }
+                else { 40.0 + step as f64 * 140.0 };
+            let time = (i / 4) as f64 * 2000.0 + step as f64 * 200.0;
+            Obj { x, y: 192.0, time, kind: Kind::Circle, end_time: time,
+                repeats: 0, length: 0.0, curve_type: 0, control_points: Vec::new() }
+        }).collect();
+        map.objects = make(false);
+        let continuous = analyze_beatmap(&map, &[], 1.0, None);
+        map.objects = make(true);
+        let reversing = analyze_beatmap(&map, &[], 1.0, None);
+        assert!(continuous.raw_demand[0] > 0.0);
+        assert_eq!(continuous.raw_demand[3], 0.0);
+        assert_eq!(reversing.raw_demand[0], 0.0);
+        assert!(reversing.raw_demand[3] > 0.0);
+        map.timing[0].beat_length = 80.0;
+        let different_bpm = analyze_beatmap(&map, &[], 1.0, None);
+        assert_eq!(reversing.raw_demand[3], different_bpm.raw_demand[3]);
+        let faster = analyze_beatmap(&map, &[], 1.2, None);
+        assert!(faster.raw_demand[3] > reversing.raw_demand[3]);
     }
 
     #[test]
