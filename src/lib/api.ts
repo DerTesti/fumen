@@ -81,10 +81,16 @@ export const api = {
   /** your osu!standard skills, worked out and cached in the backend (lib/osu-standard, osu_skills.rs) */
   osuStandard: (plays: OsuStandardPlay[]) => invoke<OsuStandardResult>("osu_standard", { plays }),
   /** another player's osu!standard skills next to yours (lib/osu-standard, player::build_std) */
-  compareOsuStandard: (name: string) => invoke<OsuStandardComparison>("compare_osu_standard", { name }),
+  async compareOsuStandard(name: string): Promise<OsuStandardComparison> {
+    // raw JSON bytes (tauri::ipc::Response) — parse here
+    const raw = await invoke<ArrayBuffer | OsuStandardComparison>("compare_osu_standard", { name });
+    return raw instanceof ArrayBuffer ? (JSON.parse(new TextDecoder().decode(raw)) as OsuStandardComparison) : raw;
+  },
   /** charts to practise your weak osu!standard skillsets on (lib/osu-standard, recommend.rs) */
-  osuRecommendations: (skills: { id: string; value: number }[], comfortStars: number, played: number[]) =>
-    invoke<OsuPractice>("osu_recommendations", { skills, comfortStars, played }),
+  async osuRecommendations(skills: { id: string; value: number }[], comfortStars: number, played: number[]): Promise<OsuPractice> {
+    const raw = await invoke<ArrayBuffer | OsuPractice>("osu_recommendations", { skills, comfortStars, played });
+    return raw instanceof ArrayBuffer ? (JSON.parse(new TextDecoder().decode(raw)) as OsuPractice) : raw;
+  },
   /** an osu!mania difficulty's dan at a clock rate */
   getDan: (id: string, rate: number) => invoke<DanRating | null>("get_dan", { id, rate }),
   /** Etterna's MSD at a rate (osu!mania 4K to 7K) */
