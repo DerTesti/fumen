@@ -15,6 +15,8 @@ import {
   type Aim, type Counted, type LeftOut, type MsdRows, type Practice, type SkillPoint, type SkillSheet, type Suggestion,
 } from "../lib/skills";
 import { countAgain, leaveOut, leftOutList, leftOutNow } from "../lib/skills-left-out";
+import { compareOsuStandard, computeOsuStandard, type ComparedOsuPlay, type ComputedOsuStandard, type OsuCompareProgress, type OsuSkill, type OsuSkillWithPlays, type OsuStandardComparison } from "../lib/osu-standard";
+import { osuCoverUrl } from "../lib/api";
 import { renderTrend, type TrendRange } from "./skill-trends";
 import { similarTo } from "../lib/similar";
 import { events, store } from "../lib/store";
@@ -97,6 +99,12 @@ export class SkillsView {
   /** lines whose graph is open */
   private graphs = new Set<string>();
   private trendMemo: { plays: Play[]; maps: MapRow[]; keys: number; leftOut: LeftOut; points: SkillPoint[] } | null = null;
+  /** the game shown: osu!mania (the Etterna skills above) or osu!standard (lib/osu-standard) */
+  private mode: "mania" | "standard" = "mania";
+  /** the osu!standard skills, worked out in the webview (once, until the plays change) */
+  private std: { state: "idle" | "loading" | "error" | "done"; result?: ComputedOsuStandard; error?: string; token?: object } = { state: "idle" };
+  /** comparing osu!standard with another player */
+  private cmp: { state: "idle" | "entering" | "loading" | "error" | "done"; name?: string; progress?: OsuCompareProgress; error?: string; result?: OsuStandardComparison; token?: object } = { state: "idle" };
 
   constructor() {
     this.el = document.createElement("section");
@@ -108,6 +116,10 @@ export class SkillsView {
           <div class="view-sub skills-sub meta-line num"></div>
         </div>
         <div class="skills-tools">
+          <div class="seg-pill skills-mode" role="tablist" aria-label="${t("Game")}">
+            <button type="button" data-mode="mania" class="active">osu!mania</button>
+            <button type="button" data-mode="standard">osu!standard</button>
+          </div>
           <div class="seg-pill skills-keys" role="tablist" aria-label="${t("Keys")}"></div>
           <button class="btn btn-sm skills-compare" type="button">${icon("user")}<span>${t("Compare")}</span></button>
           <button class="icon-btn skills-help-btn" type="button" data-tip="${t("How Skills work")}" aria-label="${t("How Skills work")}">${icon("info")}</button>
@@ -116,15 +128,22 @@ export class SkillsView {
       <div class="compare-bar" hidden></div>
       <div class="skills-body"></div>`;
     this.bind();
+    attachSegIndicator(this.el.querySelector<HTMLElement>(".skills-mode")!);
     this.offs.push(
-      historyEvents.on("history", () => this.render()),
+      historyEvents.on("history", () => {
+        this.std = { state: "idle" };
+        this.render();
+      }),
       goalEvents.on("goals", () => this.render()),
       compareEvents.on("compare", (s) => {
         // progress moves the bar along; the rest waits for the answer
         if (s?.status === "loading" && this.barKey.startsWith("loading|")) this.renderBar();
         else this.render();
       }),
-      events.on("library", () => this.render()),
+      events.on("library", () => {
+        this.std = { state: "idle" };
+        this.render();
+      }),
       events.on("prefs", (p) => {
         if ("unicode" in p || "skillsLeftOut" in p) this.render();
       }),
@@ -135,6 +154,15 @@ export class SkillsView {
       () => this.render(),
       () => this.render(),
     );
+    if (import.meta.env.DEV) (window as unknown as { __fumenSkills?: SkillsView }).__fumenSkills = this;
+  }
+
+  /** Dev only (lib/dev-skills): show the osu!standard tab with fake own + compared skills. */
+  devSetStd(std: ComputedOsuStandard, cmp: OsuStandardComparison | null): void {
+    this.mode = "standard";
+    this.std = { state: "done", result: std };
+    this.cmp = cmp ? { state: "done", result: cmp } : { state: "idle" };
+    this.render();
   }
 
   /** The library's MSD at every rate in a key mode, by library index; undefined while it loads. */
@@ -185,11 +213,16 @@ export class SkillsView {
   }
 
   private render(): void {
+    const modeEl = this.el.querySelector<HTMLElement>(".skills-mode")!;
+    modeEl.querySelectorAll<HTMLElement>("button").forEach((b) => b.classList.toggle("active", b.dataset.mode === this.mode));
+    if (this.mode === "standard") return this.renderStandard();
     const h = historyNow();
     const snap = store.snap;
     const body = this.el.querySelector<HTMLElement>(".skills-body")!;
     const sub = this.el.querySelector<HTMLElement>(".skills-sub")!;
     const keysEl = this.el.querySelector<HTMLElement>(".skills-keys")!;
+    // the osu!standard tab hides these; bring them back for osu!mania
+    this.el.querySelector<HTMLElement>(".skills-compare")!.hidden = false;
     this.renderBar();
     if (!h || !snap) {
       body.innerHTML = `<div class="skills-loading"><div class="skeleton" style="height:360px"></div></div>`;
@@ -277,6 +310,227 @@ export class SkillsView {
         });
       }
     }
+  }
+
+  /* ---------- osu!standard (lib/osu-standard) ---------- */
+
+  /** Works out the osu!standard skills once, then re-renders if still on that tab. */
+  private computeStd(): void {
+    const token = {};
+    this.std = { state: "loading", token };
+    computeOsuStandard().then(
+      (result) => {
+        if (this.std.token === token) {
+          this.std = { state: "done", result, token };
+          if (this.mode === "standard") this.render();
+        }
+      },
+      (e: unknown) => {
+        if (this.std.token === token) {
+          this.std = { state: "error", error: e instanceof Error ? e.message : String(e), token };
+          if (this.mode === "standard") this.render();
+        }
+      },
+    );
+  }
+
+  /** The compare bar (name entry, progress, or who's compared) for the osu!standard tab. */
+  private renderStdBar(): void {
+    const bar = this.el.querySelector<HTMLElement>(".compare-bar")!;
+    const c = this.cmp;
+    if (c.state === "idle") {
+      bar.hidden = true;
+      return;
+    }
+    bar.hidden = false;
+    if (c.state === "entering") {
+      bar.innerHTML = `
+        <div class="cmp-row">
+          <input class="cmp-field" type="text" spellcheck="false" placeholder="${t("A player's name")}" value="${esc(c.name ?? "")}" />
+          <button class="btn btn-sm btn-primary cmp-go" type="button">${t("Compare")}</button>
+          <button class="icon-btn sm cmp-cancel" type="button" aria-label="${t("Cancel")}">${icon("x")}</button>
+        </div>`;
+      bar.querySelector<HTMLInputElement>(".cmp-field")!.focus();
+      return;
+    }
+    if (c.state === "loading") {
+      bar.innerHTML = `
+        <div class="cmp-row">
+          <span class="cmp-text"><span class="cmp-who">${t("Comparing with {name}", { name: `<b>${esc(c.name ?? "")}</b>` })}</span><span class="cmp-step num">${esc(progressText(c.progress ?? null))}</span></span>
+          <button class="btn btn-sm cmp-stop" type="button">${t("Stop")}</button>
+        </div>
+        <div class="cmp-progress" style="--p:${progressShare(c.progress ?? null).toFixed(3)}"><i></i></div>`;
+      return;
+    }
+    if (c.state === "error") {
+      bar.innerHTML = `
+        <div class="cmp-row">
+          <span class="cmp-text">${esc(c.error ?? "")}</span>
+          <button class="btn btn-sm cmp-change" type="button">${t("Try again")}</button>
+          <button class="icon-btn sm cmp-close" type="button" aria-label="${t("Close")}">${icon("x")}</button>
+        </div>`;
+      return;
+    }
+    const p = c.result!.player;
+    const meta = [p.rank ? `#${num(p.rank)}` : t("Unranked"), p.pp ? `${num(Math.round(p.pp))}pp` : "", p.accuracy ? pct(p.accuracy) : ""].filter(Boolean);
+    bar.innerHTML = `
+      <div class="cmp-row">
+        <span class="cmp-text"><span class="cmp-who">${t("Comparing with {name}", { name: `<b>${esc(p.name)}</b>` })}</span><span class="cmp-meta num">${meta.map(esc).join(" · ")}</span></span>
+        <button class="btn btn-sm cmp-change" type="button">${t("Change")}</button>
+        <button class="icon-btn sm cmp-close" type="button" aria-label="${t("Close")}">${icon("x")}</button>
+      </div>`;
+  }
+
+  private startStdCompare(name: string): void {
+    const n = name.trim();
+    if (!n) return;
+    const token = {};
+    this.cmp = { state: "loading", name: n, token };
+    this.renderStdBar();
+    compareOsuStandard(n, (progress) => {
+      if (this.cmp.token === token) {
+        this.cmp = { ...this.cmp, progress };
+        this.renderStdBar();
+      }
+    }).then(
+      (result) => {
+        if (this.cmp.token === token) {
+          this.cmp = { state: "done", name: result.player.name || n, result, token };
+          if (this.mode === "standard") this.render();
+        }
+      },
+      (e: unknown) => {
+        if (this.cmp.token !== token) return;
+        const err = e as { code?: string; message?: string };
+        this.cmp = err.code === "cancelled" ? { state: "idle" } : { state: "error", name: n, error: err.message ?? String(e), token };
+        if (this.mode === "standard") this.render();
+      },
+    );
+  }
+
+  private endStdCompare(): void {
+    if (this.cmp.state === "loading") void api.cancelCompare().catch(() => {});
+    this.cmp = { state: "idle" };
+    this.render();
+  }
+
+  /** The osu!standard tab: the same radar and skill list as osu!mania, from lib/osu-standard. */
+  private renderStandard(): void {
+    const snap = store.snap;
+    const body = this.el.querySelector<HTMLElement>(".skills-body")!;
+    const sub = this.el.querySelector<HTMLElement>(".skills-sub")!;
+    // the key-mode tool doesn't apply here; compare does
+    this.el.querySelector<HTMLElement>(".skills-keys")!.hidden = true;
+    const compareBtn = this.el.querySelector<HTMLElement>(".skills-compare")!;
+    compareBtn.hidden = false;
+    compareBtn.classList.toggle("active", this.cmp.state !== "idle");
+    this.renderStdBar();
+    if (!snap) {
+      body.innerHTML = `<div class="skills-loading"><div class="skeleton" style="height:360px"></div></div>`;
+      return;
+    }
+    if (this.std.state === "idle") this.computeStd();
+    if (this.std.state === "idle" || this.std.state === "loading") {
+      sub.innerHTML = `<span>osu!standard</span>`;
+      body.innerHTML = `<div class="skills-loading"><div class="skeleton" style="height:360px"></div></div>`;
+      return;
+    }
+    if (this.std.state === "error") {
+      sub.innerHTML = "";
+      body.innerHTML = `
+        <div class="empty-state skills-empty">${icon("radar")}
+          <div class="empty-title">${t("Couldn't work out your osu!standard skills")}</div>
+          <div class="empty-sub">${esc(this.std.error ?? "")}</div>
+        </div>`;
+      return;
+    }
+    const result = this.std.result!;
+    if (!result.summary.analyzedBeatmapCount) {
+      sub.innerHTML = "";
+      body.innerHTML = `
+        <div class="empty-state skills-empty">${icon("radar")}
+          <div class="empty-title">${t("Skills come from your osu!standard plays")}</div>
+          <div class="empty-sub">${t("Once you've passed some osu!standard maps that are in your library, you'll see here what you're good at.")}</div>
+        </div>`;
+      return;
+    }
+    // the other player, once compared
+    const them = this.cmp.state === "done" ? this.cmp.result! : null;
+    const themByK = (k: number): OsuSkill | null => (them ? them.skills[k] ?? null : null);
+    sub.innerHTML = ["osu!standard", tn(result.summary.scoreCount, "{n} play rated", "{n} plays rated")].map((w) => `<span>${w}</span>`).join("");
+    const labels = result.skills.map((s) => s.label);
+    const nowSheet = { skills: result.skills.map((s) => ({ skillset: s.id, value: s.confidence > 0 ? s.value : null })), plays: result.summary.scoreCount };
+    const thenSheet = { skills: result.skills.map((s) => ({ skillset: s.id, value: null })), plays: 0 };
+    const goals = result.skills.map(() => null);
+    const vs = them ? { name: them.player.name, sheet: { skills: them.skills.map((s) => ({ skillset: s.id, value: s.confidence > 0 ? s.value : null })), plays: 0 } } : null;
+    const overallGraph = this.graphs.has("overall") && result.trend.length > 0;
+    body.innerHTML = `
+      <div class="skills-grid">
+        <section class="panel skills-radar">${radar(nowSheet, thenSheet, goals, vs, labels)}</section>
+        <section class="panel skills-list">
+          <div class="skill skill-overall${overallGraph ? " open" : ""}" data-skill="overall">
+            <div class="skill-top">
+              <button class="skill-head" type="button" aria-expanded="false" disabled>
+                <span class="skill-name">${skillName("overall")}</span>
+                <span class="skill-charts"></span>
+                ${them ? `<span class="skill-them num" data-tip="${esc(t("{name}: {value}", { name: them.player.name, value: fixed(them.overall, 2) }))}">${fixed(them.overall, 2)}</span>` : ""}
+                <b class="skill-value num">${fixed(result.overall, 2)}</b>
+                <span></span>
+              </button>
+              ${this.stdGraphBtn("overall", result.trend.length > 0)}
+            </div>
+            ${overallGraph ? `<div class="skill-graph" data-line="0"></div>` : ""}
+          </div>
+          ${result.skills.map((s, k) => this.stdRow(s, k, themByK(k), them)).join("")}
+        </section>
+      </div>`;
+    // the graphs that are open are worked out from the trend the backend sent
+    for (const g of body.querySelectorAll<HTMLElement>(".skill-graph[data-line]")) {
+      const line = Number(g.dataset.line);
+      const key = line === 0 ? "overall" : result.skills[line - 1].id;
+      const name = line === 0 ? skillName("overall") : result.skills[line - 1].label;
+      renderTrend(g, result.trend, line, name, this.range, (r) => {
+        this.range = r;
+        this.rerender(`.skill[data-skill="${key}"] .trend-range [data-range="${r}"]`);
+      });
+    }
+  }
+
+  /** The over-time graph toggle, as osu!mania's rows have it. */
+  private stdGraphBtn(id: string, has: boolean): string {
+    const graph = this.graphs.has(id) && has;
+    return `<button class="icon-btn sm skill-graph-btn${graph ? " active" : ""}" type="button" aria-pressed="${graph}" data-tip="${graph ? t("Hide the graph") : t("Graph over time")}" aria-label="${t("Graph over time")}"${has ? "" : " disabled"}>${icon("trend")}</button>`;
+  }
+
+  private stdRow(s: OsuSkillWithPlays, k: number, them: OsuSkill | null, comparison: OsuStandardComparison | null): string {
+    const any = s.confidence > 0 || (them !== null && them.confidence > 0);
+    const open = this.open.has(s.id);
+    const graph = this.graphs.has(s.id) && s.confidence > 0;
+    const best = s.best[0];
+    // comparing: their value sits where the best-play note is otherwise
+    const note = them
+      ? `<span class="skill-them num" data-tip="${esc(them.confidence > 0 ? t("{name}: {value}", { name: comparison!.player.name, value: fixed(them.value, 2) }) : t("{name} has no passes rated here", { name: comparison!.player.name }))}">${them.confidence > 0 ? fixed(them.value, 2) : "–"}</span>`
+      : `<span class="skill-charts">${best ? t("best play {value}", { value: fixed(best.worth, 2) }) : t("no passes yet")}</span>`;
+    const theirPlays = them && comparison ? them.evidence.map((e) => comparison.plays[e.play]).filter((p): p is ComparedOsuPlay => !!p) : [];
+    const list = open
+      ? `<div class="skill-charts-list">${them && s.best.length ? `<div class="skill-them-head">${t("Yours")}</div>` : ""}${s.best.map((b) => stdChartRow(b.play, b.worth)).join("")}${
+          theirPlays.length ? `<div class="skill-them-head">${t("{name}'s best in {skill}", { name: esc(comparison!.player.name), skill: s.label })}</div>${them!.evidence.map((e) => (comparison!.plays[e.play] ? theirStdRow(comparison!.plays[e.play], e.worth) : "")).join("")}` : ""
+        }</div>`
+      : "";
+    return `
+      <div class="skill${open || graph ? " open" : ""}${any ? "" : " empty"}" data-skill="${esc(s.id)}"${s.confidence > 0 ? ` data-value="${s.value}"` : ""}>
+        <div class="skill-top">
+          <button class="skill-head" type="button" aria-expanded="${open}"${any ? "" : " disabled"}>
+            <span class="skill-name">${esc(s.label)}</span>
+            ${note}
+            <b class="skill-value num">${s.confidence > 0 ? fixed(s.value, 2) : "–"}</b>
+            ${any ? icon("chevron-down", "skill-chev") : `<span></span>`}
+          </button>
+          ${this.stdGraphBtn(s.id, s.confidence > 0)}
+        </div>
+        ${graph ? `<div class="skill-graph" data-line="${k + 1}"></div>` : ""}
+        ${list}
+      </div>`;
   }
 
   private row(l: Line, before: Line, plays: number, playsBefore: number, vs: { name: string; line: Line; plays: number; charts: ComparedChart[] } | null): string {
@@ -638,9 +892,34 @@ export class SkillsView {
   }
 
   private bind(): void {
+    this.el.addEventListener("keydown", (e) => {
+      if (this.mode === "standard" && e.key === "Enter" && (e.target as Element).closest(".cmp-field")) {
+        e.preventDefault();
+        this.startStdCompare((e.target as HTMLInputElement).value);
+      }
+    });
     this.el.addEventListener("click", (e) => {
       const target = e.target as Element;
       if (target.closest(".skills-help-btn")) return openSkillsHelp();
+      // osu!standard tab: its own compare flow (the bar reuses the same .cmp-* markup)
+      if (this.mode === "standard") {
+        if (target.closest(".skills-compare")) {
+          if (this.cmp.state === "loading") return;
+          this.cmp = this.cmp.state === "entering" ? { state: "idle" } : { state: "entering", name: this.cmp.result?.player.name };
+          return this.render();
+        }
+        if (target.closest(".cmp-go")) return this.startStdCompare(this.el.querySelector<HTMLInputElement>(".cmp-field")?.value ?? "");
+        if (target.closest(".cmp-stop")) return this.endStdCompare();
+        if (target.closest(".cmp-cancel") || target.closest(".cmp-close")) {
+          this.cmp = { state: "idle" };
+          return this.render();
+        }
+        if (target.closest(".cmp-change")) {
+          this.cmp = { state: "entering", name: this.cmp.result?.player.name };
+          return this.render();
+        }
+        // fall through: skill-head expand, graph toggle and chart clicks are shared
+      }
       if (target.closest(".skills-compare")) {
         if (compareNow()?.status === "loading") return;
         this.entering = !this.entering;
@@ -670,6 +949,15 @@ export class SkillsView {
       }
       const add = target.closest<HTMLElement>(".skill-chart[data-add]");
       if (add) return openImport(`https://osu.ppy.sh/beatmapsets/${add.dataset.add}`);
+      const modeBtn = target.closest<HTMLElement>(".skills-mode [data-mode]");
+      if (modeBtn) {
+        const mode = modeBtn.dataset.mode as "mania" | "standard";
+        if (mode === this.mode) return;
+        this.mode = mode;
+        this.open.clear();
+        this.graphs.clear();
+        return this.render();
+      }
       const k = target.closest<HTMLElement>(".skills-keys [data-keys]");
       if (k) {
         this.keys = +k.dataset.keys!;
@@ -864,6 +1152,49 @@ function chartRow(c: Line["top"][number], skill: GoalSkill, odd = false): string
     </div>`;
 }
 
+/** A play behind an osu!standard skill (lib/osu-standard): like osu!mania's chartRow, with the
+ * plain accuracy (there's no Wife here) and no leave-out. */
+function stdChartRow(play: Play, worth: number): string {
+  const snap = store.snap!;
+  const i = mapIndexOf(play.map);
+  if (i === undefined) return "";
+  const map = snap.maps[i];
+  const set = snap.sets[map.set];
+  const bg = map.bg ?? set.bg;
+  return `
+    <div class="skill-chart mine" data-map="${i}" role="button" tabindex="0">
+      <span class="t-art${bg ? "" : " img-missing"}">${bg ? `<img src="${thumbUrl(bg, 160)}" alt="" loading="lazy" decoding="async" />` : ""}</span>
+      <div class="prow-text">
+        <div class="t-title">${esc(displayTitle(set, store.prefs.unicode))}</div>
+        <div class="t-sub">${esc(map.version)}</div>
+      </div>
+      <span class="skill-chart-mods">${esc(modsText(play))}</span>
+      <span class="num skill-chart-acc">${pct(play.acc)}</span>
+      <b class="num skill-chart-worth">${fixed(worth, 2)}</b>
+    </div>`;
+}
+
+/** One of the other player's osu!standard plays behind a skill (lib/osu-standard): like yours, with
+ * osu!'s cover; a click opens it in the library, or offers to add it. */
+function theirStdRow(play: ComparedOsuPlay, worth: number): string {
+  const unicode = store.prefs.unicode;
+  const title = `${(unicode && play.artistUnicode) || play.artist} - ${(unicode && play.titleUnicode) || play.title}`;
+  const lib = play.library !== undefined ? mapIndexOf(play.library) : undefined;
+  const cover = play.setId ? osuCoverUrl(play.setId) : "";
+  const where = lib !== undefined ? ` data-map="${lib}"` : play.setId ? ` data-add="${play.setId}" data-tip="${t("Not in your library: add it")}"` : "";
+  return `
+    <div class="skill-chart them"${where} role="button" tabindex="0">
+      <span class="t-art${cover ? "" : " img-missing"}">${cover ? `<img src="${cover}" alt="" loading="lazy" decoding="async" />` : ""}</span>
+      <div class="prow-text">
+        <div class="t-title">${esc(title)}</div>
+        <div class="t-sub">${esc(play.version)}${lib === undefined ? ` · ${t("not in your library")}` : ""}</div>
+      </div>
+      <span class="skill-chart-mods">${esc(play.mods.join(""))}</span>
+      <span class="num skill-chart-acc">${pct(play.acc)}</span>
+      <b class="num skill-chart-worth">${fixed(worth, 2)}</b>
+    </div>`;
+}
+
 /** One of the other player's plays behind a skill: like yours, with osu!'s cover; a click opens it
  * in the library, or offers to add it. */
 function theirRow(c: Line["top"][number], skill: GoalSkill, charts: ComparedChart[]): string {
@@ -957,7 +1288,11 @@ function gainTip(aim: Aim, s: Suggestion, skill: MsdSkill): string {
 
 /** The seven skillsets around a heptagon: now (filled) and 90 days ago (dashed), or the compared
  * player. The centre isn't zero, so small differences show. */
-function radar(now: SkillSheet, then: SkillSheet, goals: (number | null)[], vs: { name: string; sheet: SkillSheet } | null = null): string {
+/** A sheet the radar can draw: skillsets with their value and plays. osu!mania passes its
+ * `SkillSheet`; osu!standard passes its own skillsets with explicit `labels`. */
+type RadarSheet = { skills: { skillset: GoalSkill | string; value: number | null }[]; plays: number };
+
+function radar(now: RadarSheet, then: RadarSheet, goals: (number | null)[], vs: { name: string; sheet: RadarSheet } | null = null, axisLabels?: string[]): string {
   const other = vs ? vs.sheet : then;
   const values = [...[...now.skills, ...other.skills].map((s) => s.value), ...goals].filter((v): v is number => v !== null);
   const max = values.length ? Math.max(...values) : 10;
@@ -967,7 +1302,8 @@ function radar(now: SkillSheet, then: SkillSheet, goals: (number | null)[], vs: 
   const lo = Math.max(0, Math.floor((min - step) / step) * step);
   const hi = Math.max(lo + step, Math.ceil((max + step * 0.25) / step) * step);
   const R = 100;
-  const n = SKILLSETS.length;
+  const n = now.skills.length;
+  const labelOf = (s: { skillset: GoalSkill | string }, i: number): string => axisLabels?.[i] ?? SKILL_LABEL[s.skillset as MsdSkill] ?? String(s.skillset);
   const angle = (i: number) => -Math.PI / 2 + (i * 2 * Math.PI) / n;
   const at = (i: number, v: number | null): [number, number] => {
     const r = v === null ? 0 : (Math.max(0, v - lo) / (hi - lo)) * R;
@@ -977,11 +1313,11 @@ function radar(now: SkillSheet, then: SkillSheet, goals: (number | null)[], vs: 
   const rings: string[] = [];
   for (let v = lo + step; v <= hi + 1e-6; v += step) {
     const r = ((v - lo) / (hi - lo)) * R;
-    const pts = SKILLSETS.map((_, i) => [Math.cos(angle(i)) * r, Math.sin(angle(i)) * r] as [number, number]);
+    const pts = now.skills.map((_, i) => [Math.cos(angle(i)) * r, Math.sin(angle(i)) * r] as [number, number]);
     rings.push(`<polygon class="ring" points="${poly(pts)}" />`);
     rings.push(`<text class="ring-label" x="4" y="${(-r + 3).toFixed(1)}">${Math.round(v)}</text>`);
   }
-  const spokes = SKILLSETS.map((_, i) => {
+  const spokes = now.skills.map((_, i) => {
     const [x, y] = at(i, hi);
     return `<line class="spoke" x1="0" y1="0" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" />`;
   }).join("");
@@ -1016,7 +1352,7 @@ function radar(now: SkillSheet, then: SkillSheet, goals: (number | null)[], vs: 
         theirs === undefined
           ? `<tspan class="axis-value" x="${(x * k).toFixed(1)}" dy="13">${s.value !== null ? fixed(s.value, 2) : "–"}</tspan>`
           : `<tspan class="axis-value" x="${(x * k).toFixed(1)}" dy="13">${s.value !== null ? fixed(s.value, 2) : "–"}</tspan><tspan class="axis-them"> · ${theirs !== null ? fixed(theirs, 2) : "–"}</tspan>`;
-      return `<text class="axis-label" x="${(x * k).toFixed(1)}" y="${(y * k + dy).toFixed(1)}" text-anchor="${anchor}">${SKILL_LABEL[s.skillset]}${value}</text>`;
+      return `<text class="axis-label" x="${(x * k).toFixed(1)}" y="${(y * k + dy).toFixed(1)}" text-anchor="${anchor}">${labelOf(s, i)}${value}</text>`;
     })
     .join("");
   return `

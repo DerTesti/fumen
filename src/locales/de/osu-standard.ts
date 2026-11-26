@@ -1,0 +1,9 @@
+/** The osu!standard sub-tab of the Skills page (views/skills.ts, lib/osu-standard.ts). */
+export const osuStandard: Record<string, string> = {
+  Game: "Spiel",
+  "{n} play rated|{n} plays rated": "{n} Play bewertet|{n} Plays bewertet",
+  "Couldn't work out your osu!standard skills": "Konnte deine osu!standard-Skills nicht berechnen",
+  "Skills come from your osu!standard plays": "Skills kommen aus deinen osu!standard-Plays",
+  "Once you've passed some osu!standard maps that are in your library, you'll see here what you're good at.":
+    "Sobald du ein paar osu!standard-Maps aus deiner Bibliothek gepasst hast, siehst du hier, was du gut kannst.",
+};
