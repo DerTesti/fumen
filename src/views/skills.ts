@@ -652,13 +652,18 @@ export class SkillsView {
   }
 
   private stdRow(s: OsuSkillWithPlays, k: number, them: OsuSkill | null, comparison: OsuStandardComparison | null): string {
+    const mapCount = s.best.length;
+    const provisional = mapCount < 5;
+    const coverageNote = provisional
+      ? `<span class="skill-map-count" data-tip="${esc(t("Five different maps confirm this skill. Missing maps count as zero."))}">${t("{count} out of 5 Maps", { count: mapCount })}</span>`
+      : "";
     const any = s.confidence > 0 || (them !== null && them.confidence > 0);
     const open = this.open.has(s.id);
     const graph = this.graphs.has(s.id) && s.confidence > 0;
     const best = s.best[0];
     // comparing: their value sits where the best-play note is otherwise
     const note = them
-      ? `<span class="skill-them num" data-tip="${esc(them.confidence > 0 ? t("{name}: {value}", { name: comparison!.player.name, value: fixed(them.value, 2) }) : t("{name} has no passes rated here", { name: comparison!.player.name }))}">${them.confidence > 0 ? fixed(them.value, 2) : "–"}</span>`
+      ? `<span class="skill-them num${them.evidence.length < 5 ? " provisional" : ""}" data-tip="${esc(them.confidence > 0 ? t("{name}: {value}", { name: comparison!.player.name, value: fixed(them.value, 2) }) : t("{name} has no passes rated here", { name: comparison!.player.name }))}">${them.confidence > 0 ? fixed(them.value, 2) : "–"}${them.evidence.length < 5 ? ` <span class="skill-map-count">${t("{count} out of 5 Maps", { count: them.evidence.length })}</span>` : ""}</span>`
       : `<span class="skill-charts">${best ? t("best play {value}", { value: fixed(best.worth, 2) }) : t("no passes yet")}</span>`;
     const theirPlays = them && comparison ? them.evidence.map((e) => comparison.plays[e.play]).filter((p): p is ComparedOsuPlay => !!p) : [];
     const list = open
@@ -667,10 +672,10 @@ export class SkillsView {
         }${s.confidence > 0 ? `<button class="btn btn-ghost btn-sm std-skill-goal" type="button">${icon("flag")}<span>${t("Set a goal for {skill}", { skill: s.label })}</span></button>` : ""}</div>`
       : "";
     return `
-      <div class="skill${open || graph ? " open" : ""}${any ? "" : " empty"}" data-skill="${esc(s.id)}"${s.confidence > 0 ? ` data-value="${s.value}"` : ""}>
+      <div class="skill${open || graph ? " open" : ""}${any ? "" : " empty"}${provisional ? " provisional" : ""}" data-skill="${esc(s.id)}"${s.confidence > 0 ? ` data-value="${s.value}"` : ""}>
         <div class="skill-top">
           <button class="skill-head" type="button" aria-expanded="${open}"${any ? "" : " disabled"}>
-            <span class="skill-name">${esc(s.label)}</span>
+            <span class="skill-name">${esc(s.label)} ${coverageNote}</span>
             ${note}
             <b class="skill-value num">${s.confidence > 0 ? fixed(s.value, 2) : "–"}</b>
             ${any ? icon("chevron-down", "skill-chev") : `<span></span>`}

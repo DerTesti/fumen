@@ -1,5 +1,7 @@
 /** The osu!standard sub-tab of the Skills page (views/skills.ts, lib/osu-standard.ts). */
 export const osuStandard: Record<string, string> = {
+  "{count} out of 5 Maps": "{count} von 5 Maps",
+  "Five different maps confirm this skill. Missing maps count as zero.": "Fünf unterschiedliche Maps bestätigen diesen Skill. Fehlende Maps zählen als null.",
   Game: "Spiel",
   "{n} play rated|{n} plays rated": "{n} Play bewertet|{n} Plays bewertet",
   "Couldn't work out your osu!standard skills": "Konnte deine osu!standard-Skills nicht berechnen",
