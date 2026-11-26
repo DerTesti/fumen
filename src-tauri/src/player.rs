@@ -645,12 +645,22 @@ pub fn build_std(files: &crate::paths::Files, cache: &Path, db: &Mutex<Connectio
     let total = jobs.len();
     let queue = Mutex::new(VecDeque::from(jobs));
     let done = AtomicUsize::new(0);
+    // beatmap → the distinct mod sets played on it, so each chart's pattern is worked out (in these
+    // parallel workers) for exactly the variants skills() will need
+    let mut combos: HashMap<i64, Vec<Vec<String>>> = HashMap::new();
+    for s in &f.scores {
+        let (mods, _) = mods_of(&s.mods);
+        let e = combos.entry(s.beatmap_id).or_default();
+        if !e.contains(&mods) {
+            e.push(mods);
+        }
+    }
     // beatmap → (the key the chart is cached/read under, its .osu text)
     let texts: Mutex<HashMap<i64, (String, String)>> = Mutex::new(HashMap::new());
     progress(Progress { stage: "charts", done: 0, total });
     std::thread::scope(|scope| {
         for worker in 0..CHART_WORKERS.min(total.max(1)) {
-            let (queue, done, texts, lib, f, progress) = (&queue, &done, &texts, &lib, &f, &progress);
+            let (queue, done, texts, lib, f, progress, combos) = (&queue, &done, &texts, &lib, &f, &progress, &combos);
             scope.spawn(move || {
                 let agent = crate::downloads::chart_agent();
                 loop {
@@ -685,6 +695,10 @@ pub fn build_std(files: &crate::paths::Files, cache: &Path, db: &Mutex<Connectio
                         // the library's hash when you have it (shares the pattern cache with your own
                         // skills), else the chart's md5, else just the beatmap id
                         let key = found.map(|(_, k)| k.clone()).or_else(|| md5.map(str::to_string)).unwrap_or_else(|| format!("o{beatmap}"));
+                        // the heavy analysis, here in the worker (not the single-threaded skills() pass)
+                        for mods in combos.get(&beatmap).map(Vec::as_slice).unwrap_or(&[]) {
+                            crate::osu_skills::warm(db, &key, t.as_bytes(), mods);
+                        }
                         texts.lock().unwrap_or_else(|e| e.into_inner()).insert(beatmap, (key, t));
                     }
                     let n = done.fetch_add(1, Ordering::SeqCst) + 1;

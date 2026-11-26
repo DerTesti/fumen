@@ -958,6 +958,14 @@ fn pattern_for(read: &impl Fn(&str) -> Option<Vec<u8>>, db: &Mutex<Connection>, 
     Some(pattern)
 }
 
+/// Pre-compute and cache a chart's pattern for the given mods, from text already in hand. The
+/// compare workers call this in parallel so the heavy analysis doesn't fall to the single-threaded
+/// `skills` pass afterwards (which then finds everything in cache). Same keys `skills` reads under.
+pub fn warm(db: &Mutex<Connection>, hash: &str, text: &[u8], mods: &[String]) {
+    let read = |_: &str| Some(text.to_vec());
+    let _ = pattern_for(&read, db, hash, mods, rate_of(mods));
+}
+
 const ASSISTED: [&str; 5] = ["RX", "AP", "AT", "CN", "TD"];
 
 /// Your osu!standard skills from your passes. `hashes` maps each play's `map` id to its `.osu`
