@@ -461,6 +461,9 @@ export class HistoryView {
         if (mode >= 0 && i !== undefined && store.snap!.maps[i].mode !== mode) continue;
         before = bestAcc(h.plays.filter((p) => p.date < from), g);
         after = bestAcc(h.plays.filter((p) => p.date < to), g);
+      } else if (g.kind === "osu-skill") {
+        // osu!standard skill goals aren't tracked in this per-ruleset history
+        continue;
       } else if (mode >= 0 && RULESET_NAMES.indexOf(g.ruleset) !== mode) continue;
       const reached = !!g.done && g.done >= from && g.done < to;
       if (!reached && (after === null || (before !== null && after <= before + 1e-9))) continue;

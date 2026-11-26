@@ -31,7 +31,9 @@ export type GoalSpec =
       acc: number;
       rate: number;
     }
-  | { kind: "profile"; ruleset: Ruleset; metric: "pp" | "rank"; target: number };
+  | { kind: "profile"; ruleset: Ruleset; metric: "pp" | "rank"; target: number }
+  /** an osu!standard skillset (lib/osu-standard); `label` is kept so the title reads without the model */
+  | { kind: "osu-skill"; skillset: string; label: string; target: number };
 
 export type Goal = GoalSpec & {
   id: string;
@@ -103,6 +105,9 @@ export function goalNow(goal: GoalSpec, ctx: GoalContext): number | null {
       // osu! says rank 0 / null for players without one
       return v ? v : null;
     }
+    // osu!standard skills aren't in the mania context: the standard tab works these out itself
+    case "osu-skill":
+      return null;
   }
 }
 
@@ -152,13 +157,14 @@ const roundSig = (v: number) => {
 /** "Jumpstream 4K", "Hours [Feru's HD]", "osu!mania pp" */
 export function goalTitle(goal: GoalSpec): string {
   if (goal.kind === "skill") return `${skillName(goal.skillset)} ${goal.keys}K`;
+  if (goal.kind === "osu-skill") return `${goal.label} · osu!standard`;
   if (goal.kind === "chart") return `${goal.title} [${goal.version}]`;
   return goal.metric === "pp" ? `${RULESET_LABEL[goal.ruleset]} pp` : t("{ruleset} rank", { ruleset: RULESET_LABEL[goal.ruleset] });
 }
 
 /** A value of the goal's kind: "25.00", "96.00%", "1,500pp", "#10,000". */
 export function goalValue(goal: GoalSpec, v: number): string {
-  if (goal.kind === "skill") return fixed(v, 2);
+  if (goal.kind === "skill" || goal.kind === "osu-skill") return fixed(v, 2);
   if (goal.kind === "chart") return pct(v);
   return goal.metric === "pp" ? `${num(Math.round(v))}pp` : `#${num(Math.round(v))}`;
 }

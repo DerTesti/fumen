@@ -13,15 +13,19 @@ import { attachSegIndicator, closeAnimated, createSelect, toast } from "../ui/co
 import { icon } from "../ui/icons";
 import { t } from "../lib/i18n";
 
-type Kind = GoalSpec["kind"];
+// the dialog sets osu!mania, profile and osu!standard-skill goals
+type Kind = Exclude<GoalSpec["kind"], "osu-skill">;
+type DialogKind = Kind | "osu-skill";
 
 export interface GoalPreset {
-  kind?: Kind;
+  kind?: DialogKind;
   keys?: number;
   skillset?: GoalSkill;
   /** a chart: the library difficulty, and the rate to aim at */
   mapIdx?: number;
   rate?: number;
+  /** osu!standard skills (id, label, value, whether it's rated), for an "osu-skill" goal */
+  stdSkills?: { id: string; label: string; value: number; confidence: number }[];
 }
 
 export function openGoalDialog(preset: GoalPreset = {}): void {
@@ -32,10 +36,14 @@ export function openGoalDialog(preset: GoalPreset = {}): void {
   if (!modes.length) modes.push(4);
   const rulesets = RULESETS.filter((r) => h?.stats[r]?.pp);
 
-  let kind: Kind = preset.kind ?? (chartMap ? "chart" : "skill");
+  const stdSkills = preset.stdSkills ?? [];
+  const std = preset.kind === "osu-skill";
+  let kind: DialogKind = std ? "osu-skill" : (preset.kind ?? (chartMap ? "chart" : "skill"));
+  let stdId = stdSkills.find((s) => s.confidence > 0)?.id ?? stdSkills[0]?.id ?? "";
   let keys = preset.keys !== undefined && modes.includes(preset.keys) ? preset.keys : modes[0];
   let skillset: GoalSkill = preset.skillset ?? "overall";
-  let ruleset: Ruleset = rulesets.includes("mania") ? "mania" : (rulesets[0] ?? "mania");
+  const preferRuleset: Ruleset = std ? "osu" : "mania";
+  let ruleset: Ruleset = rulesets.includes(preferRuleset) ? preferRuleset : (rulesets[0] ?? preferRuleset);
   let metric: "pp" | "rank" = "pp";
   let rate = preset.rate ?? 1;
   /** the target as typed; null: the suggestion */
@@ -47,8 +55,12 @@ export function openGoalDialog(preset: GoalPreset = {}): void {
     <div class="modal-panel dialog goal-dialog" role="dialog" aria-modal="true" aria-labelledby="goal-dialog-title">
       <div class="dialog-title" id="goal-dialog-title">${t("New goal")}</div>
       <div class="seg-pill goal-kinds" role="tablist" aria-label="${t("Kind of goal")}">
-        <button type="button" data-kind="skill">${t("Skill")}</button>
-        ${chartMap ? `<button type="button" data-kind="chart">${t("This chart")}</button>` : ""}
+        ${
+          std
+            ? `<button type="button" data-kind="osu-skill">${t("Skillset")}</button>`
+            : `<button type="button" data-kind="skill">${t("Skill")}</button>
+        ${chartMap ? `<button type="button" data-kind="chart">${t("This chart")}</button>` : ""}`
+        }
         <button type="button" data-kind="profile"${rulesets.length ? "" : ` disabled data-tip="${t("Log in with osu! in Settings first")}"`}>${t("osu! profile")}</button>
       </div>
       <div class="goal-fields"></div>
@@ -65,6 +77,10 @@ export function openGoalDialog(preset: GoalPreset = {}): void {
 
   /** the goal as it stands, with the target as typed (or suggested) */
   const spec = (target: number): GoalSpec => {
+    if (kind === "osu-skill") {
+      const s = stdSkills.find((x) => x.id === stdId);
+      return { kind: "osu-skill", skillset: stdId, label: s?.label ?? stdId, target };
+    }
     if (kind === "skill") return { kind, keys, skillset, target };
     if (kind === "profile") return { kind, ruleset, metric, target };
     const set = snap!.sets[chartMap!.set];
@@ -79,12 +95,16 @@ export function openGoalDialog(preset: GoalPreset = {}): void {
     };
   };
   const nowOf = (): number | null => {
+    if (kind === "osu-skill") {
+      const s = stdSkills.find((x) => x.id === stdId);
+      return s && s.confidence > 0 ? s.value : null;
+    }
     const ctx = currentContext();
     return ctx ? goalNow(spec(0), ctx) : null;
   };
-  const suggestion = (now: number | null) => suggestTarget(kind === "profile" ? metric : kind, now);
+  const suggestion = (now: number | null) => suggestTarget(kind === "profile" ? metric : kind === "osu-skill" ? "skill" : kind, now);
   /** the target in the field's terms: accuracy in percent */
-  const shown = (v: number) => (kind === "chart" ? fixed(v * 100, 1) : kind === "skill" ? fixed(v, 2) : String(Math.round(v)));
+  const shown = (v: number) => (kind === "chart" ? fixed(v * 100, 1) : kind === "skill" || kind === "osu-skill" ? fixed(v, 2) : String(Math.round(v)));
   const parse = (s: string): number | null => {
     const v = Number(s.replace(",", ".").replace(/[^\d.]/g, ""));
     if (!s.trim() || !Number.isFinite(v)) return null;
@@ -107,7 +127,9 @@ export function openGoalDialog(preset: GoalPreset = {}): void {
     fields.innerHTML = "";
     const row = document.createElement("div");
     row.className = "goal-row";
-    if (kind === "skill") {
+    if (kind === "osu-skill") {
+      row.append(select(stdSkills.map((s) => ({ value: s.id, label: s.label })), stdId, (v) => (stdId = v), t("Skillset")));
+    } else if (kind === "skill") {
       row.append(
         select((["overall", ...SKILLSETS] as GoalSkill[]).map((s) => ({ value: s, label: skillName(s) })), skillset, (v) => (skillset = v), t("Skillset")),
         select(modes.map((k) => ({ value: String(k), label: `${k}K` })), String(keys), (v) => (keys = +v), t("Keys")),
@@ -151,13 +173,15 @@ export function openGoalDialog(preset: GoalPreset = {}): void {
     const sp = v !== null ? spec(v) : null;
     let note = "";
     let error = "";
-    if (kind === "skill") {
+    if (kind === "osu-skill") note = now !== null ? t("Now {value}", { value: goalValue(spec(0), now) }) : t("Nothing yet");
+    else if (kind === "skill") {
       const few = (currentContext()?.skillsFor(keys).plays ?? 0) < FEW_PLAYS;
       note = now !== null ? (few ? t("Now {value}, still filling up", { value: goalValue(spec(0), now) }) : t("Now {value}", { value: goalValue(spec(0), now) })) : t("No {keys}K passes rated yet", { keys });
     } else if (kind === "chart") note = now !== null ? t("Your best at {rate}× or faster: {acc}", { rate: fixed(rate, 2), acc: pct(now) }) : t("Not passed at {rate}× or faster yet", { rate: fixed(rate, 2) });
     else note = now !== null ? t("Now {value}", { value: goalValue(spec(0), now) }) : t("Nothing from osu! yet");
     if (v === null) error = t("Type a target.");
     else if (kind === "chart" && (v <= 0.5 || v > 1)) error = t("An accuracy between 50% and 100%.");
+    else if (kind === "osu-skill" && (v <= 0 || v > 100)) error = t("A skill between 0 and 100.");
     else if (kind === "skill" && (v <= 0 || v > 50)) error = t("A skill between 0 and 50.");
     else if (kind === "profile" && v < 1) error = metric === "rank" ? t("A rank from #1.") : t("Some pp above 0.");
     else if (sp && isReached(sp, now)) error = t("You're there already: aim higher.");
@@ -202,7 +226,7 @@ export function openGoalDialog(preset: GoalPreset = {}): void {
     const t = e.target as Element;
     const k = t.closest<HTMLButtonElement>("[data-kind]");
     if (k && !k.disabled && k.dataset.kind !== kind) {
-      kind = k.dataset.kind as Kind;
+      kind = k.dataset.kind as DialogKind;
       typed = null;
       return render();
     }
