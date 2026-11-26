@@ -1355,8 +1355,11 @@ function stdPracticeRow(r: OsuRecommendation, from: number | null): string {
   const cover = r.setId ? osuCoverUrl(r.setId) : "";
   const mods = r.mods.join("") + (r.rate !== 1 ? ` ${fixed(r.rate, 2)}×` : "");
   const gain = Math.max(0, (from !== null ? r.after - from : r.after));
+  // a library pick opens in the library; a discovery pick offers to add it
+  const lib = r.inLibrary ? store.snap?.maps.findIndex((m) => m.onlineId === r.beatmapId) ?? -1 : -1;
+  const where = lib >= 0 ? ` data-map="${lib}"` : ` data-add="${r.setId}" data-tip="${t("Not in your library: add it")}"`;
   return `
-    <div class="skill-chart practice-chart" data-add="${r.setId}" data-tip="${t("Not in your library: add it")}" role="button" tabindex="0">
+    <div class="skill-chart practice-chart"${where} role="button" tabindex="0">
       <span class="t-art${cover ? "" : " img-missing"}">${cover ? `<img src="${cover}" alt="" loading="lazy" decoding="async" />` : ""}</span>
       <div class="prow-text">
         <div class="t-title">${esc(title)}</div>

@@ -49,22 +49,18 @@ pub fn rating(d: f64) -> f64 {
     100.0 * d * d / (d * d + 2.5 * 2.5)
 }
 
-/// A chart's rated demand (0–100) in each skillset at some mods, for recommendations (recommend.rs);
-/// None if the chart is unreadable.
-pub fn analyze(text: &str, mods: &[String]) -> Option<[f64; N_SKILLS]> {
-    let map = parse_beatmap(text);
-    if map.objects.len() < 3 {
-        return None;
-    }
-    let rate = rate_of(mods);
-    let bytes = text.as_bytes().to_vec();
-    let diff = pp::osu_difficulty_from(|| Ok(bytes.clone()), "rec", mods, rate).ok().flatten();
-    let p = analyze_beatmap(&map, mods, diff.as_ref());
+/// A chart's rated demand (0–100) per skillset and its star rating at some mods, from the pattern
+/// cache (recommend.rs): library charts reuse the pattern worked out for your own skills, so they
+/// cost nothing to score. The stars are with the mods on, so a recommender can keep a map whose
+/// mods (DT especially) blow its difficulty past your comfort out of the list. `read(hash)` yields
+/// the `.osu` bytes when the pattern isn't cached yet.
+pub fn rated_demand(read: &impl Fn(&str) -> Option<Vec<u8>>, db: &Mutex<Connection>, hash: &str, mods: &[String]) -> Option<([f64; N_SKILLS], f64)> {
+    let p = pattern_for(read, db, hash, mods, rate_of(mods))?;
     let mut demand = [0.0f64; N_SKILLS];
     for k in 0..N_SKILLS {
         demand[k] = rating(p.raw_demand[k]);
     }
-    Some(demand)
+    Some((demand, p.stars))
 }
 
 fn finite(v: f64, f: f64) -> f64 {

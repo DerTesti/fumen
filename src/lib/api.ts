@@ -2,7 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Attempt } from "./attempts";
-import type { OsuPractice, OsuStandardComparison, OsuStandardPlay, OsuStandardResult } from "./osu-standard";
+import type { LibCandidate, OsuPractice, OsuStandardComparison, OsuStandardPlay, OsuStandardResult } from "./osu-standard";
 import type { HeartDevice } from "./heart";
 import type { HeartTry } from "./heart-stats";
 import type { Comparison } from "./compare";
@@ -87,8 +87,8 @@ export const api = {
     return raw instanceof ArrayBuffer ? (JSON.parse(new TextDecoder().decode(raw)) as OsuStandardComparison) : raw;
   },
   /** charts to practise your weak osu!standard skillsets on (lib/osu-standard, recommend.rs) */
-  async osuRecommendations(skills: { id: string; value: number }[], comfortStars: number, played: number[]): Promise<OsuPractice> {
-    const raw = await invoke<ArrayBuffer | OsuPractice>("osu_recommendations", { skills, comfortStars, played });
+  async osuRecommendations(skills: { id: string; value: number }[], comfortStars: number, peakStars: number, library: LibCandidate[], played: number[]): Promise<OsuPractice> {
+    const raw = await invoke<ArrayBuffer | OsuPractice>("osu_recommendations", { skills, comfortStars, peakStars, library, played });
     return raw instanceof ArrayBuffer ? (JSON.parse(new TextDecoder().decode(raw)) as OsuPractice) : raw;
   },
   /** an osu!mania difficulty's dan at a clock rate */

@@ -2064,7 +2064,7 @@ async fn compare_osu_standard(app: AppHandle, name: String) -> Result<tauri::ipc
 /// Charts to practise your weak osu!standard skillsets on, from osu!'s ranked maps (recommend.rs).
 /// Shares the compare lock and cancel, since both fetch from osu!.
 #[tauri::command]
-async fn osu_recommendations(app: AppHandle, skills: Vec<recommend::SkillValue>, comfort_stars: f64, played: Vec<i64>) -> Result<tauri::ipc::Response> {
+async fn osu_recommendations(app: AppHandle, skills: Vec<recommend::SkillValue>, comfort_stars: f64, peak_stars: f64, library: Vec<recommend::LibCandidate>, played: Vec<i64>) -> Result<tauri::ipc::Response> {
     tauri::async_runtime::spawn_blocking(move || {
         online::ensure()?;
         let state = app.state::<AppState>();
@@ -2083,7 +2083,7 @@ async fn osu_recommendations(app: AppHandle, skills: Vec<recommend::SkillValue>,
             let emit = |p: player::Progress| {
                 let _ = app.emit("recommend-progress", p);
             };
-            osu_auth::with_token(&state.data_dir, &ep, |token| recommend::recommend(&ep, token, &skills, comfort_stars, &played, &state.compare_cancel, emit)).map(tauri::ipc::Response::new)
+            osu_auth::with_token(&state.data_dir, &ep, |token| recommend::recommend(&state.files(), state.db_mutex(), &ep, token, &skills, comfort_stars, peak_stars, &library, &played, &state.compare_cancel, emit)).map(tauri::ipc::Response::new)
         })();
         state.comparing.store(false, Ordering::SeqCst);
         result

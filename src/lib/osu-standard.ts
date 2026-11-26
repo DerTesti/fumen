@@ -6,6 +6,9 @@
  */
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
+import { mapIndexOf } from "./history";
+import { likeness, MIN_SCORE, print, type Print } from "./similar";
+import { store } from "./store";
 import type { Play } from "./types";
 
 /** One osu!standard pass, as the backend's model reads it. */
@@ -97,6 +100,24 @@ export interface OsuRecommendation {
   rate: number;
   /** what passing it clean would make of the skillset */
   after: number;
+  /** true when it's already in your library (the view opens it instead of offering to add it) */
+  inLibrary?: boolean;
+}
+
+/** A library difficulty chosen in the frontend (most like the ones you play), for the backend to
+ * score locally. The backend resolves its hash from `mapId` and reuses the cached pattern. */
+export interface LibCandidate {
+  mapId: string;
+  beatmapId: number;
+  setId: number;
+  title: string;
+  titleUnicode: string;
+  artist: string;
+  artistUnicode: string;
+  version: string;
+  stars: number;
+  /** 0–1, how like your maps it is */
+  similarity: number;
 }
 
 /** A weak skillset and the charts to practise it on, best first. */
@@ -112,12 +133,53 @@ export interface OsuPracticeGroup {
 
 export type OsuPractice = OsuPracticeGroup[];
 
-/** Charts to practise your weak osu!standard skillsets on, from osu!'s ranked maps (recommend.rs).
- * Your skill values (already worked out by the backend) and the maps you've played guide it. */
+/** how many library difficulties to put forward as candidates (the backend scores them, cheaply,
+ * since they reuse your own skills' cached patterns) */
+const LIB_CANDIDATES = 220;
+
+/** The library std difficulties most like the ones you play well, as candidates for the backend to
+ * score. Metadata only (lib/similar.ts) — the heavy per-chart work stays in the backend. */
+function libraryCandidates(result: ComputedOsuStandard): LibCandidate[] {
+  const snap = store.snap;
+  if (!snap) return [];
+  // anchors: the maps behind your best plays — what you already play well
+  const anchorIds = new Set<string>();
+  for (const s of result.skills) for (const b of s.best) if (b.play.map) anchorIds.add(b.play.map);
+  const anchors: Print[] = [];
+  for (const id of anchorIds) {
+    const i = mapIndexOf(id);
+    if (i !== undefined && snap.maps[i].mode === 0) anchors.push(print(snap.maps[i]));
+  }
+  if (!anchors.length) return [];
+  const comfort = result.summary.comfortStars;
+  const [lo, hi] = [comfort * 0.45, comfort + 0.5]; // the band discovery uses too
+  const out: { sim: number; c: LibCandidate }[] = [];
+  for (const m of snap.maps) {
+    if (m.mode !== 0 || m.hidden || !m.onlineId) continue;
+    if (!(m.sr >= lo && m.sr <= hi)) continue;
+    const p = print(m);
+    let sim = 0;
+    for (const a of anchors) sim = Math.max(sim, likeness(a, p).score);
+    if (sim < MIN_SCORE) continue;
+    const set = snap.sets[m.set];
+    out.push({
+      sim,
+      c: { mapId: m.id, beatmapId: m.onlineId, setId: set.onlineId ?? 0, title: set.title, titleUnicode: set.titleUnicode ?? "", artist: set.artist, artistUnicode: set.artistUnicode ?? "", version: m.version, stars: m.sr, similarity: Math.round(sim * 1000) / 1000 },
+    });
+  }
+  out.sort((a, b) => b.sim - a.sim);
+  return out.slice(0, LIB_CANDIDATES).map((x) => x.c);
+}
+
+/** Charts to practise your weak osu!standard skillsets on (recommend.rs): your library first — the
+ * difficulties most like the ones you play — then ranked maps you don't have for discovery. Your
+ * skill values (worked out by the backend) and the maps you've played guide it. */
 export async function osuRecommendations(result: ComputedOsuStandard, played: number[]): Promise<OsuPractice> {
   return api.osuRecommendations(
     result.skills.map((s) => ({ id: s.id, value: s.confidence > 0 ? s.value : 0 })),
     result.summary.comfortStars,
+    result.summary.peakStars,
+    libraryCandidates(result),
     played,
   );
 }
