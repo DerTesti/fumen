@@ -20,14 +20,17 @@ use crate::error::Result;
 use crate::pp;
 
 /// Bump when the model changes, so cached rows from an older model are ignored.
-const CACHE_VERSION: i64 = 4;
+const CACHE_VERSION: i64 = 8;
+
+// Absolute, mod-adjusted interval: 8 notes/s, independent of the timing-point BPM.
+const SPEED_MAX_GAP_MS: f64 = 125.0;
 
 /// The eleven skillsets, in order: id, label, group, description. Labels/descriptions are the
 /// model's own (the view shows them as given).
 pub const SKILLS: [(&str, &str, &str, &str); 11] = [
     ("wide-angle-aim", "Wide angle aim", "Aim", "Weite Richtungsverläufe zwischen den tatsächlichen Objekt- und Slider-Endpositionen."),
     ("precision", "Precision", "Aim", "Aim-Schwierigkeit unter Berücksichtigung der effektiven Kreisgröße."),
-    ("accuracy", "Accuracy", "Accuracy", "Erzielte Head-Trefferverteilung relativ zum tatsächlichen 300er-Zeitfenster."),
+    ("accuracy", "Accuracy", "Accuracy", "Timing-Präzision relativ zum 300er-Zeitfenster unter Tapping-, Rhythmus- und Aim-Belastung."),
     ("snap-aim", "Snap aim", "Aim", "Räumlich anspruchsvolle Jumps außerhalb schneller Stream-Folgen."),
     ("finger-control", "Finger control", "Tapping", "Wechsel aktiver Rhythmusinseln; Pausen und Slider-Haltezeiten zählen nicht als Komplexität."),
     ("aim-stamina", "Aim stamina", "Aim", "Aim-Belastung in 15-Sekunden-Fenstern; Ruhezeiten senken die Belastung."),
@@ -436,14 +439,17 @@ fn rate_of(mods: &[String]) -> f64 {
     clamp(if has("DT") || has("NC") { 1.5 } else if has("HT") || has("DC") { 0.75 } else { 1.0 }, 0.1, 3.0)
 }
 
-fn effective_settings(map: &Map, mods: &[String]) -> Settings {
+fn play_rate(rate: Option<f64>, mods: &[String]) -> f64 {
+    rate.filter(|r| r.is_finite() && *r > 0.0).unwrap_or_else(|| rate_of(mods))
+}
+
+fn effective_settings(map: &Map, mods: &[String], rate: f64) -> Settings {
     let has = |n: &str| mods.iter().any(|m| m == n);
     let (hr, ez) = (has("HR"), has("EZ"));
     let scale = |base: f64, hr_f: f64| base * if hr { hr_f } else if ez { 0.5 } else { 1.0 };
     let cs = clamp(finite(scale(map.cs, 1.3), map.cs), 0.0, 10.0);
     let ar = clamp(finite(scale(map.ar, 1.4), map.ar), 0.0, 10.0);
     let od = clamp(finite(scale(map.od, 1.4), map.od), 0.0, 10.0);
-    let rate = rate_of(mods);
     Settings {
         rate,
         hidden: has("HD"),
@@ -497,8 +503,9 @@ fn rolling_load(events: &[Ev], get: impl Fn(&Ev) -> f64, seconds: f64) -> f64 {
     max
 }
 
-/// What a chart demands, before a play's accuracy scales it. `accuracy`'s raw demand is left at 0
-/// here (a per-play judgement thing, filled per play in `skills`). Cached to the database.
+/// What a chart demands, before a play's accuracy scales it. Accuracy has a window-based chart
+/// estimate; `skills` replaces it with the judgement-based timing demand times the cached load.
+/// Cached to the database.
 #[derive(Clone, Serialize, Deserialize)]
 struct Pattern {
     raw_demand: [f64; N_SKILLS],
@@ -507,6 +514,7 @@ struct Pattern {
     object_count: usize,
     duration: f64,
     great_hit_window: f64,
+    accuracy_load_factor: f64,
     stars: f64,
     ar: f64,
 }
@@ -522,8 +530,8 @@ struct AnObj {
     geom: Option<Geom>,
 }
 
-fn analyze_beatmap(map: &Map, mods: &[String], diff: Option<&pp::OsuDiff>) -> Pattern {
-    let s = effective_settings(map, mods);
+fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuDiff>) -> Pattern {
+    let s = effective_settings(map, mods, rate);
     let (rate, diameter, approach) = (s.rate, s.diameter, s.approach);
     let mut beat_length = 500.0;
     let mut sv = 1.0;
@@ -568,10 +576,9 @@ fn analyze_beatmap(map: &Map, mods: &[String], diff: Option<&pp::OsuDiff>) -> Pa
         if o.kind == Kind::Spinner {
             continue;
         }
-        // a reading window at least this wide, so a high AR (short approach) doesn't hide how fast
-        // dense notes actually come — otherwise a top player on high-AR/DT maps reads as low-density
-        // ponytail: 700ms floor is a calibration knob
-        while left < i && o.time - objects[left].time > approach.max(700.0) {
+        // Use the actual mod/rate-adjusted preempt window, so density measures objects
+        // sharing a reading window rather than a fixed-duration tapping rate.
+        while left < i && o.time - objects[left].time > approach {
             left += 1;
         }
         let from = left.max(i.saturating_sub(128));
@@ -594,7 +601,7 @@ fn analyze_beatmap(map: &Map, mods: &[String], diff: Option<&pp::OsuDiff>) -> Pa
         let distance = (o.x - p.end.x).hypot(o.y - p.end.y) / diameter;
         let active = gap <= (1000.0f64).min(o.beat_length * 2.0);
         let circle_pair = p.kind == Kind::Circle && o.kind == Kind::Circle;
-        let fast = circle_pair && gap >= 25.0 && gap <= (220.0f64).min(o.beat_length * 0.34);
+        let fast = circle_pair && gap >= 25.0 && gap <= SPEED_MAX_GAP_MS;
         let velocity = if active { distance / (move_time / 1000.0) } else { 0.0 };
         let mut internal_angle = 0.0;
         if i >= 2 {
@@ -742,12 +749,17 @@ fn analyze_beatmap(map: &Map, mods: &[String], diff: Option<&pp::OsuDiff>) -> Pa
     let speed_base = diff.map(|d| d.speed).filter(|v| v.is_finite()).unwrap_or(fast_nps / 3.5);
     let sustained_aim = rolling_load(&events, |e| e.velocity, 15.0);
     let sustained_tap = rolling_load(&events, |e| e.sustained_tap, 15.0);
+    // Geometry/timing only: no OD, stars or rosu components (which may themselves include OD).
+    // Reuse supported fast runs so a single fast pair cannot supply the tempo bonus.
+    let tempo_load = fast_nps * support_factor(6) * coverage_factor(6);
+    let rhythm_load = weighted_top(&rhythm) * support_factor(FINGER_CONTROL) * coverage_factor(FINGER_CONTROL);
+    let accuracy_load_factor = accuracy_load_factor(tempo_load, rhythm_load, sustained_tap, sustained_aim);
 
     let pv = if peak_velocity == 0.0 { 1.0 } else { peak_velocity };
     let mut base = [0.0f64; N_SKILLS];
     base[0] = 1.25 * aim_base * (weighted_top(&events.iter().map(|e| e.wide).collect::<Vec<_>>()) / pv).sqrt();
     base[1] = aim_base * (s.cs / 4.0).sqrt();
-    base[ACCURACY] = 30.0 / (4.0f64).max(s.great_hit_window / 2.0);
+    base[ACCURACY] = 30.0 / (4.0f64).max(s.great_hit_window / 2.0) * accuracy_load_factor;
     base[3] = aim_base * (weighted_top(&events.iter().map(|e| e.jump).collect::<Vec<_>>()) / pv).sqrt();
     base[FINGER_CONTROL] = speed_base * (1.6f64).min(weighted_top(&rhythm) * 1.5);
     base[5] = aim_base * clamp01(sustained_aim / pv).sqrt();
@@ -776,12 +788,24 @@ fn analyze_beatmap(map: &Map, mods: &[String], diff: Option<&pp::OsuDiff>) -> Pa
         object_count: non_spinners,
         duration: if objects.is_empty() { 0.0 } else { (objects[objects.len() - 1].end_time - objects[0].time) / 1000.0 },
         great_hit_window: s.great_hit_window,
+        accuracy_load_factor,
         stars: diff.map(|d| d.stars).unwrap_or(0.0),
         ar: diff.map(|d| d.ar).unwrap_or(0.0),
     }
 }
 
 /* ---------- per play ---------- */
+
+/// Provisional load calibration, bounded to keep timing performance dominant.
+/// References: 8 taps/s, rhythm complexity 1, sustained 8 taps/s and 10 diameters/s.
+/// Sparse charts receive 0.5x; fully demanding charts at most 1.25x before rating().
+fn accuracy_load_factor(tempo: f64, rhythm: f64, sustained_tap: f64, sustained_aim: f64) -> f64 {
+    let load = 0.40 * clamp01(tempo / 8.0)
+        + 0.25 * clamp01(rhythm)
+        + 0.25 * clamp01(sustained_tap / 8.0)
+        + 0.10 * clamp01(sustained_aim / 10.0);
+    0.5 + 0.75 * load
+}
 
 struct Hits {
     great: f64,
@@ -827,6 +851,9 @@ pub struct StdPlay {
     pub map: String,
     #[serde(default)]
     pub mods: Vec<String>,
+    /// Actual clock rate, including custom lazer rates.
+    #[serde(default)]
+    pub rate: Option<f64>,
     #[serde(default)]
     pub hits: HashMap<String, f64>,
     #[serde(default)]
@@ -956,7 +983,7 @@ fn pattern_for(read: &impl Fn(&str) -> Option<Vec<u8>>, db: &Mutex<Connection>, 
         return None;
     }
     let diff = pp::osu_difficulty_from(|| Ok(bytes.clone()), hash, mods, rate).ok().flatten();
-    let pattern = analyze_beatmap(&map, mods, diff.as_ref());
+    let pattern = analyze_beatmap(&map, mods, rate, diff.as_ref());
     db_store(db, hash, &key, rk, &pattern);
     let mut kept = KEPT.lock().unwrap();
     kept.insert(0, Cached { hash: hash.to_string(), key, rate: bits, pattern: pattern.clone() });
@@ -967,9 +994,10 @@ fn pattern_for(read: &impl Fn(&str) -> Option<Vec<u8>>, db: &Mutex<Connection>, 
 /// Pre-compute and cache a chart's pattern for the given mods, from text already in hand. The
 /// compare workers call this in parallel so the heavy analysis doesn't fall to the single-threaded
 /// `skills` pass afterwards (which then finds everything in cache). Same keys `skills` reads under.
-pub fn warm(db: &Mutex<Connection>, hash: &str, text: &[u8], mods: &[String]) {
+pub fn warm(db: &Mutex<Connection>, hash: &str, text: &[u8], mods: &[String], rate: Option<f64>) {
     let read = |_: &str| Some(text.to_vec());
-    let _ = pattern_for(&read, db, hash, mods, rate_of(mods));
+    let rate = play_rate(rate, mods);
+    let _ = pattern_for(&read, db, hash, mods, rate);
 }
 
 const ASSISTED: [&str; 5] = ["RX", "AP", "AT", "CN", "TD"];
@@ -1001,7 +1029,7 @@ pub fn skills(read: impl Fn(&str) -> Option<Vec<u8>>, db: &Mutex<Connection>, ha
                 continue;
             }
         };
-        let rate = rate_of(&play.mods);
+        let rate = play_rate(play.rate, &play.mods);
         let mut pattern = match pattern_for(&read, db, hash, &play.mods, rate) {
             Some(p) => p,
             None => {
@@ -1013,7 +1041,7 @@ pub fn skills(read: impl Fn(&str) -> Option<Vec<u8>>, db: &Mutex<Connection>, ha
         let miss_rate = hits.miss / (1.0f64).max(if hits.total > 0.0 { hits.total } else { pattern.object_count as f64 });
         let mastery = hits.accuracy.powi(2) * (-4.0 * miss_rate).exp();
         match accuracy_demand(&hits, pattern.great_hit_window) {
-            Some(t) => pattern.raw_demand[ACCURACY] = t,
+            Some(t) => pattern.raw_demand[ACCURACY] = t * pattern.accuracy_load_factor,
             None => {
                 pattern.raw_demand[ACCURACY] = 0.0;
                 pattern.support[ACCURACY] = 0.0;
@@ -1134,7 +1162,7 @@ mod tests {
         assert_eq!(map.objects.len(), 5);
         assert_eq!(map.cs, 4.0);
         assert_eq!(map.ar, 9.0);
-        let p = analyze_beatmap(&map, &[], None);
+        let p = analyze_beatmap(&map, &[], 1.0, None);
         assert_eq!(p.object_count, 5);
         for k in 0..N_SKILLS {
             assert!(p.raw_demand[k].is_finite() && p.raw_demand[k] >= 0.0, "skill {k}");
@@ -1145,5 +1173,121 @@ mod tests {
     fn rate_speeds_up() {
         assert!((rate_of(&["DT".to_string()]) - 1.5).abs() < 1e-9);
         assert_eq!(rate_of(&[]), 1.0);
+    }
+
+    #[test]
+    fn reading_density_uses_actual_ar_window_below_700ms() {
+        let mut map = parse_beatmap(MAP);
+        // Keep the same spacing and positions: only the visibility window changes.
+        for (i, o) in map.objects.iter_mut().enumerate() {
+            o.kind = Kind::Circle;
+            o.time = i as f64 * 160.0;
+            o.end_time = o.time;
+        }
+        map.ar = 9.0; // 600 ms: four objects fit at 160 ms spacing.
+        let ar9 = analyze_beatmap(&map, &[], 1.0, None);
+        map.ar = 10.0; // 450 ms: only three objects fit.
+        let ar10 = analyze_beatmap(&map, &[], 1.0, None);
+        assert!(ar9.raw_demand[7] > ar10.raw_demand[7]);
+        // DT scales both spacing and preempt equally: density should stay the same.
+        let dt = analyze_beatmap(&map, &["DT".into()], 1.5, None);
+        assert!((dt.raw_demand[7] - ar10.raw_demand[7]).abs() < 1e-9);
+        let custom_dt = analyze_beatmap(&map, &["DT".into()], 1.2, None);
+        assert!((custom_dt.raw_demand[7] - ar10.raw_demand[7]).abs() < 1e-9);
+    }
+
+    #[test]
+    fn accuracy_rewards_pattern_load_but_still_requires_clean_timing() {
+        let easy = speed_pattern(500.0, 500.0, 200, &[]);
+        let hard = speed_pattern(500.0, 100.0, 200, &[]);
+        let clean = Hits { great: 990.0, miss: 0.0, total: 1000.0, accuracy: 0.9933333333 };
+        let poor = Hits { great: 500.0, miss: 0.0, total: 1000.0, accuracy: 0.6666666667 };
+        let value = |hits: &Hits, p: &Pattern| rating(accuracy_demand(hits, p.great_hit_window).unwrap() * p.accuracy_load_factor);
+        assert_eq!(easy.great_hit_window, hard.great_hit_window);
+        assert!(value(&clean, &hard) > value(&clean, &easy));
+        assert!(value(&poor, &hard) < value(&clean, &easy));
+        assert!(speed_pattern(500.0, 100.0, 4, &[]).accuracy_load_factor < hard.accuracy_load_factor);
+        assert!(accuracy_demand(&Hits { great: 0.0, miss: 0.0, total: 0.0, accuracy: 0.0 }, 20.0).is_none());
+    }
+
+    #[test]
+    fn accuracy_load_is_bounded_and_independent_of_od() {
+        assert_eq!(accuracy_load_factor(0.0, 0.0, 0.0, 0.0), 0.5);
+        assert_eq!(accuracy_load_factor(100.0, 100.0, 100.0, 100.0), 1.25);
+        let baseline = accuracy_load_factor(4.0, 0.0, 0.0, 0.0);
+        assert!(accuracy_load_factor(8.0, 0.0, 0.0, 0.0) > baseline);
+        assert!(accuracy_load_factor(4.0, 1.0, 0.0, 0.0) > baseline);
+        assert!(accuracy_load_factor(4.0, 0.0, 8.0, 0.0) > baseline);
+        assert!(accuracy_load_factor(4.0, 0.0, 0.0, 10.0) > baseline);
+        let mut map = parse_beatmap(MAP);
+        map.od = 4.0;
+        let low_od = analyze_beatmap(&map, &[], 1.0, None);
+        map.od = 10.0;
+        let high_od = analyze_beatmap(&map, &[], 1.0, None);
+        assert_eq!(low_od.accuracy_load_factor, high_od.accuracy_load_factor);
+        assert_ne!(low_od.great_hit_window, high_od.great_hit_window);
+        let encoded = serde_json::to_vec(&high_od).unwrap();
+        let cached: Pattern = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(cached.accuracy_load_factor, high_od.accuracy_load_factor);
+    }
+
+    #[test]
+    fn custom_rate_overrides_mod_defaults_and_changes_pattern() {
+        let mods = vec!["DT".to_string()];
+        assert_eq!(play_rate(Some(1.2), &mods), 1.2);
+        assert_eq!(play_rate(None, &mods), 1.5);
+        assert_eq!(play_rate(Some(f64::NAN), &mods), 1.5);
+        assert_eq!(play_rate(Some(0.0), &mods), 1.5);
+        let mut map = parse_beatmap(MAP);
+        for (i, o) in map.objects.iter_mut().enumerate() {
+            o.kind = Kind::Circle;
+            o.time = i as f64 * 180.0;
+            o.end_time = o.time;
+        }
+        let custom = analyze_beatmap(&map, &mods, 1.2, None);
+        let default = analyze_beatmap(&map, &mods, 1.5, None);
+        assert_eq!(custom.support[6], 0.0);
+        assert!(default.support[6] > 0.0);
+        assert!((custom.duration / default.duration - 1.25).abs() < 1e-9);
+        assert!((custom.great_hit_window / default.great_hit_window - 1.25).abs() < 1e-9);
+        assert_ne!(rate_db_key(1.2), rate_db_key(1.5));
+        let play: StdPlay = serde_json::from_str(r#"{"map":"test","mods":["DT"],"rate":1.2}"#).unwrap();
+        assert_eq!(play_rate(play.rate, &play.mods), 1.2);
+    }
+
+    fn speed_pattern(beat_length: f64, gap: f64, count: usize, mods: &[String]) -> Pattern {
+        let mut map = parse_beatmap(MAP);
+        map.timing[0].beat_length = beat_length;
+        map.objects = (0..count).map(|i| Obj {
+            x: if i % 2 == 0 { 100.0 } else { 200.0 },
+            y: 192.0,
+            time: i as f64 * gap,
+            kind: Kind::Circle,
+            end_time: i as f64 * gap,
+            repeats: 0,
+            length: 0.0,
+            curve_type: 0,
+            control_points: Vec::new(),
+        }).collect();
+        analyze_beatmap(&map, mods, rate_of(mods), None)
+    }
+
+    #[test]
+    fn speed_uses_absolute_intervals_independent_of_bpm() {
+        let quarter_180 = speed_pattern(60000.0 / 180.0, 60000.0 / 720.0, 16, &[]);
+        let half_360 = speed_pattern(60000.0 / 360.0, 60000.0 / 720.0, 16, &[]);
+        assert!(quarter_180.raw_demand[6] > 0.0);
+        assert_eq!(quarter_180.support[6], half_360.support[6]);
+        assert_eq!(quarter_180.raw_demand[6], half_360.raw_demand[6]);
+        assert!(speed_pattern(60000.0 / 280.0, 60000.0 / 560.0, 16, &[]).raw_demand[6] > 0.0);
+    }
+
+    #[test]
+    fn speed_interval_boundary_mods_and_minimum_run() {
+        assert!(speed_pattern(500.0, 125.0, 4, &[]).raw_demand[6] > 0.0);
+        assert_eq!(speed_pattern(500.0, 126.0, 16, &[]).support[6], 0.0);
+        assert_eq!(speed_pattern(500.0, 83.0, 3, &[]).support[6], 0.0);
+        assert!(speed_pattern(500.0, 150.0, 16, &["DT".into()]).raw_demand[6] > 0.0);
+        assert_eq!(speed_pattern(500.0, 100.0, 16, &["HT".into()]).support[6], 0.0);
     }
 }

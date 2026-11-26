@@ -647,12 +647,12 @@ pub fn build_std(files: &crate::paths::Files, cache: &Path, db: &Mutex<Connectio
     let done = AtomicUsize::new(0);
     // beatmap → the distinct mod sets played on it, so each chart's pattern is worked out (in these
     // parallel workers) for exactly the variants skills() will need
-    let mut combos: HashMap<i64, Vec<Vec<String>>> = HashMap::new();
+    let mut combos: HashMap<i64, Vec<(Vec<String>, Option<f64>)>> = HashMap::new();
     for s in &f.scores {
-        let (mods, _) = mods_of(&s.mods);
+        let (mods, rate) = mods_of(&s.mods);
         let e = combos.entry(s.beatmap_id).or_default();
-        if !e.contains(&mods) {
-            e.push(mods);
+        if !e.contains(&(mods.clone(), rate)) {
+            e.push((mods, rate));
         }
     }
     // beatmap → (the key the chart is cached/read under, its .osu text)
@@ -696,8 +696,8 @@ pub fn build_std(files: &crate::paths::Files, cache: &Path, db: &Mutex<Connectio
                         // skills), else the chart's md5, else just the beatmap id
                         let key = found.map(|(_, k)| k.clone()).or_else(|| md5.map(str::to_string)).unwrap_or_else(|| format!("o{beatmap}"));
                         // the heavy analysis, here in the worker (not the single-threaded skills() pass)
-                        for mods in combos.get(&beatmap).map(Vec::as_slice).unwrap_or(&[]) {
-                            crate::osu_skills::warm(db, &key, t.as_bytes(), mods);
+                        for (mods, rate) in combos.get(&beatmap).map(Vec::as_slice).unwrap_or(&[]) {
+                            crate::osu_skills::warm(db, &key, t.as_bytes(), mods, *rate);
                         }
                         texts.lock().unwrap_or_else(|e| e.into_inner()).insert(beatmap, (key, t));
                     }
@@ -726,9 +726,9 @@ pub fn build_std(files: &crate::paths::Files, cache: &Path, db: &Mutex<Connectio
         let mapid = format!("o{}", s.beatmap_id);
         hashes.entry(mapid.clone()).or_insert_with(|| key.clone());
         by_key.entry(key.clone()).or_insert_with(|| text.clone().into_bytes());
-        let (mods, _) = mods_of(&s.mods);
+        let (mods, rate) = mods_of(&s.mods);
         let b = f.beatmaps.get(&s.beatmap_id);
-        std_plays.push(crate::osu_skills::StdPlay { map: mapid, mods: mods.clone(), hits: hits_of(&s.statistics), acc: s.accuracy, date: s.date as f64 });
+        std_plays.push(crate::osu_skills::StdPlay { map: mapid, mods: mods.clone(), rate, hits: hits_of(&s.statistics), acc: s.accuracy, date: s.date as f64 });
         out_plays.push(ComparePlay {
             beatmap_id: s.beatmap_id,
             set_id: b.and_then(|b| b.set_id),
