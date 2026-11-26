@@ -20,7 +20,7 @@ use crate::error::Result;
 use crate::pp;
 
 /// Bump when the model changes, so cached rows from an older model are ignored.
-const CACHE_VERSION: i64 = 1;
+const CACHE_VERSION: i64 = 3;
 
 /// The eleven skillsets, in order: id, label, group, description. Labels/descriptions are the
 /// model's own (the view shows them as given).
@@ -754,9 +754,16 @@ fn analyze_beatmap(map: &Map, mods: &[String], diff: Option<&pp::OsuDiff>) -> Pa
     base[5] = aim_base * clamp01(sustained_aim / pv).sqrt();
     base[6] = speed_base;
     base[7] = (quantile(&densities, 0.9).sqrt() / 1.3) * (1.0 + 0.06 * (4.0f64).min(quantile(&overlaps, 0.9))) * if s.hidden { 1.05 } else { 1.0 };
-    base[8] = (if speed_base != 0.0 { speed_base } else { sustained_tap / 3.5 }) * clamp01(sustained_tap / fast_nps.max(sustained_tap).max(1.0)).sqrt();
+    // tapping-stamina: the sustained tapping load against a stamina reference, on the speed scale.
+    // Was gated by sustained_tap / fast_nps (the burst peak), which docked anything that wasn't a
+    // pure held stream — so long streams (real stamina) read low.
+    // ponytail: 10.0 is the sustained taps/s load of demanding stamina, a calibration knob
+    base[8] = (if speed_base != 0.0 { speed_base } else { sustained_tap / 3.5 }) * clamp01(sustained_tap / 10.0).sqrt();
     base[9] = weighted_top(&sliders);
-    base[10] = (weighted_top(&flow_velocities) / 4.0).sqrt();
+    // flow-aim on the aim scale, gated by how fast the flow streams are against a flow reference —
+    // not the map's peak velocity, which the jumps set and which suppressed flow on any mixed map
+    // ponytail: 10.0 is the flow-velocity (≈diameters/s) of demanding streams, a calibration knob
+    base[10] = aim_base * clamp01(weighted_top(&flow_velocities) / 10.0).sqrt();
 
     let mut raw_demand = [0.0f64; N_SKILLS];
     for k in 0..N_SKILLS {
