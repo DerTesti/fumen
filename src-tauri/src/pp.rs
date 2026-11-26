@@ -132,6 +132,7 @@ pub struct OsuDiff {
     pub stars: f64,
     pub ar: f64,
     pub great_hit_window: f64,
+    pub large_ticks: u32,
 }
 
 /// osu!standard difficulty attributes. `read` gets the chart file (the library's, or one of another
@@ -140,7 +141,7 @@ pub fn osu_difficulty_from(read: impl FnOnce() -> Result<Vec<u8>>, hash: &str, m
     let rate = rate.clamp(0.5, 2.0);
     let (key, difficulty) = settings(mods, rate);
     Ok(match attributes(read, hash, &key, rate, &difficulty)? {
-        DifficultyAttributes::Osu(a) => Some(OsuDiff { aim: a.aim, speed: a.speed, stars: a.stars, ar: a.ar, great_hit_window: a.great_hit_window }),
+        DifficultyAttributes::Osu(a) => Some(OsuDiff { aim: a.aim, speed: a.speed, stars: a.stars, ar: a.ar, great_hit_window: a.great_hit_window, large_ticks: a.n_large_ticks }),
         _ => None,
     })
 }

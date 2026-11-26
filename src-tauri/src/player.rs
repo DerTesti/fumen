@@ -769,7 +769,7 @@ pub fn build_std(files: &crate::paths::Files, cache: &Path, db: &Mutex<Connectio
         by_key.entry(key.clone()).or_insert_with(|| text.clone().into_bytes());
         let (mods, rate) = mods_of(&s.mods);
         let b = f.beatmaps.get(&s.beatmap_id);
-        std_plays.push(crate::osu_skills::StdPlay { map: mapid, mods: mods.clone(), rate, hits: hits_of(&s.statistics), acc: s.accuracy, date: s.date as f64 });
+        std_plays.push(crate::osu_skills::StdPlay { map: mapid, mods: mods.clone(), rate, stable: s.legacy_id.is_some(), hits: hits_of(&s.statistics), acc: s.accuracy, date: s.date as f64 });
         out_plays.push(ComparePlay {
             beatmap_id: s.beatmap_id,
             set_id: b.and_then(|b| b.set_id),

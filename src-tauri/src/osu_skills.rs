@@ -21,7 +21,7 @@ use crate::error::Result;
 use crate::pp;
 
 /// Bump when the model changes, so cached rows from an older model are ignored.
-const CACHE_VERSION: i64 = 12;
+const CACHE_VERSION: i64 = 13;
 
 // Always accept 8 notes/s; allow slower beat-relative streams up to 180 ms as well.
 const SPEED_MAX_GAP_MS: f64 = 125.0;
@@ -41,7 +41,7 @@ pub const SKILLS: [(&str, &str, &str, &str); 11] = [
     ("speed", "Speed", "Tapping", "rosu-Speed-Schwierigkeit, gewichtet nach tatsächlichem Tempo zusammenhängender schneller Circle-Folgen."),
     ("density-reading", "Density reading", "Reading", "Typische hohe Objektdichte im effektiven AR-Fenster, einschließlich Überlagerung."),
     ("tapping-stamina", "Tapping stamina", "Tapping", "Schnelles Tapping über zusammenhängende Abschnitte und 15-Sekunden-Fenster."),
-    ("slider-control", "Slider control", "Tech", "Slider-Geschwindigkeit, Kurven, Wiederholungen und tatsächlicher Slider-Anteil."),
+    ("slider-control", "Slider control", "Tech", "Anspruchsvolle Slider mit nachgewiesenen Lazer-Ticks und Slider-Enden; ohne Detaildaten kein Nachweis."),
     ("flow-aim", "Flow aim", "Aim", "Räumlich anspruchsvolle, rhythmisch stabile Streams mit kontinuierlicher Bewegung."),
 ];
 const N_SKILLS: usize = 11;
@@ -537,6 +537,7 @@ struct Pattern {
     duration: f64,
     great_hit_window: f64,
     accuracy_load_factor: f64,
+    slider_ticks: Option<u32>,
     stars: f64,
     ar: f64,
 }
@@ -840,6 +841,7 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
         duration: if objects.is_empty() { 0.0 } else { (objects[objects.len() - 1].end_time - objects[0].time) / 1000.0 },
         great_hit_window: s.great_hit_window,
         accuracy_load_factor,
+        slider_ticks: diff.map(|d| d.large_ticks),
         stars: diff.map(|d| d.stars).unwrap_or(0.0),
         ar: diff.map(|d| d.ar).unwrap_or(0.0),
     }
@@ -863,6 +865,24 @@ struct Hits {
     miss: f64,
     total: f64,
     accuracy: f64,
+}
+
+/// Strict slider following needs actual lazer results, not inferred success from head accuracy.
+/// Stable/Classic and missing detail counts are unknown and do not demonstrate this skill.
+fn slider_performance(play: &StdPlay, pattern: &Pattern) -> Option<f64> {
+    if play.stable || play.mods.iter().any(|m| m == "CL") {
+        return None;
+    }
+    let ratio = |key: &str, total: f64| -> Option<f64> {
+        if total == 0.0 { return Some(1.0) }
+        let hit = *play.hits.get(key)?;
+        (hit.is_finite() && hit >= 0.0 && hit <= total).then_some(hit / total)
+    };
+    let sliders = pattern.support[9];
+    if sliders <= 0.0 { return None }
+    let tails = ratio("slider_tail_hit", sliders)?;
+    let ticks = ratio("large_tick_hit", pattern.slider_ticks? as f64)?;
+    Some(tails * ticks)
 }
 
 fn hit_results(play: &StdPlay) -> Hits {
@@ -905,6 +925,8 @@ pub struct StdPlay {
     /// Actual clock rate, including custom lazer rates.
     #[serde(default)]
     pub rate: Option<f64>,
+    #[serde(default)]
+    pub stable: bool,
     #[serde(default)]
     pub hits: HashMap<String, f64>,
     #[serde(default)]
@@ -1103,7 +1125,12 @@ pub fn skills(read: impl Fn(&str) -> Option<Vec<u8>>, db: &Mutex<Connection>, ha
             if pattern.support[k] == 0.0 || pattern.raw_demand[k] <= 0.0 {
                 continue;
             }
-            let performance = if k == ACCURACY { (-4.0 * miss_rate).exp() } else { mastery };
+            let performance = if k == ACCURACY {
+                (-4.0 * miss_rate).exp()
+            } else if k == 9 {
+                let Some(following) = slider_performance(play, &pattern) else { continue };
+                mastery * following
+            } else { mastery };
             worth[k] = rating(pattern.raw_demand[k] * performance);
         }
         rows.push(Row { play: i, map: play.map.clone(), date: play.date, worth, stars: pattern.stars, ar: pattern.ar, duration: pattern.duration });
@@ -1218,6 +1245,37 @@ mod tests {
         assert_eq!(rating(1000.0), 5000.0);
         assert_eq!(rating(f64::NAN), 0.0);
         assert_eq!(rating(f64::INFINITY), 0.0);
+    }
+
+    #[test]
+    fn slider_control_requires_real_end_and_tick_results() {
+        let mut pattern = analyze_beatmap(&parse_beatmap(MAP), &[], 1.0, None);
+        pattern.support[9] = 137.0;
+        pattern.slider_ticks = Some(3);
+        let mut play: StdPlay = serde_json::from_str(r#"{"map":"test","hits":{"slider_tail_hit":137,"large_tick_hit":3}}"#).unwrap();
+        assert_eq!(slider_performance(&play, &pattern), Some(1.0));
+        play.hits.insert("slider_tail_hit".into(), 100.0);
+        let dropped_ends = slider_performance(&play, &pattern).unwrap();
+        assert!(dropped_ends < 1.0);
+        play.hits.insert("large_tick_hit".into(), 2.0);
+        assert!(slider_performance(&play, &pattern).unwrap() < dropped_ends);
+        play.hits.insert("slider_tail_hit".into(), 0.0);
+        assert_eq!(slider_performance(&play, &pattern), Some(0.0));
+        play.hits.remove("slider_tail_hit");
+        assert_eq!(slider_performance(&play, &pattern), None);
+        play.hits.insert("slider_tail_hit".into(), 137.0);
+        play.stable = true;
+        assert_eq!(slider_performance(&play, &pattern), None);
+        play.stable = false;
+        play.mods.push("CL".into());
+        assert_eq!(slider_performance(&play, &pattern), None);
+        play.mods.clear();
+        play.hits.remove("large_tick_hit");
+        assert_eq!(slider_performance(&play, &pattern), None);
+        pattern.slider_ticks = Some(0);
+        assert_eq!(slider_performance(&play, &pattern), Some(1.0));
+        play.hits.insert("slider_tail_hit".into(), 138.0);
+        assert_eq!(slider_performance(&play, &pattern), None);
     }
 
     #[test]
@@ -1356,7 +1414,7 @@ mod tests {
                 curve_type: 0, control_points: Vec::new() }
         }).collect();
         // Identical rosu components: differences must come from pattern recognition.
-        let diff = pp::OsuDiff { aim: 3.0, speed: 3.0, stars: 5.0, ar: 9.0, great_hit_window: 20.0 };
+        let diff = pp::OsuDiff { aim: 3.0, speed: 3.0, stars: 5.0, ar: 9.0, great_hit_window: 20.0, large_ticks: 0 };
         analyze_beatmap(&map, &[], 1.0, Some(&diff))
     }
 

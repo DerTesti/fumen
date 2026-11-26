@@ -17,6 +17,7 @@ export interface OsuStandardPlay {
   map: string;
   mods: string[];
   rate?: number;
+  stable?: boolean;
   /** judgement counts (great/ok/meh/miss) */
   hits: Record<string, number>;
   /** 0–1 */
@@ -245,7 +246,7 @@ export async function computeOsuStandard(): Promise<ComputedOsuStandard> {
   // goals read osu! pp/rank from it, and they render as soon as the skills are done
   const history = await loadHistory();
   const plays = history.plays.filter((p) => p.mode === 0 && p.map && p.failed !== true);
-  const result = await api.osuStandard(plays.map((p) => ({ map: p.map as string, mods: p.mods ?? [], rate: p.rate, hits: p.hits ?? {}, acc: p.acc, date: p.date })));
+  const result = await api.osuStandard(plays.map((p) => ({ map: p.map as string, mods: p.mods ?? [], rate: p.rate, stable: p.stable ?? false, hits: p.hits ?? {}, acc: p.acc, date: p.date })));
   const skills: OsuSkillWithPlays[] = result.skills.map((s) => ({
     id: s.id,
     label: s.label,
