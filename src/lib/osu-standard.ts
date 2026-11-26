@@ -6,7 +6,7 @@
  */
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
-import { mapIndexOf } from "./history";
+import { loadHistory, mapIndexOf } from "./history";
 import { likeness, MIN_SCORE, print, type Print } from "./similar";
 import { store } from "./store";
 import type { Play } from "./types";
@@ -240,7 +240,9 @@ export async function compareOsuStandard(name: string, onProgress?: (p: OsuCompa
 
 /** Your osu!standard skills: the standard passes on library difficulties, rated by the backend. */
 export async function computeOsuStandard(): Promise<ComputedOsuStandard> {
-  const history = await api.getHistory();
+  // loadHistory (not api.getHistory) so the goals store's history is populated too — the standard
+  // goals read osu! pp/rank from it, and they render as soon as the skills are done
+  const history = await loadHistory();
   const plays = history.plays.filter((p) => p.mode === 0 && p.map && p.failed !== true);
   const result = await api.osuStandard(plays.map((p) => ({ map: p.map as string, mods: p.mods ?? [], hits: p.hits ?? {}, acc: p.acc, date: p.date })));
   const skills: OsuSkillWithPlays[] = result.skills.map((s) => ({

@@ -26,6 +26,9 @@ export interface GoalPreset {
   rate?: number;
   /** osu!standard skills (id, label, value, whether it's rated), for an "osu-skill" goal */
   stdSkills?: { id: string; label: string; value: number; confidence: number }[];
+  /** lock the profile goal to one ruleset, so a tab makes its own mode's pp/rank goal only
+   * (the osu!standard tab → "osu", the osu!mania tab → "mania") */
+  ruleset?: Ruleset;
 }
 
 export function openGoalDialog(preset: GoalPreset = {}): void {
@@ -42,8 +45,13 @@ export function openGoalDialog(preset: GoalPreset = {}): void {
   let stdId = stdSkills.find((s) => s.confidence > 0)?.id ?? stdSkills[0]?.id ?? "";
   let keys = preset.keys !== undefined && modes.includes(preset.keys) ? preset.keys : modes[0];
   let skillset: GoalSkill = preset.skillset ?? "overall";
+  // a tab can lock the profile goal to its own mode (std → osu, mania → mania): one pp/rank goal
+  // per ruleset, no cross-mode dropdown
+  const lockedRuleset = preset.ruleset;
   const preferRuleset: Ruleset = std ? "osu" : "mania";
-  let ruleset: Ruleset = rulesets.includes(preferRuleset) ? preferRuleset : (rulesets[0] ?? preferRuleset);
+  let ruleset: Ruleset = lockedRuleset ?? (rulesets.includes(preferRuleset) ? preferRuleset : (rulesets[0] ?? preferRuleset));
+  // whether the profile goal can be made at all (that ruleset needs stats from osu!)
+  const profileOk = lockedRuleset ? rulesets.includes(lockedRuleset) : rulesets.length > 0;
   let metric: "pp" | "rank" = "pp";
   let rate = preset.rate ?? 1;
   /** the target as typed; null: the suggestion */
@@ -61,7 +69,7 @@ export function openGoalDialog(preset: GoalPreset = {}): void {
             : `<button type="button" data-kind="skill">${t("Skill")}</button>
         ${chartMap ? `<button type="button" data-kind="chart">${t("This chart")}</button>` : ""}`
         }
-        <button type="button" data-kind="profile"${rulesets.length ? "" : ` disabled data-tip="${t("Log in with osu! in Settings first")}"`}>${t("osu! profile")}</button>
+        <button type="button" data-kind="profile"${profileOk ? "" : ` disabled data-tip="${t("Log in with osu! in Settings first")}"`}>${t("osu! profile")}</button>
       </div>
       <div class="goal-fields"></div>
       <div class="goal-now"></div>
@@ -135,7 +143,10 @@ export function openGoalDialog(preset: GoalPreset = {}): void {
         select(modes.map((k) => ({ value: String(k), label: `${k}K` })), String(keys), (v) => (keys = +v), t("Keys")),
       );
     } else if (kind === "profile") {
-      row.append(select(rulesets.map((r) => ({ value: r, label: RULESET_LABEL[r] })), ruleset, (v) => (ruleset = v), t("Mode")));
+      // locked to a tab's mode: no ruleset dropdown, just pp/rank
+      if (!lockedRuleset) {
+        row.append(select(rulesets.map((r) => ({ value: r, label: RULESET_LABEL[r] })), ruleset, (v) => (ruleset = v), t("Mode")));
+      }
       const seg = document.createElement("div");
       seg.className = "seg-pill goal-metric";
       seg.innerHTML = `<button type="button" data-metric="pp" class="${metric === "pp" ? "active" : ""}">pp</button><button type="button" data-metric="rank" class="${metric === "rank" ? "active" : ""}">${t("Rank")}</button>`;

@@ -35,6 +35,10 @@ export type GoalSpec =
   /** an osu!standard skillset (lib/osu-standard); `label` is kept so the title reads without the model */
   | { kind: "osu-skill"; skillset: string; label: string; target: number };
 
+/** Whether a goal belongs to the osu!standard tab: a standard skillset, or an osu! (standard)
+ * profile pp/rank goal. Everything else (mania skills, charts, other rulesets' pp/rank) is mania's. */
+export const isStdGoal = (g: GoalSpec): boolean => g.kind === "osu-skill" || (g.kind === "profile" && g.ruleset === "osu");
+
 export type Goal = GoalSpec & {
   id: string;
   /** unix ms */
@@ -126,8 +130,11 @@ export function progress(goal: Goal, now: number | null): number {
   if (goal.done || isReached(goal, now)) return 1;
   if (now === null) return 0;
   const target = targetOf(goal);
-  // without a start: from a little way off (rank: from twice the target)
-  const start = goal.start ?? (goal.kind === "chart" ? Math.max(0, target - 0.1) : lowerIsBetter(goal) ? target * 2 : target * 0.8);
+  // a little way off the target (rank: from twice the target)
+  const base = goal.kind === "chart" ? Math.max(0, target - 0.1) : lowerIsBetter(goal) ? target * 2 : target * 0.8;
+  // skills/charts show how far you've come since setting the goal; pp/rank show nearness to the
+  // target, so a goal set just above where you already are doesn't read as empty
+  const start = goal.kind === "profile" ? base : (goal.start ?? base);
   if (lowerIsBetter(goal)) {
     // ranks move in proportions: #20,000 → #10,000 is as far as #2,000 → #1,000
     const [s, t, n] = [start, target, now].map((v) => Math.log(Math.max(1, v)));

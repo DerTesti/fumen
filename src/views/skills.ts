@@ -6,7 +6,7 @@
  */
 import { api, asApiError, thumbUrl } from "../lib/api";
 import { compareEvents, compareNow, compareWith, endCompare, progressShare, progressText, recentPlayers, type ComparedChart } from "../lib/compare";
-import { goalNow, goalTarget, goalTitle, goalValue, progress, skillName, suggestTarget, type Goal, type GoalContext, type GoalSkill } from "../lib/goals";
+import { goalNow, goalTarget, goalTitle, goalValue, isStdGoal, progress, skillName, suggestTarget, type Goal, type GoalContext, type GoalSkill } from "../lib/goals";
 import { addGoal, currentContext, goalEvents, goalsNow, loadGoals, removeGoal } from "../lib/goals-store";
 import { displayTitle, esc, fixed, num, pct, relativeTime } from "../lib/format";
 import { historyEvents, historyNow, loadHistory, mapIndexOf, modsText, playWhen } from "../lib/history";
@@ -453,15 +453,17 @@ export class SkillsView {
   private stdGoalsHtml(result: ComputedOsuStandard): string {
     const all = goalsNow();
     if (!all) return "";
-    const goals = all.filter((g): g is Goal & { kind: "osu-skill" } => g.kind === "osu-skill");
+    const goals = all.filter(isStdGoal);
     const open = goals.filter((g) => !g.done);
     const reached = goals.filter((g) => g.done).sort((a, b) => b.done! - a.done!);
     const valueOf = (gid: string): number | null => {
       const s = result.skills.find((x) => x.id === gid);
       return s && s.confidence > 0 ? s.value : null;
     };
-    const card = (g: Goal & { kind: "osu-skill" }) => {
-      const now = valueOf(g.skillset);
+    const card = (g: Goal) => {
+      // a skillset's value comes from the computed result; a profile pp/rank from the account
+      const ctx = currentContext();
+      const now = g.kind === "osu-skill" ? valueOf(g.skillset) : ctx ? goalNow(g, ctx) : null;
       const p = progress(g, now);
       return `
         <div class="panel goal" data-goal="${g.id}">
@@ -832,8 +834,8 @@ export class SkillsView {
   private goalsHtml(ctx: GoalContext | null): string {
     const all = goalsNow();
     if (!all) return "";
-    // osu!standard goals live on the standard tab
-    const goals = all.filter((g) => g.kind !== "osu-skill");
+    // osu!standard goals (standard skillsets and osu! profile pp/rank) live on the standard tab
+    const goals = all.filter((g) => !isStdGoal(g));
     const open = goals.filter((g) => !g.done);
     const reached = goals.filter((g) => g.done).sort((a, b) => b.done! - a.done!);
     const card = (g: Goal) => {
@@ -1070,7 +1072,7 @@ export class SkillsView {
         const setGoal = target.closest<HTMLElement>(".std-skill-goal");
         if (setGoal) return this.addStdGoal(setGoal.closest<HTMLElement>(".skill")!.dataset.skill!);
         if (target.closest(".std-goal-new") && this.std.state === "done") {
-          return openGoalDialog({ kind: "osu-skill", stdSkills: this.std.result!.skills.map((s) => ({ id: s.id, label: s.label, value: s.value, confidence: s.confidence })) });
+          return openGoalDialog({ kind: "osu-skill", ruleset: "osu", stdSkills: this.std.result!.skills.map((s) => ({ id: s.id, label: s.label, value: s.value, confidence: s.confidence })) });
         }
         if (target.closest(".rec-load")) return this.startStdPractice();
         if (target.closest(".rec-all")) {
@@ -1141,7 +1143,7 @@ export class SkillsView {
         else this.open.add(s);
         return this.rerender(`.skill[data-skill="${s}"] .skill-head`);
       }
-      if (target.closest(".goal-new")) return openGoalDialog({ kind: "skill", keys: this.keys ?? undefined, skillset: this.weakest() });
+      if (target.closest(".goal-new")) return openGoalDialog({ kind: "skill", ruleset: "mania", keys: this.keys ?? undefined, skillset: this.weakest() });
       const goalMore = target.closest<HTMLElement>(".goal-more");
       if (goalMore) return this.goalMenu(goalMore.closest<HTMLElement>("[data-goal]")!.dataset.goal!, goalMore);
       if (target.closest(".goals-reached-toggle")) {
@@ -1149,7 +1151,7 @@ export class SkillsView {
         return this.rerender(".goals-reached-toggle");
       }
       const skillGoal = target.closest<HTMLElement>(".skill-goal");
-      if (skillGoal) return openGoalDialog({ kind: "skill", keys: this.keysShown(), skillset: skillGoal.closest<HTMLElement>(".skill")!.dataset.skill as GoalSkill });
+      if (skillGoal) return openGoalDialog({ kind: "skill", ruleset: "mania", keys: this.keysShown(), skillset: skillGoal.closest<HTMLElement>(".skill")!.dataset.skill as GoalSkill });
       const goalCard = target.closest<HTMLElement>(".goal[data-map]");
       if (goalCard) return openSet(store.snap!.maps[+goalCard.dataset.map!].set, +goalCard.dataset.map!);
       if (target.closest(".practice-all")) {
@@ -1192,7 +1194,7 @@ export class SkillsView {
       setMenu({ x: e.clientX, y: e.clientY }, store.snap!.maps[mapIdx].set, mapIdx, {
         practice: { rate, pattern: skill ? PATTERN_OF[skill] : undefined },
         extra: [
-          { label: t("Set a goal…"), icon: "flag", action: () => openGoalDialog({ kind: "chart", mapIdx, rate }) },
+          { label: t("Set a goal…"), icon: "flag", action: () => openGoalDialog({ kind: "chart", ruleset: "mania", mapIdx, rate }) },
           { label: t("Leave out of the skills"), icon: "eye-off", action: () => this.leaveOut(mapIdx) },
         ],
       });
