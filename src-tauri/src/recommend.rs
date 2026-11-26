@@ -9,6 +9,7 @@
 //! weighted by how like your maps it is. Needs the osu! login (like comparing).
 
 use std::collections::{HashSet, VecDeque};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
@@ -104,6 +105,7 @@ struct Cand {
     similarity: f64,
     /// Some: the library chart's hash, read locally; None: a discovery map, downloaded by beatmap id
     hash: Option<String>,
+    md5: Option<String>,
 }
 
 /// A library difficulty's chart hash, for reading it locally and keying its cached pattern.
@@ -140,6 +142,7 @@ fn round2(v: f64) -> f64 {
 
 pub fn recommend(
     files: &Files,
+    cache: &Path,
     db: &Mutex<Connection>,
     ep: &Endpoints,
     token: &str,
@@ -179,6 +182,7 @@ pub fn recommend(
                 version: c.version.clone(),
                 similarity: c.similarity.clamp(0.0, 1.0),
                 hash: Some(lib_hash(db, &c.map_id)?),
+                md5: None,
             })
         })
         .collect();
@@ -210,14 +214,19 @@ pub fn recommend(
                 Some(b) => b,
                 None => continue,
             },
-            None => match crate::downloads::download_chart(&agent, c.beatmap_id, i % 4) {
+            None => match crate::player::cached_chart(cache, c.beatmap_id, c.md5.as_deref(), || {
+                crate::downloads::download_chart(&agent, c.beatmap_id, i % 4)
+            }) {
                 Ok(Some(t)) => t.into_bytes(),
                 _ => continue,
             },
         };
         let read = |_: &str| Some(bytes.clone());
         // library charts score off the pattern your own skills already cached (keyed by hash)
-        let hash = c.hash.clone().unwrap_or_else(|| format!("o{}", c.beatmap_id));
+        let hash = c.hash.clone().unwrap_or_else(|| {
+            use md5::Digest;
+            format!("{:x}", md5::Md5::digest(&bytes))
+        });
         for (vi, variant) in VARIANTS.iter().enumerate() {
             let mods: Vec<String> = variant.iter().map(|m| m.to_string()).collect();
             let Some((demand, stars)) = osu_skills::rated_demand(&read, db, &hash, &mods) else { continue };
@@ -338,6 +347,7 @@ fn discover(
                         version: b["version"].as_str().unwrap_or_default().to_string(),
                         similarity: DISCOVERY_SIM,
                         hash: None,
+                        md5: b["checksum"].as_str().map(str::to_string),
                     });
                 }
             }

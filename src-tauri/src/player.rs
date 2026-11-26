@@ -342,6 +342,47 @@ fn cache_file(dir: &Path, beatmap: i64, md5: Option<&str>) -> PathBuf {
     dir.join(format!("{beatmap}-{}.osu", md5.filter(|h| h.len() == 32 && h.bytes().all(|b| b.is_ascii_hexdigit())).unwrap_or("x")))
 }
 
+/// Shared chart cache for practice and comparisons. Check the requested revision before
+/// invoking the downloader; an unversioned entry can be reused only if its content matches.
+pub(crate) fn cached_chart(
+    dir: &Path,
+    beatmap: i64,
+    md5: Option<&str>,
+    download: impl FnOnce() -> Result<Option<String>>,
+) -> Result<Option<String>> {
+    let path = cache_file(dir, beatmap, md5);
+    let mut paths = vec![path.clone()];
+    if md5.is_some() {
+        paths.push(cache_file(dir, beatmap, None));
+    } else if let Ok(entries) = std::fs::read_dir(dir) {
+        // When no checksum is available, also reuse charts cached by comparisons under MD5.
+        let prefix = format!("{beatmap}-");
+        let mut revisions: Vec<_> = entries.flatten().filter(|e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            name.starts_with(&prefix) && name.ends_with(".osu")
+        }).collect();
+        revisions.sort_by_key(|e| std::cmp::Reverse(e.metadata().and_then(|m| m.modified()).ok()));
+        paths.extend(revisions.into_iter().map(|e| e.path()));
+    }
+    let valid = |text: &str| text.contains("[HitObjects]") && md5.is_none_or(|want| md5_is(text, want));
+    for file in paths {
+        if let Ok(text) = std::fs::read_to_string(file) {
+            if valid(&text) {
+                return Ok(Some(text));
+            }
+        }
+    }
+    let Some(text) = download()? else { return Ok(None) };
+    if !valid(&text) {
+        return Ok(None);
+    }
+    if std::fs::create_dir_all(dir).is_ok() {
+        let _ = std::fs::write(path, &text);
+    }
+    Ok(Some(text))
+}
+
 /// Drops cached chart files nobody has needed for a while.
 fn tidy_cache(dir: &Path) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
@@ -765,6 +806,35 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn practice_chart_cache_reuses_downloads_and_rejects_stale_revisions() {
+        use md5::Digest;
+        let dir = std::env::temp_dir().join(format!("fumen-practice-cache-{}-{}", std::process::id(), crate::lazer::now_ms()));
+        let text = "osu file format v14\n[HitObjects]\n256,192,0,1,0\n";
+        let sum = format!("{:x}", md5::Md5::digest(text.as_bytes()));
+        let downloaded = cached_chart(&dir, 42, Some(&sum), || Ok(Some(text.into()))).unwrap();
+        assert_eq!(downloaded.as_deref(), Some(text));
+        assert_eq!(cached_chart(&dir, 42, Some(&sum), || panic!("cache hit must not download")).unwrap(), downloaded);
+        assert_eq!(cached_chart(&dir, 42, None, || panic!("reuse comparison's versioned cache")).unwrap(), downloaded);
+        let updated = "osu file format v14\n[HitObjects]\n256,192,100,1,0\n";
+        let new_sum = format!("{:x}", md5::Md5::digest(updated.as_bytes()));
+        let mut called = false;
+        assert_eq!(cached_chart(&dir, 42, Some(&new_sum), || {
+            called = true;
+            Ok(Some(updated.into()))
+        }).unwrap().as_deref(), Some(updated));
+        assert!(called);
+        // A mirror serving the wrong revision must not poison the requested cache entry.
+        assert_eq!(cached_chart(&dir, 43, Some(&sum), || Ok(Some(updated.into()))).unwrap(), None);
+        assert!(!cache_file(&dir, 43, Some(&sum)).exists());
+        std::fs::write(cache_file(&dir, 44, None), text).unwrap();
+        assert_eq!(cached_chart(&dir, 44, Some(&sum), || panic!("matching unversioned cache")).unwrap().as_deref(), Some(text));
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            std::fs::remove_file(entry.unwrap().path()).unwrap();
+        }
+        std::fs::remove_dir(dir).unwrap();
+    }
 
     /// A 4K chart: a stream, then jacks.
     fn chart(title: &str) -> String {

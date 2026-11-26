@@ -2083,7 +2083,7 @@ async fn osu_recommendations(app: AppHandle, skills: Vec<recommend::SkillValue>,
             let emit = |p: player::Progress| {
                 let _ = app.emit("recommend-progress", p);
             };
-            osu_auth::with_token(&state.data_dir, &ep, |token| recommend::recommend(&state.files(), state.db_mutex(), &ep, token, &skills, comfort_stars, peak_stars, &library, &played, &state.compare_cancel, emit)).map(tauri::ipc::Response::new)
+            osu_auth::with_token(&state.data_dir, &ep, |token| recommend::recommend(&state.files(), &state.cache_dir.join("osu-charts"), state.db_mutex(), &ep, token, &skills, comfort_stars, peak_stars, &library, &played, &state.compare_cancel, emit)).map(tauri::ipc::Response::new)
         })();
         state.comparing.store(false, Ordering::SeqCst);
         result
