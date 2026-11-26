@@ -33,7 +33,7 @@ export type GoalSpec =
     }
   | { kind: "profile"; ruleset: Ruleset; metric: "pp" | "rank"; target: number }
   /** an osu!standard skillset (lib/osu-standard); `label` is kept so the title reads without the model */
-  | { kind: "osu-skill"; skillset: string; label: string; target: number };
+  | { kind: "osu-skill"; skillset: string; label: string; target: number; scale?: "pattern-demand-v1" | "pattern-demand-x5-v2" };
 
 /** Whether a goal belongs to the osu!standard tab: a standard skillset, or an osu! (standard)
  * profile pp/rank goal. Everything else (mania skills, charts, other rulesets' pp/rank) is mania's. */
@@ -61,7 +61,10 @@ export interface GoalContext {
 
 /** Skill goals from before the skills were Etterna's (a pattern in stars, no skillset) aren't
  * measured any more; they stay stored but aren't shown. */
-export const isRetired = (g: GoalSpec): boolean => g.kind === "skill" && !(g as { skillset?: string }).skillset;
+export const isRetired = (g: GoalSpec): boolean =>
+  (g.kind === "skill" && !(g as { skillset?: string }).skillset)
+  // Old 0–100 targets cannot be compared to averages on the open demand scale.
+  || (g.kind === "osu-skill" && g.scale !== "pattern-demand-x5-v2");
 
 /** A skill goal's skill in a sheet. */
 export const skillIn = (sheet: SkillSheet, skillset: GoalSkill): number | null =>
@@ -146,7 +149,8 @@ export function progress(goal: Goal, now: number | null): number {
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 /** A target a step beyond where things are now, for a skill, a chart's accuracy, pp or a rank. */
-export function suggestTarget(what: "skill" | "chart" | "pp" | "rank", now: number | null): number {
+export function suggestTarget(what: "skill" | "osu-skill" | "chart" | "pp" | "rank", now: number | null): number {
+  if (what === "osu-skill") return now === null ? 5 : Math.ceil((now + Math.max(0.5, now * 0.05)) * 100) / 100;
   if (what === "skill") return now === null ? 15 : Math.ceil((now + 0.5) * 2) / 2;
   if (what === "chart") return now === null || now < 0.955 ? 0.96 : Math.min(1, Math.ceil((now + 0.005) * 200) / 200);
   if (what === "rank") return now === null ? 100_000 : roundSig(now * 0.8);

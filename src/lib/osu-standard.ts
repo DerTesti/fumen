@@ -38,7 +38,7 @@ export interface OsuSkill {
   label: string;
   group: string;
   description: string;
-  /** 0–100 on the provisional scale; 0 when nothing demonstrates it */
+  /** Open-ended on the provisional demand scale; 0 when nothing demonstrates it */
   value: number;
   /** 0–1 */
   confidence: number;
@@ -95,7 +95,7 @@ export interface OsuRecommendation {
   artist: string;
   artistUnicode: string;
   version: string;
-  /** the chart's demand in the skillset at the suggested mods (0–100) */
+  /** the chart's demand in the skillset at the suggested mods (open-ended demand units) */
   value: number;
   mods: string[];
   rate: number;

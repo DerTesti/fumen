@@ -20,7 +20,9 @@ export const goalsNow = (): Goal[] | null => goals;
 export function loadGoals(): Promise<Goal[]> {
   loading ??= api.getGoals().then(
     (g) => {
-      const kept = g.filter((x) => !isRetired(x));
+      const kept = g.map((goal): Goal => goal.kind === "osu-skill" && goal.scale === "pattern-demand-v1"
+        ? { ...goal, target: goal.target * 5, start: goal.start === null ? null : goal.start * 5, scale: "pattern-demand-x5-v2" }
+        : goal).filter((x) => !isRetired(x));
       goals = kept;
       goalEvents.emit("goals", kept);
       check();
@@ -47,6 +49,7 @@ function changed(): void {
 
 /** Sets a goal from where things stand now. */
 export async function addGoal(spec: GoalSpec): Promise<Goal> {
+  if (spec.kind === "osu-skill") spec = { ...spec, scale: "pattern-demand-x5-v2" };
   const ctx = currentContext();
   const goal: Goal = { ...spec, id: crypto.randomUUID(), created: Date.now(), start: ctx ? goalNow(spec, ctx) : null };
   await api.putGoal(goal);

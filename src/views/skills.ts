@@ -445,7 +445,7 @@ export class SkillsView {
     const s = result?.skills.find((x) => x.id === id);
     if (!s) return;
     const now = s.confidence > 0 ? s.value : null;
-    void addGoal({ kind: "osu-skill", skillset: id, label: s.label, target: suggestTarget("skill", now) }).catch((e) =>
+    void addGoal({ kind: "osu-skill", skillset: id, label: s.label, target: suggestTarget("osu-skill", now) }).catch((e) =>
       toast(t("Couldn't set the goal: {error}", { error: asApiError(e).message }), { kind: "danger" }),
     );
   }
@@ -1502,7 +1502,11 @@ function radar(now: RadarSheet, then: RadarSheet, goals: (number | null)[], vs: 
   const max = values.length ? Math.max(...values) : 10;
   const min = values.length ? Math.min(...values) : 0;
   const span = max - min;
-  const step = span > 16 ? 5 : span > 6 ? 2 : 1;
+  // Standard's open scale needs useful spacing for both tiny and very large ratings.
+  const rawStep = Math.max(0.01, span / 5);
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const openStep = [1, 2, 5, 10].find((v) => v * magnitude >= rawStep)! * magnitude;
+  const step = axisLabels ? openStep : span > 16 ? 5 : span > 6 ? 2 : 1;
   const lo = Math.max(0, Math.floor((min - step) / step) * step);
   const hi = Math.max(lo + step, Math.ceil((max + step * 0.25) / step) * step);
   const R = 100;
@@ -1519,7 +1523,7 @@ function radar(now: RadarSheet, then: RadarSheet, goals: (number | null)[], vs: 
     const r = ((v - lo) / (hi - lo)) * R;
     const pts = now.skills.map((_, i) => [Math.cos(angle(i)) * r, Math.sin(angle(i)) * r] as [number, number]);
     rings.push(`<polygon class="ring" points="${poly(pts)}" />`);
-    rings.push(`<text class="ring-label" x="4" y="${(-r + 3).toFixed(1)}">${Math.round(v)}</text>`);
+    rings.push(`<text class="ring-label" x="4" y="${(-r + 3).toFixed(1)}">${axisLabels ? fixed(v, Math.max(0, -Math.floor(Math.log10(step)))) : Math.round(v)}</text>`);
   }
   const spokes = now.skills.map((_, i) => {
     const [x, y] = at(i, hi);

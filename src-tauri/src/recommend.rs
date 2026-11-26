@@ -190,11 +190,11 @@ pub fn recommend(
         .map(|s| {
             let label = SKILLS.iter().find(|(id, ..)| *id == s.id).map(|(_, l, ..)| *l).unwrap_or(s.id.as_str());
             // a band a little above where the skillset stands now; picks are ranked within it
-            Group { skill: s.id.clone(), label: label.to_string(), from: Some(s.value), lo: s.value * 1.01, hi: s.value * 1.3 + 6.0, picks: Vec::new() }
+            Group { skill: s.id.clone(), label: label.to_string(), from: Some(s.value), lo: s.value * 1.01, hi: s.value * 1.3 + 2.5, picks: Vec::new() }
         })
         .collect();
     // the point in each band we aim for, and the (score, mod bucket, recommendation) seen per skill
-    let targets: Vec<f64> = weak.iter().map(|s| s.value * 1.1 + 2.0).collect();
+    let targets: Vec<f64> = weak.iter().map(|s| s.value * 1.1 + 1.0).collect();
     let mut scored: Vec<Vec<(f64, usize, Recommendation)>> = weak.iter().map(|_| Vec::new()).collect();
 
     // 2. read/download and score each candidate at the mod variants
@@ -233,7 +233,7 @@ pub fn recommend(
                 }
                 // mostly how well it sits at the band's aim; being like your maps only nudges it,
                 // so an easier map worth a mod (DT, less like your maps) isn't buried under nomod picks
-                let closeness = 1.0 / (1.0 + (value - targets[gi]).abs() / 5.0);
+                let closeness = 1.0 / (1.0 + (value - targets[gi]).abs() / 2.5);
                 let score = closeness * (0.5 + 0.5 * c.similarity);
                 let from = g.from.unwrap_or(0.0);
                 let after = from + (value - from) * 0.3;

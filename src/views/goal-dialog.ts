@@ -110,7 +110,7 @@ export function openGoalDialog(preset: GoalPreset = {}): void {
     const ctx = currentContext();
     return ctx ? goalNow(spec(0), ctx) : null;
   };
-  const suggestion = (now: number | null) => suggestTarget(kind === "profile" ? metric : kind === "osu-skill" ? "skill" : kind, now);
+  const suggestion = (now: number | null) => suggestTarget(kind === "profile" ? metric : kind === "osu-skill" ? "osu-skill" : kind, now);
   /** the target in the field's terms: accuracy in percent */
   const shown = (v: number) => (kind === "chart" ? fixed(v * 100, 1) : kind === "skill" || kind === "osu-skill" ? fixed(v, 2) : String(Math.round(v)));
   const parse = (s: string): number | null => {
@@ -192,7 +192,7 @@ export function openGoalDialog(preset: GoalPreset = {}): void {
     else note = now !== null ? t("Now {value}", { value: goalValue(spec(0), now) }) : t("Nothing from osu! yet");
     if (v === null) error = t("Type a target.");
     else if (kind === "chart" && (v <= 0.5 || v > 1)) error = t("An accuracy between 50% and 100%.");
-    else if (kind === "osu-skill" && (v <= 0 || v > 100)) error = t("A skill between 0 and 100.");
+    else if (kind === "osu-skill" && v <= 0) error = t("A positive skill rating.");
     else if (kind === "skill" && (v <= 0 || v > 50)) error = t("A skill between 0 and 50.");
     else if (kind === "profile" && v < 1) error = metric === "rank" ? t("A rank from #1.") : t("Some pp above 0.");
     else if (sp && isReached(sp, now)) error = t("You're there already: aim higher.");

@@ -48,15 +48,15 @@ const N_SKILLS: usize = 11;
 const ACCURACY: usize = 2;
 const FINGER_CONTROL: usize = 4;
 
-pub const MODEL_VERSION: &str = "pattern-rosu-v2";
+pub const MODEL_VERSION: &str = "pattern-rosu-open-x5-v4";
 
-/// Provisional shared scale, logistic in log-demand: 2.5 component-equivalent units = 50, 5 = 80.
+/// Open-ended demand units. No saturating conversion: twice the demonstrated demand
+/// gives twice the rating. Five rating units per demand unit; independent of MSD.
 pub fn rating(d: f64) -> f64 {
-    let d = d.max(0.0);
-    100.0 * d * d / (d * d + 2.5 * 2.5)
+    finite(d, 0.0).max(0.0) * 5.0
 }
 
-/// A chart's rated demand (0–100) per skillset and its star rating at some mods, from the pattern
+/// A chart's open-ended demand per skillset and its star rating at some mods, from the pattern
 /// cache (recommend.rs): library charts reuse the pattern worked out for your own skills, so they
 /// cost nothing to score. The stars are with the mods on, so a recommender can keep a map whose
 /// mods (DT especially) blow its difficulty past your comfort out of the list. `read(hash)` yields
@@ -102,7 +102,7 @@ fn quantile(a: &[f64], q: f64) -> f64 {
     v[((v.len() - 1) as f64 * q).floor() as usize]
 }
 /// Confirmed level: five equally weighted best-per-chart demonstrations.
-/// Missing demonstrations count as zero: one exceptional play contributes at most 20 points.
+/// Missing demonstrations count as zero: one exceptional play contributes only one fifth.
 fn skill_value(worths: &[f64]) -> f64 {
     let mut v = worths.to_vec();
     v.sort_by(|a, b| b.partial_cmp(a).unwrap());
@@ -1210,11 +1210,14 @@ mod tests {
     const MAP: &str = "[General]\nMode: 0\n[Difficulty]\nCircleSize:4\nApproachRate:9\nOverallDifficulty:8\nSliderMultiplier:1.4\n[TimingPoints]\n0,300,4,1,0,100,1,0\n[HitObjects]\n256,192,0,1,0\n120,120,120,1,0\n400,260,240,1,0\n180,80,360,1,0\n256,192,480,2,0,L|356:192,1,100\n";
 
     #[test]
-    fn rating_is_bounded_and_rising() {
+    fn rating_is_linear_and_open_ended() {
         assert_eq!(rating(0.0), 0.0);
-        assert!((rating(2.5) - 50.0).abs() < 1e-6);
-        assert!(rating(1000.0) > 99.0 && rating(1000.0) <= 100.0);
-        assert!(rating(5.0) > rating(2.5));
+        assert_eq!(rating(-1.0), 0.0);
+        assert_eq!(rating(2.5), 12.5);
+        assert_eq!(rating(5.0), 2.0 * rating(2.5));
+        assert_eq!(rating(1000.0), 5000.0);
+        assert_eq!(rating(f64::NAN), 0.0);
+        assert_eq!(rating(f64::INFINITY), 0.0);
     }
 
     #[test]

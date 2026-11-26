@@ -9,7 +9,7 @@ export const osuStandard: Record<string, string> = {
   "Once you've passed some osu!standard maps that are in your library, you'll see here what you're good at.":
     "Sobald du ein paar osu!standard-Maps aus deiner Bibliothek gepasst hast, siehst du hier, was du gut kannst.",
   "A skillset to work toward.": "Ein Skill, auf den du hinarbeitest.",
-  "A skill between 0 and 100.": "Ein Skill zwischen 0 und 100.",
+  "A positive skill rating.": "Ein positiver Skill-Wert.",
   "Couldn't set the goal: {error}": "Ziel konnte nicht gesetzt werden: {error}",
   "Reading osu!'s ranked maps…": "Lese osu!s Ranked-Maps…",
   "Find practice maps": "Übungs-Maps finden",

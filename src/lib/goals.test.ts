@@ -3,6 +3,13 @@ import { bestAcc, goalContext, goalNow, goalTarget, goalTitle, isReached, isReti
 import { aggregate } from "./skills";
 import type { MapRow, Play } from "./types";
 
+it("keeps old standard targets stored but excludes incompatible scales", () => {
+  const old: GoalSpec = { kind: "osu-skill", skillset: "speed", label: "Speed", target: 80 };
+  expect(isRetired(old)).toBe(true);
+  expect(isRetired({ ...old, scale: "pattern-demand-x5-v2", target: 150 })).toBe(false);
+  expect(isRetired({ kind: "skill", keys: 4, skillset: "stream", target: 25 })).toBe(false);
+});
+
 const map = (id: string, sr: number, shares: number[]): MapRow => ({
   set: 0, id, version: id, mode: 3, status: 1, sr, bpm: 180, length: 120_000, objects: 1000, holds: 0,
   hp: 8, cs: 4, od: 8, ar: 0, shares, srHt: sr * 0.75, srDt: sr * 1.4,
