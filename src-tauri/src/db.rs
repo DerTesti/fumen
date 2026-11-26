@@ -363,6 +363,19 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX IF NOT EXISTS attempts_md5 ON attempts(md5);
     CREATE INDEX IF NOT EXISTS attempts_started ON attempts(started);
     "#,
+    // osu!standard per-chart skill analysis (osu_skills.rs), cached by chart, mods and rate so it
+    // survives restarts like osu!mania's chart_stats. `data` is the serialized pattern; `version`
+    // lets a model change invalidate old rows.
+    r#"
+    CREATE TABLE osu_skill_charts (
+        hash    TEXT NOT NULL,
+        mods    TEXT NOT NULL,
+        rate    INTEGER NOT NULL,
+        version INTEGER NOT NULL,
+        data    BLOB NOT NULL,
+        PRIMARY KEY (hash, mods, rate)
+    );
+    "#,
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

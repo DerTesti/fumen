@@ -121,6 +121,30 @@ impl Budget {
     }
 }
 
+/// osu!standard difficulty attributes (aim, speed, …) from the same rosu-pp fork pp uses, so the
+/// osu!standard skills (lib/osu-standard.ts) don't need a second difficulty calculator in the
+/// webview. None for charts that aren't osu!standard.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OsuDiff {
+    pub aim: f64,
+    pub speed: f64,
+    pub stars: f64,
+    pub ar: f64,
+    pub great_hit_window: f64,
+}
+
+/// osu!standard difficulty attributes. `read` gets the chart file (the library's, or one of another
+/// player's from the mirrors); `hash` just keeps the cache apart.
+pub fn osu_difficulty_from(read: impl FnOnce() -> Result<Vec<u8>>, hash: &str, mods: &[String], rate: f64) -> Result<Option<OsuDiff>> {
+    let rate = rate.clamp(0.5, 2.0);
+    let (key, difficulty) = settings(mods, rate);
+    Ok(match attributes(read, hash, &key, rate, &difficulty)? {
+        DifficultyAttributes::Osu(a) => Some(OsuDiff { aim: a.aim, speed: a.speed, stars: a.stars, ar: a.ar, great_hit_window: a.great_hit_window }),
+        _ => None,
+    })
+}
+
 /// pp at the panel's mods and rate: a perfect play, and each play asked about.
 pub fn sheet(files: &paths::Files, hash: &str, mods: &[String], rate: f64, plays: &[Hits]) -> Result<Sheet> {
     let read = || files.read(hash).ok_or_else(|| Error::known("chart-missing", "This difficulty's .osu file is missing."));
