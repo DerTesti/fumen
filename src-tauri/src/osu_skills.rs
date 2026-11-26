@@ -20,7 +20,7 @@ use crate::error::Result;
 use crate::pp;
 
 /// Bump when the model changes, so cached rows from an older model are ignored.
-const CACHE_VERSION: i64 = 3;
+const CACHE_VERSION: i64 = 4;
 
 /// The eleven skillsets, in order: id, label, group, description. Labels/descriptions are the
 /// model's own (the view shows them as given).
@@ -568,7 +568,10 @@ fn analyze_beatmap(map: &Map, mods: &[String], diff: Option<&pp::OsuDiff>) -> Pa
         if o.kind == Kind::Spinner {
             continue;
         }
-        while left < i && o.time - objects[left].time > approach {
+        // a reading window at least this wide, so a high AR (short approach) doesn't hide how fast
+        // dense notes actually come — otherwise a top player on high-AR/DT maps reads as low-density
+        // ponytail: 700ms floor is a calibration knob
+        while left < i && o.time - objects[left].time > approach.max(700.0) {
             left += 1;
         }
         let from = left.max(i.saturating_sub(128));
