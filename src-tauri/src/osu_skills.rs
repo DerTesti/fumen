@@ -44,9 +44,27 @@ const FINGER_CONTROL: usize = 4;
 pub const MODEL_VERSION: &str = "pattern-rosu-v2";
 
 /// Provisional shared scale, logistic in log-demand: 2.5 component-equivalent units = 50, 5 = 80.
-fn rating(d: f64) -> f64 {
+pub fn rating(d: f64) -> f64 {
     let d = d.max(0.0);
     100.0 * d * d / (d * d + 2.5 * 2.5)
+}
+
+/// A chart's rated demand (0–100) in each skillset at some mods, for recommendations (recommend.rs);
+/// None if the chart is unreadable.
+pub fn analyze(text: &str, mods: &[String]) -> Option<[f64; N_SKILLS]> {
+    let map = parse_beatmap(text);
+    if map.objects.len() < 3 {
+        return None;
+    }
+    let rate = rate_of(mods);
+    let bytes = text.as_bytes().to_vec();
+    let diff = pp::osu_difficulty_from(|| Ok(bytes.clone()), "rec", mods, rate).ok().flatten();
+    let p = analyze_beatmap(&map, mods, diff.as_ref());
+    let mut demand = [0.0f64; N_SKILLS];
+    for k in 0..N_SKILLS {
+        demand[k] = rating(p.raw_demand[k]);
+    }
+    Some(demand)
 }
 
 fn finite(v: f64, f: f64) -> f64 {

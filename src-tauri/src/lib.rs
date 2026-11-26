@@ -29,6 +29,7 @@ mod mma;
 mod mods;
 mod msd;
 mod osu_skills;
+mod recommend;
 mod wife;
 mod vibro;
 mod osu;
@@ -2060,6 +2061,37 @@ async fn compare_osu_standard(app: AppHandle, name: String) -> Result<tauri::ipc
     .map_err(|e| Error::known("internal", e.to_string()))?
 }
 
+/// Charts to practise your weak osu!standard skillsets on, from osu!'s ranked maps (recommend.rs).
+/// Shares the compare lock and cancel, since both fetch from osu!.
+#[tauri::command]
+async fn osu_recommendations(app: AppHandle, skills: Vec<recommend::SkillValue>, comfort_stars: f64, played: Vec<i64>) -> Result<tauri::ipc::Response> {
+    tauri::async_runtime::spawn_blocking(move || {
+        online::ensure()?;
+        let state = app.state::<AppState>();
+        state.compare_cancel.store(true, Ordering::SeqCst);
+        let started = std::time::Instant::now();
+        while state.comparing.swap(true, Ordering::SeqCst) {
+            if started.elapsed() > std::time::Duration::from_secs(10) {
+                return Err(Error::known("busy", "Another osu! fetch is still stopping; try again in a moment."));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        state.compare_cancel.store(false, Ordering::SeqCst);
+        let result = (|| {
+            let ep = osu_auth::Endpoints::default();
+            let played: std::collections::HashSet<i64> = played.into_iter().collect();
+            let emit = |p: player::Progress| {
+                let _ = app.emit("recommend-progress", p);
+            };
+            osu_auth::with_token(&state.data_dir, &ep, |token| recommend::recommend(&ep, token, &skills, comfort_stars, &played, &state.compare_cancel, emit)).map(tauri::ipc::Response::new)
+        })();
+        state.comparing.store(false, Ordering::SeqCst);
+        result
+    })
+    .await
+    .map_err(|e| Error::known("internal", e.to_string()))?
+}
+
 /// Stops the running comparison.
 #[tauri::command]
 fn cancel_compare(state: State<'_, AppState>) {
@@ -2656,6 +2688,7 @@ pub fn run() {
             repair_lazer_sets,
             compare_player,
             compare_osu_standard,
+            osu_recommendations,
             cancel_compare,
             import_beatmaps,
             cancel_import,
