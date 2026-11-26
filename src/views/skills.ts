@@ -6,8 +6,8 @@
  */
 import { api, asApiError, thumbUrl } from "../lib/api";
 import { compareEvents, compareNow, compareWith, endCompare, progressShare, progressText, recentPlayers, type ComparedChart } from "../lib/compare";
-import { goalNow, goalTarget, goalTitle, goalValue, progress, skillName, type Goal, type GoalContext, type GoalSkill } from "../lib/goals";
-import { currentContext, goalEvents, goalsNow, loadGoals, removeGoal } from "../lib/goals-store";
+import { goalNow, goalTarget, goalTitle, goalValue, progress, skillName, suggestTarget, type Goal, type GoalContext, type GoalSkill } from "../lib/goals";
+import { addGoal, currentContext, goalEvents, goalsNow, loadGoals, removeGoal } from "../lib/goals-store";
 import { displayTitle, esc, fixed, num, pct, relativeTime } from "../lib/format";
 import { historyEvents, historyNow, loadHistory, mapIndexOf, modsText, playWhen } from "../lib/history";
 import {
@@ -15,7 +15,20 @@ import {
   type Aim, type Counted, type LeftOut, type MsdRows, type Practice, type SkillPoint, type SkillSheet, type Suggestion,
 } from "../lib/skills";
 import { countAgain, leaveOut, leftOutList, leftOutNow } from "../lib/skills-left-out";
-import { compareOsuStandard, computeOsuStandard, type ComparedOsuPlay, type ComputedOsuStandard, type OsuCompareProgress, type OsuSkill, type OsuSkillWithPlays, type OsuStandardComparison } from "../lib/osu-standard";
+import {
+  compareOsuStandard,
+  computeOsuStandard,
+  osuRecommendations,
+  type ComparedOsuPlay,
+  type ComputedOsuStandard,
+  type OsuCompareProgress,
+  type OsuPractice,
+  type OsuPracticeGroup,
+  type OsuRecommendation,
+  type OsuSkill,
+  type OsuSkillWithPlays,
+  type OsuStandardComparison,
+} from "../lib/osu-standard";
 import { osuCoverUrl } from "../lib/api";
 import { renderTrend, type TrendRange } from "./skill-trends";
 import { similarTo } from "../lib/similar";
@@ -105,6 +118,10 @@ export class SkillsView {
   private std: { state: "idle" | "loading" | "error" | "done"; result?: ComputedOsuStandard; error?: string; token?: object } = { state: "idle" };
   /** comparing osu!standard with another player */
   private cmp: { state: "idle" | "entering" | "loading" | "error" | "done"; name?: string; progress?: OsuCompareProgress; error?: string; result?: OsuStandardComparison; token?: object } = { state: "idle" };
+  /** osu!standard practice recommendations (needs the osu! login) */
+  private rec: { state: "idle" | "loading" | "error" | "done"; result?: OsuPractice; error?: string; token?: object } = { state: "idle" };
+  /** practice: all skillsets, not just the weakest shown */
+  private recAll = false;
 
   constructor() {
     this.el = document.createElement("section");
@@ -414,6 +431,132 @@ export class SkillsView {
     this.render();
   }
 
+  /* ---------- osu!standard goals ---------- */
+
+  /** The target of each skillset's open goal (null where there's none), for the radar's marks. */
+  private stdGoalMarks(result: ComputedOsuStandard): (number | null)[] {
+    const goals = (goalsNow() ?? []).filter((g): g is Goal & { kind: "osu-skill" } => g.kind === "osu-skill" && !g.done);
+    return result.skills.map((s) => goals.find((g) => g.skillset === s.id)?.target ?? null);
+  }
+
+  /** A goal on a skillset, a step above where it stands now. */
+  private addStdGoal(id: string): void {
+    const result = this.std.state === "done" ? this.std.result! : null;
+    const s = result?.skills.find((x) => x.id === id);
+    if (!s) return;
+    const now = s.confidence > 0 ? s.value : null;
+    void addGoal({ kind: "osu-skill", skillset: id, label: s.label, target: suggestTarget("skill", now) }).catch((e) =>
+      toast(t("Couldn't set the goal: {error}", { error: asApiError(e).message }), { kind: "danger" }),
+    );
+  }
+
+  private stdGoalsHtml(result: ComputedOsuStandard): string {
+    const all = goalsNow();
+    if (!all) return "";
+    const goals = all.filter((g): g is Goal & { kind: "osu-skill" } => g.kind === "osu-skill");
+    const open = goals.filter((g) => !g.done);
+    const reached = goals.filter((g) => g.done).sort((a, b) => b.done! - a.done!);
+    const valueOf = (gid: string): number | null => {
+      const s = result.skills.find((x) => x.id === gid);
+      return s && s.confidence > 0 ? s.value : null;
+    };
+    const card = (g: Goal & { kind: "osu-skill" }) => {
+      const now = valueOf(g.skillset);
+      const p = progress(g, now);
+      return `
+        <div class="panel goal" data-goal="${g.id}">
+          <div class="goal-head">
+            ${icon("flag", "goal-ic")}
+            <span class="goal-title">${esc(goalTitle(g))}</span>
+            <button class="icon-btn sm goal-more" type="button" data-tip="${t("More")}" aria-label="${t("More for this goal")}">${icon("more")}</button>
+          </div>
+          <div class="goal-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(p * 100)}"><span style="--p:${p.toFixed(3)}"></span></div>
+          <div class="goal-line num">
+            <span>${now !== null ? t("{value} now", { value: esc(goalValue(g, now)) }) : t("Nothing yet")}</span>
+            <span class="goal-to">${esc(goalTarget(g))}</span>
+          </div>
+        </div>`;
+    };
+    return `
+      <section class="goals">
+        <div class="practice-head">
+          <div>
+            <h2 class="section-title">${t("Goals")}${open.length ? ` <span class="section-count num">${num(open.length)}</span>` : ""}</h2>
+            ${open.length ? "" : `<div class="practice-sub">${t("A skillset to work toward.")}</div>`}
+          </div>
+          <button class="btn btn-sm std-goal-new" type="button">${icon("plus")}<span>${t("New goal")}</span></button>
+        </div>
+        ${open.length ? `<div class="goals-grid">${open.map(card).join("")}</div>` : ""}
+        ${
+          reached.length
+            ? `<button class="btn btn-ghost btn-sm goals-reached-toggle" type="button" aria-expanded="${this.showReached}">${this.showReached ? t("Hide reached") : t("Reached {n}", { n: num(reached.length) })}</button>
+               ${this.showReached ? `<div class="goals-reached">${reached.map(card).join("")}</div>` : ""}`
+            : ""
+        }
+      </section>`;
+  }
+
+  /* ---------- osu!standard practice (recommend.rs) ---------- */
+
+  /** Fetches practice recommendations from osu! (needs the login), then re-renders. */
+  private startStdPractice(): void {
+    if (this.std.state !== "done") return;
+    const token = {};
+    this.rec = { state: "loading", token };
+    this.render();
+    const played = [...new Set((historyNow()?.plays ?? []).map((p) => p.beatmapId).filter((id): id is number => !!id))];
+    osuRecommendations(this.std.result!, played).then(
+      (result) => {
+        if (this.rec.token === token) {
+          this.rec = { state: "done", result, token };
+          if (this.mode === "standard") this.render();
+        }
+      },
+      (e: unknown) => {
+        if (this.rec.token !== token) return;
+        const err = e as { code?: string; message?: string };
+        this.rec = err.code === "cancelled" ? { state: "idle" } : { state: "error", error: err.message ?? String(e), token };
+        if (this.mode === "standard") this.render();
+      },
+    );
+  }
+
+  /** Dev only (lib/dev-skills): show fake practice recommendations. */
+  devSetRecommendations(result: OsuPractice): void {
+    this.rec = { state: "done", result };
+  }
+
+  private stdPracticeHtml(): string {
+    const head = (extra = "") => `
+      <div class="practice-head">
+        <div>
+          <h2 class="section-title">${t("Practice next")}</h2>
+          <div class="practice-sub">${t("A little above your best, in your weakest skillsets.")}</div>
+        </div>
+        ${extra}
+      </div>`;
+    if (this.rec.state === "loading") {
+      return `<section class="practice">${head()}<div class="practice-none">${t("Reading osu!'s ranked maps…")}</div></section>`;
+    }
+    if (this.rec.state === "error") {
+      return `<section class="practice">${head(`<button class="btn btn-sm rec-load" type="button">${t("Try again")}</button>`)}<div class="practice-none">${esc(this.rec.error ?? "")}</div></section>`;
+    }
+    if (this.rec.state !== "done") {
+      return `<section class="practice">${head(`<button class="btn btn-sm rec-load" type="button">${icon("compass")}<span>${t("Find practice maps")}</span></button>`)}</section>`;
+    }
+    const groups = this.rec.result ?? [];
+    if (!groups.length) {
+      return `<section class="practice">${head(`<button class="btn btn-sm rec-load" type="button">${t("Refresh")}</button>`)}<div class="practice-none">${t("No practice maps found right now.")}</div></section>`;
+    }
+    const shown = this.recAll ? groups : groups.slice(0, PRACTICE_GROUPS);
+    const toggle = groups.length > PRACTICE_GROUPS ? `<button class="btn btn-ghost btn-sm rec-all" type="button">${this.recAll ? t("Weakest only") : t("All {n} skillsets", { n: num(groups.length) })}</button>` : "";
+    return `
+      <section class="practice">
+        ${head(toggle)}
+        <div class="practice-groups">${shown.map((g) => stdPracticeGroup(g)).join("")}</div>
+      </section>`;
+  }
+
   /** The osu!standard tab: the same radar and skill list as osu!mania, from lib/osu-standard. */
   private renderStandard(): void {
     const snap = store.snap;
@@ -460,8 +603,10 @@ export class SkillsView {
     sub.innerHTML = ["osu!standard", tn(result.summary.scoreCount, "{n} play rated", "{n} plays rated")].map((w) => `<span>${w}</span>`).join("");
     const labels = result.skills.map((s) => s.label);
     const nowSheet = { skills: result.skills.map((s) => ({ skillset: s.id, value: s.confidence > 0 ? s.value : null })), plays: result.summary.scoreCount };
-    const thenSheet = { skills: result.skills.map((s) => ({ skillset: s.id, value: null })), plays: 0 };
-    const goals = result.skills.map(() => null);
+    // 90 days ago: the last trend point before the cutoff (trend values are [overall, ...skills])
+    const thenPt = [...result.trend].reverse().find((p) => p.date <= Date.now() - THEN_MS);
+    const thenSheet = { skills: result.skills.map((s, k) => ({ skillset: s.id, value: thenPt ? thenPt.values[k + 1] || null : null })), plays: thenPt ? 1 : 0 };
+    const goals = this.stdGoalMarks(result);
     const vs = them ? { name: them.player.name, sheet: { skills: them.skills.map((s) => ({ skillset: s.id, value: s.confidence > 0 ? s.value : null })), plays: 0 } } : null;
     const overallGraph = this.graphs.has("overall") && result.trend.length > 0;
     body.innerHTML = `
@@ -483,7 +628,9 @@ export class SkillsView {
           </div>
           ${result.skills.map((s, k) => this.stdRow(s, k, themByK(k), them)).join("")}
         </section>
-      </div>`;
+      </div>
+      ${this.stdGoalsHtml(result)}
+      ${this.stdPracticeHtml()}`;
     // the graphs that are open are worked out from the trend the backend sent
     for (const g of body.querySelectorAll<HTMLElement>(".skill-graph[data-line]")) {
       const line = Number(g.dataset.line);
@@ -515,7 +662,7 @@ export class SkillsView {
     const list = open
       ? `<div class="skill-charts-list">${them && s.best.length ? `<div class="skill-them-head">${t("Yours")}</div>` : ""}${s.best.map((b) => stdChartRow(b.play, b.worth)).join("")}${
           theirPlays.length ? `<div class="skill-them-head">${t("{name}'s best in {skill}", { name: esc(comparison!.player.name), skill: s.label })}</div>${them!.evidence.map((e) => (comparison!.plays[e.play] ? theirStdRow(comparison!.plays[e.play], e.worth) : "")).join("")}` : ""
-        }</div>`
+        }${s.confidence > 0 ? `<button class="btn btn-ghost btn-sm std-skill-goal" type="button">${icon("flag")}<span>${t("Set a goal for {skill}", { skill: s.label })}</span></button>` : ""}</div>`
       : "";
     return `
       <div class="skill${open || graph ? " open" : ""}${any ? "" : " empty"}" data-skill="${esc(s.id)}"${s.confidence > 0 ? ` data-value="${s.value}"` : ""}>
@@ -683,8 +830,10 @@ export class SkillsView {
 
   /** Goals: the open ones with how far along they are, then the ones reached. */
   private goalsHtml(ctx: GoalContext | null): string {
-    const goals = goalsNow();
-    if (!goals) return "";
+    const all = goalsNow();
+    if (!all) return "";
+    // osu!standard goals live on the standard tab
+    const goals = all.filter((g) => g.kind !== "osu-skill");
     const open = goals.filter((g) => !g.done);
     const reached = goals.filter((g) => g.done).sort((a, b) => b.done! - a.done!);
     const card = (g: Goal) => {
@@ -918,7 +1067,18 @@ export class SkillsView {
           this.cmp = { state: "entering", name: this.cmp.result?.player.name };
           return this.render();
         }
-        // fall through: skill-head expand, graph toggle and chart clicks are shared
+        const setGoal = target.closest<HTMLElement>(".std-skill-goal");
+        if (setGoal) return this.addStdGoal(setGoal.closest<HTMLElement>(".skill")!.dataset.skill!);
+        if (target.closest(".std-goal-new") && this.std.state === "done") {
+          return openGoalDialog({ kind: "osu-skill", stdSkills: this.std.result!.skills.map((s) => ({ id: s.id, label: s.label, value: s.value, confidence: s.confidence })) });
+        }
+        if (target.closest(".rec-load")) return this.startStdPractice();
+        if (target.closest(".rec-all")) {
+          this.recAll = !this.recAll;
+          return this.render();
+        }
+        // fall through: skill-head expand, graph toggle, chart clicks (incl. practice-chart
+        // data-add import), goal-more and goals-reached-toggle are shared with osu!mania
       }
       if (target.closest(".skills-compare")) {
         if (compareNow()?.status === "loading") return;
@@ -1171,6 +1331,40 @@ function stdChartRow(play: Play, worth: number): string {
       <span class="skill-chart-mods">${esc(modsText(play))}</span>
       <span class="num skill-chart-acc">${pct(play.acc)}</span>
       <b class="num skill-chart-worth">${fixed(worth, 2)}</b>
+    </div>`;
+}
+
+/** A weak skillset and the osu!standard charts to practise it on (recommend.rs). */
+function stdPracticeGroup(g: OsuPracticeGroup): string {
+  const from = g.from !== null ? t("{value} now", { value: fixed(g.from, 2) }) : t("No passes yet");
+  const band = t("{lo} to {hi}", { lo: fixed(g.lo, 2), hi: fixed(g.hi, 2) });
+  return `
+    <section class="panel practice-group" data-skill="${esc(g.skill)}">
+      <div class="practice-group-head">
+        <span class="skill-name">${esc(g.label)}</span>
+        <span class="practice-aim num">${from} · ${t("aiming at {band}", { band })}</span>
+      </div>
+      ${g.picks.length ? `<div class="practice-list">${g.picks.map((r) => stdPracticeRow(r, g.from)).join("")}</div>` : `<div class="practice-none">${t("Nothing found for this skillset right now.")}</div>`}
+    </section>`;
+}
+
+/** One recommended chart: osu!'s cover, the mods it's suggested at, and the gain, like osu!mania. */
+function stdPracticeRow(r: OsuRecommendation, from: number | null): string {
+  const unicode = store.prefs.unicode;
+  const title = `${(unicode && r.artistUnicode) || r.artist} - ${(unicode && r.titleUnicode) || r.title}`;
+  const cover = r.setId ? osuCoverUrl(r.setId) : "";
+  const mods = r.mods.join("") + (r.rate !== 1 ? ` ${fixed(r.rate, 2)}×` : "");
+  const gain = Math.max(0, (from !== null ? r.after - from : r.after));
+  return `
+    <div class="skill-chart practice-chart" data-add="${r.setId}" data-tip="${t("Not in your library: add it")}" role="button" tabindex="0">
+      <span class="t-art${cover ? "" : " img-missing"}">${cover ? `<img src="${cover}" alt="" loading="lazy" decoding="async" />` : ""}</span>
+      <div class="prow-text">
+        <div class="t-title">${esc(title)}</div>
+        <div class="t-sub">${esc(r.version)}</div>
+      </div>
+      <b class="num skill-chart-worth">${fixed(r.value, 2)}</b>
+      <span class="skill-chart-mods">${mods ? esc(mods) : t("No mod")}</span>
+      <b class="num practice-gain">+${fixed(gain, 2)}</b>
     </div>`;
 }
 

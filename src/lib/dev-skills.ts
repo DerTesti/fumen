@@ -5,7 +5,7 @@
  * Not shipped: this module is only imported under the DEV guard.
  */
 import { devSetHistory } from "./history";
-import type { ComputedOsuStandard, OsuStandardComparison } from "./osu-standard";
+import type { ComputedOsuStandard, OsuPractice, OsuStandardComparison } from "./osu-standard";
 import { SKILLSETS } from "./skills";
 import { setSnapshot, store } from "./store";
 import type { History, MapRow, Play, SetRow, Snapshot } from "./types";
@@ -29,7 +29,7 @@ const round = (v: number): number => Math.round(v * 100) / 100;
 /** Injects fake osu!standard skills (yours + a compared player) into the open Skills view so the
  * osu!standard tab — radar, list, graph and compare — can be looked at without an osu! login. */
 export function previewStd(): void {
-  const view = (window as unknown as { __fumenSkills?: { devSetStd: (s: ComputedOsuStandard, c: OsuStandardComparison | null) => void } }).__fumenSkills;
+  const view = (window as unknown as { __fumenSkills?: { devSetStd: (s: ComputedOsuStandard, c: OsuStandardComparison | null) => void; devSetRecommendations: (p: OsuPractice) => void } }).__fumenSkills;
   if (!view) {
     // eslint-disable-next-line no-console
     console.warn("[fumenPreviewStd] open the Skills page once first, then call this again.");
@@ -38,7 +38,7 @@ export function previewStd(): void {
   const ownSkills = STD_SKILLS.map(([id, label, group], k) => ({ id, label, group, description: "Preview skill.", value: round(42 + 8 * Math.sin(k)), confidence: 0.85, best: [] as never[] }));
   const trend = Array.from({ length: 8 }, (_, i) => {
     const vals = ownSkills.map((s) => round(s.value * (0.6 + 0.05 * i)));
-    return { date: Date.now() - (7 - i) * 7 * 86_400_000, values: [round(Math.max(...vals)), ...vals] };
+    return { date: Date.now() - (7 - i) * 18 * 86_400_000, values: [round(Math.max(...vals)), ...vals] };
   });
   const own: ComputedOsuStandard = {
     skills: ownSkills,
@@ -62,9 +62,35 @@ export function previewStd(): void {
     overall: round(Math.max(...theirSkills.map((s) => s.value))),
     plays,
   };
+  // the four weakest skillsets, each with some practice maps
+  const weak = [...ownSkills].sort((a, b) => a.value - b.value).slice(0, 4);
+  const practice: OsuPractice = weak.map((s) => {
+    const from = s.value;
+    return {
+      skill: s.id,
+      label: s.label,
+      from,
+      lo: round(from * 1.01),
+      hi: round(from * 1.12 + 2),
+      picks: Array.from({ length: 4 }, (_, i) => ({
+        setId: 200 + i,
+        beatmapId: 900 + i,
+        title: `Practice map ${i + 1}`,
+        titleUnicode: "",
+        artist: "Preview",
+        artistUnicode: "",
+        version: "Extra",
+        value: round(from + 1 + i * 0.4),
+        mods: i % 2 ? ["DT"] : i % 3 ? ["HD"] : [],
+        rate: i % 2 ? 1.5 : 1,
+        after: round(from + (1 + i * 0.4) * 0.3),
+      })),
+    };
+  });
+  view.devSetRecommendations(practice);
   view.devSetStd(own, cmp);
   // eslint-disable-next-line no-console
-  console.info("[fumenPreviewStd] fake osu!standard skills + comparison injected. Reload to restore.");
+  console.info("[fumenPreviewStd] fake osu!standard skills + comparison + practice injected. Reload to restore.");
 }
 
 /** charts faked per skillset (so the radar has variety and the skills fill up past FEW_PLAYS) */
