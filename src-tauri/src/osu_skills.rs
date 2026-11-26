@@ -21,7 +21,7 @@ use crate::error::Result;
 use crate::pp;
 
 /// Bump when the model changes, so cached rows from an older model are ignored.
-const CACHE_VERSION: i64 = 13;
+const CACHE_VERSION: i64 = 14;
 
 // Always accept 8 notes/s; allow slower beat-relative streams up to 180 ms as well.
 const SPEED_MAX_GAP_MS: f64 = 125.0;
@@ -593,19 +593,19 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
     let mut sliders: Vec<f64> = Vec::new();
     let mut densities: Vec<f64> = Vec::new();
     let mut overlaps: Vec<f64> = Vec::new();
-    let mut left = 0usize;
+    let mut visible_indices: Vec<usize> = Vec::new();
     for i in 0..objects.len() {
         let o = &objects[i];
         if o.kind == Kind::Spinner {
             continue;
         }
-        // Use the actual mod/rate-adjusted preempt window, so density measures objects
-        // sharing a reading window rather than a fixed-duration tapping rate.
-        while left < i && o.time - objects[left].time > approach {
-            left += 1;
-        }
-        let from = left.max(i.saturating_sub(128));
-        let visible: Vec<&AnObj> = objects[from..=i].iter().filter(|v| v.kind != Kind::Spinner).collect();
+        // Sample when this head first appears. Earlier circles remain until their hit time;
+        // sliders remain until their actual end (including repeats), not just their head time.
+        // Expire each object independently: a long slider can outlive many newer circles.
+        let reading_time = o.time - approach;
+        visible_indices.retain(|&j| objects[j].end_time >= reading_time);
+        visible_indices.push(i);
+        let visible: Vec<&AnObj> = visible_indices.iter().map(|&j| &objects[j]).collect();
         densities.push(visible.len() as f64);
         overlaps.push(visible.iter().filter(|v| !std::ptr::eq(**v, o) && (o.x - v.x).hypot(o.y - v.y) < diameter).count() as f64);
         if let Some(g) = &o.geom {
@@ -1316,6 +1316,30 @@ mod tests {
         assert!((dt.raw_demand[7] - ar10.raw_demand[7]).abs() < 1e-9);
         let custom_dt = analyze_beatmap(&map, &["DT".into()], 1.2, None);
         assert!((custom_dt.raw_demand[7] - ar10.raw_demand[7]).abs() < 1e-9);
+    }
+
+    #[test]
+    fn reading_keeps_long_sliders_until_their_end_without_a_128_object_cutoff() {
+        let mut map = parse_beatmap(MAP);
+        map.ar = 10.0;
+        map.objects = (0..2000).map(|i| Obj {
+            x: 256.0, y: 192.0, time: i as f64 * 100.0, kind: Kind::Circle,
+            end_time: i as f64 * 100.0, repeats: 0, length: 0.0, curve_type: 0, control_points: Vec::new(),
+        }).collect();
+        let circles = analyze_beatmap(&map, &[], 1.0, None);
+        let o = &mut map.objects[0];
+        o.kind = Kind::Slider;
+        o.curve_type = b'L';
+        o.control_points = vec![(356.0, 192.0)];
+        o.length = 1400.0;
+        o.repeats = 100; // 300 seconds, outliving the other 1999 heads.
+        let long = analyze_beatmap(&map, &[], 1.0, None);
+        assert!(long.raw_demand[7] > circles.raw_demand[7]);
+        let dt = analyze_beatmap(&map, &["DT".into()], 1.2, None);
+        assert!((dt.raw_demand[7] - long.raw_demand[7]).abs() < 1e-9);
+        map.objects[0].repeats = 1;
+        let expired = analyze_beatmap(&map, &[], 1.0, None);
+        assert_eq!(expired.raw_demand[7], circles.raw_demand[7]);
     }
 
     #[test]
