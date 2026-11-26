@@ -23,16 +23,27 @@ export const historyEvents = new Emitter<{
 }>();
 
 export const historyNow = (): History | null => current;
+
+/** Dev only (lib/dev-skills): once fake plays are injected, don't let real loads overwrite them
+ * (a snapshot change would otherwise force-reload the real history). Cleared by a page reload. */
+let devFrozen = false;
+export function devSetHistory(h: History): void {
+  devFrozen = true;
+  current = h;
+  byMap = null;
+  historyEvents.emit("history", h);
+}
 /** the plays are being (re)loaded */
 export const historyLoading = (): boolean => loading !== null;
 export const isSyncing = (): boolean => syncing;
 
 /** The plays; loaded once, then from memory until they change. */
 export function loadHistory(force = false): Promise<History> {
+  if (devFrozen && current) return Promise.resolve(current);
   if (current && !force) return Promise.resolve(current);
   if (loading && !force) return loading;
   const job = api.getHistory().then((h) => {
-    if (loading === job) {
+    if (loading === job && !devFrozen) {
       current = h;
       byMap = null;
       historyEvents.emit("history", h);

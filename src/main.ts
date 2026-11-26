@@ -1079,3 +1079,15 @@ let visit: { md5: string; tries: Attempt[] } | null = null;
 const LAST_TRY_WAIT = 900;
 
 void boot();
+
+// Dev only: window.fumenPreviewMania() fakes a mania history so the Skills page can be looked at
+// without real plays (reload restores). Never bundled in a release build.
+if (import.meta.env.DEV) {
+  void import("./lib/dev-skills").then((m) => {
+    const w = window as unknown as { fumenPreviewMania?: () => void; fumenPreviewStd?: () => void };
+    w.fumenPreviewMania = m.previewMania;
+    w.fumenPreviewStd = m.previewStd;
+    // eslint-disable-next-line no-console
+    console.info("[dev] fumenPreviewMania() — fake osu!mania data · fumenPreviewStd() — fake osu!standard skills + compare.");
+  });
+}
