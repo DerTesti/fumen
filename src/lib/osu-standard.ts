@@ -80,6 +80,48 @@ export interface ComputedOsuStandard {
   summary: OsuStandardSummary;
 }
 
+/* ---------- practice: what to play next (recommendations) ---------- */
+
+/** One recommended chart to practise a skillset on, with the mods it's suggested at. */
+export interface OsuRecommendation {
+  setId: number;
+  beatmapId: number;
+  title: string;
+  titleUnicode: string;
+  artist: string;
+  artistUnicode: string;
+  version: string;
+  /** the chart's demand in the skillset at the suggested mods (0–100) */
+  value: number;
+  mods: string[];
+  rate: number;
+  /** what passing it clean would make of the skillset */
+  after: number;
+}
+
+/** A weak skillset and the charts to practise it on, best first. */
+export interface OsuPracticeGroup {
+  skill: string;
+  label: string;
+  /** your value now (null without passes) and the aim band it suggests into */
+  from: number | null;
+  lo: number;
+  hi: number;
+  picks: OsuRecommendation[];
+}
+
+export type OsuPractice = OsuPracticeGroup[];
+
+/** Charts to practise your weak osu!standard skillsets on, from osu!'s ranked maps (recommend.rs).
+ * Your skill values (already worked out by the backend) and the maps you've played guide it. */
+export async function osuRecommendations(result: ComputedOsuStandard, played: number[]): Promise<OsuPractice> {
+  return api.osuRecommendations(
+    result.skills.map((s) => ({ id: s.id, value: s.confidence > 0 ? s.value : 0 })),
+    result.summary.comfortStars,
+    played,
+  );
+}
+
 /* ---------- comparing with another player ---------- */
 
 export interface ComparedOsuPlayer {

@@ -2,7 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Attempt } from "./attempts";
-import type { OsuStandardComparison, OsuStandardPlay, OsuStandardResult } from "./osu-standard";
+import type { OsuPractice, OsuStandardComparison, OsuStandardPlay, OsuStandardResult } from "./osu-standard";
 import type { HeartDevice } from "./heart";
 import type { HeartTry } from "./heart-stats";
 import type { Comparison } from "./compare";
@@ -82,6 +82,9 @@ export const api = {
   osuStandard: (plays: OsuStandardPlay[]) => invoke<OsuStandardResult>("osu_standard", { plays }),
   /** another player's osu!standard skills next to yours (lib/osu-standard, player::build_std) */
   compareOsuStandard: (name: string) => invoke<OsuStandardComparison>("compare_osu_standard", { name }),
+  /** charts to practise your weak osu!standard skillsets on (lib/osu-standard, recommend.rs) */
+  osuRecommendations: (skills: { id: string; value: number }[], comfortStars: number, played: number[]) =>
+    invoke<OsuPractice>("osu_recommendations", { skills, comfortStars, played }),
   /** an osu!mania difficulty's dan at a clock rate */
   getDan: (id: string, rate: number) => invoke<DanRating | null>("get_dan", { id, rate }),
   /** Etterna's MSD at a rate (osu!mania 4K to 7K) */
