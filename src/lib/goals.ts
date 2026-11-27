@@ -10,6 +10,8 @@ import { bestPerChart, changesChart, rateOf, SKILL_LABEL, skills, type LeftOut, 
 import type { History, MapRow, MsdSkill, Play } from "./types";
 import { t } from "./i18n";
 
+export const STD_SKILL_CURVE_SCALE = "pattern-reading-ratios-v4" as const;
+
 export type Ruleset = "osu" | "taiko" | "fruits" | "mania";
 export const RULESETS: Ruleset[] = ["osu", "taiko", "fruits", "mania"];
 export const RULESET_LABEL: Record<Ruleset, string> = { osu: "osu!", taiko: "osu!taiko", fruits: "osu!catch", mania: "osu!mania" };
@@ -33,7 +35,7 @@ export type GoalSpec =
     }
   | { kind: "profile"; ruleset: Ruleset; metric: "pp" | "rank"; target: number }
   /** an osu!standard skillset (lib/osu-standard); `label` is kept so the title reads without the model */
-  | { kind: "osu-skill"; skillset: string; label: string; target: number; scale?: "pattern-demand-v1" | "pattern-demand-x5-v2" };
+  | { kind: "osu-skill"; skillset: string; label: string; target: number; scale?: "pattern-demand-v1" | "pattern-demand-x5-v2" | "pattern-curve-136083-v3" | typeof STD_SKILL_CURVE_SCALE };
 
 /** Whether a goal belongs to the osu!standard tab: a standard skillset, or an osu! (standard)
  * profile pp/rank goal. Everything else (mania skills, charts, other rulesets' pp/rank) is mania's. */
@@ -63,8 +65,8 @@ export interface GoalContext {
  * measured any more; they stay stored but aren't shown. */
 export const isRetired = (g: GoalSpec): boolean =>
   (g.kind === "skill" && !(g as { skillset?: string }).skillset)
-  // Old 0–100 targets cannot be compared to averages on the open demand scale.
-  || (g.kind === "osu-skill" && g.scale !== "pattern-demand-x5-v2");
+  // Old targets are kept in storage, but cannot be compared to nonlinear averages of plays.
+  || (g.kind === "osu-skill" && g.scale !== STD_SKILL_CURVE_SCALE);
 
 /** A skill goal's skill in a sheet. */
 export const skillIn = (sheet: SkillSheet, skillset: GoalSkill): number | null =>

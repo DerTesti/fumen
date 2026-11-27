@@ -12,7 +12,7 @@
 //! not osu!'s pp or any site's percentile.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ use crate::error::Result;
 use crate::pp;
 
 /// Bump when the model changes, so cached rows from an older model are ignored.
-const CACHE_VERSION: i64 = 16;
+const CACHE_VERSION: i64 = 17;
 
 // Always accept 8 notes/s; allow slower beat-relative streams up to 180 ms as well.
 const SPEED_MAX_GAP_MS: f64 = 125.0;
@@ -39,7 +39,7 @@ pub const SKILLS: [(&str, &str, &str, &str); 11] = [
     ("finger-control", "Finger control", "Tapping", "Wechsel aktiver Rhythmusinseln; Pausen und Slider-Haltezeiten zählen nicht als Komplexität."),
     ("aim-stamina", "Aim stamina", "Aim", "Aim-Belastung in 15-Sekunden-Fenstern und zusammenhängenden Passagen; Ruhezeiten unterbrechen den Nachweis."),
     ("speed", "Speed", "Tapping", "rosu-Speed-Schwierigkeit, gewichtet nach tatsächlichem Tempo zusammenhängender schneller Circle-Folgen."),
-    ("density-reading", "Density reading", "Reading", "Typische hohe Objektdichte im effektiven AR-Fenster, einschließlich Überlagerung."),
+    ("density-reading", "Density reading", "Reading", "Gleichzeitig sichtbare Objekte, Überlagerungen und kreuzende Notenfolgen, gewichtet nach tatsächlich verfügbarer Sichtzeit."),
     ("tapping-stamina", "Tapping stamina", "Tapping", "Zeitbasierter Belastungsaufbau über die ganze Map: voller Aufbau bis 180 ms, linear auslaufend bis 250 ms, Erholung bei Pausen und Slidern."),
     ("slider-control", "Slider control", "Tech", "Anspruchsvolle Slider mit nachgewiesenen Lazer-Ticks und Slider-Enden; ohne Detaildaten kein Nachweis."),
     ("flow-aim", "Flow aim", "Aim", "Räumlich anspruchsvolle, rhythmisch stabile Streams mit kontinuierlicher Bewegung."),
@@ -48,12 +48,48 @@ const N_SKILLS: usize = 11;
 const ACCURACY: usize = 2;
 const FINGER_CONTROL: usize = 4;
 
-pub const MODEL_VERSION: &str = "pattern-rosu-jump-tap-v5";
+pub const MODEL_VERSION: &str = "pattern-rosu-reading-ratios-v7";
 
-/// Open-ended demand units. No saturating conversion: twice the demonstrated demand
-/// gives twice the rating. Five rating units per demand unit; independent of MSD.
-pub fn rating(d: f64) -> f64 {
-    finite(d, 0.0).max(0.0) * 5.0
+#[derive(Deserialize)]
+struct RatingCurves {
+    curves: HashMap<String, Vec<[f64; 2]>>,
+    extrapolation: String,
+}
+
+// Fixed snapshot: offline experiments never activate a new curve automatically.
+static RATING_CURVES: LazyLock<RatingCurves> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../../src/lib/osu-skill-curves.json"))
+        .expect("valid embedded skill curves")
+});
+
+/// Offline report input only: no player performance and no output scaling.
+pub(crate) fn calibration_sample(bytes: &[u8], db: &Mutex<Connection>, hash: &str) -> Option<serde_json::Value> {
+    let p = pattern_for(&|_| Some(bytes.to_vec()), db, hash, &[], 1.0)?;
+    if !p.stars.is_finite() || p.stars <= 0.0 { return None }
+    Some(serde_json::json!({ "raw": p.raw_demand, "support": p.support,
+        "coverage": p.coverage, "stars": p.stars, "tappingPeak": p.tapping_peak }))
+}
+
+pub(crate) fn calibration_model() -> String { format!("{MODEL_VERSION}/patterns-{CACHE_VERSION}") }
+
+/// Monotone per-skill calibration, with linear continuation beyond the final anchor.
+pub fn rating(d: f64, skill: usize) -> f64 {
+    let d = finite(d, 0.0).max(0.0);
+    if d == 0.0 { return 0.0 }
+    let points = &RATING_CURVES.curves[SKILLS[skill].0];
+    let &[last_x, last_y] = points.last().unwrap();
+    if d > last_x && RATING_CURVES.extrapolation == "proportional" {
+        return last_y * (d / last_x);
+    }
+    let upper = points.iter().position(|p| d <= p[0]).unwrap_or(points.len() - 1).max(1);
+    let [x0, y0] = points[upper - 1];
+    let [x1, y1] = points[upper];
+    y0 + (d - x0) * (y1 - y0) / (x1 - x0)
+}
+
+fn play_rating(d: f64, skill: usize, performance: f64) -> f64 {
+    // Apply the same quality penalty after calibration, rather than distorting it per curve.
+    rating(d, skill) * clamp01(performance)
 }
 
 /// A chart's open-ended demand per skillset and its star rating at some mods, from the pattern
@@ -65,7 +101,7 @@ pub fn rated_demand(read: &impl Fn(&str) -> Option<Vec<u8>>, db: &Mutex<Connecti
     let p = pattern_for(read, db, hash, mods, rate_of(mods))?;
     let mut demand = [0.0f64; N_SKILLS];
     for k in 0..N_SKILLS {
-        demand[k] = rating(p.raw_demand[k]);
+        demand[k] = rating(p.raw_demand[k], k);
     }
     Some((demand, p.stars))
 }
@@ -593,6 +629,32 @@ struct AnObj {
     geom: Option<Geom>,
 }
 
+/// Strict crossings of the chronological head-to-head order in the current screen.
+/// Shared endpoints, collinear stacks and gaps left by expired heads aren't crossings.
+fn reading_crossings(objects: &[AnObj], visible: &[usize]) -> f64 {
+    let edges: Vec<_> = visible.windows(2).filter(|p| p[1] == p[0] + 1).collect();
+    let turn = |a: &AnObj, b: &AnObj, c: &AnObj| (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    let mut crossings = 0;
+    for (i, a) in edges.iter().enumerate() {
+        for b in edges.iter().skip(i + 1) {
+            if a[1] == b[0] { continue }
+            let (p, q, r, s) = (&objects[a[0]], &objects[a[1]], &objects[b[0]], &objects[b[1]]);
+            if turn(p, q, r) * turn(p, q, s) < 0.0 && turn(r, s, p) * turn(r, s, q) < 0.0 {
+                crossings += 1;
+            }
+        }
+    }
+    crossings as f64 / edges.len().max(1) as f64
+}
+
+fn reading_load(visible: usize, overlaps: usize, crossings_per_edge: f64, approach: f64, hidden: bool) -> f64 {
+    // 600 ms is a unit reference (AR9 NM), not a visibility floor. The fourth root gives
+    // time pressure a smaller effect than crowding; doubling playback rate adds ~19%.
+    let time_pressure = (600.0 / approach).powf(0.25);
+    let ambiguity = 1.0 + 0.06 * overlaps.min(4) as f64 + 0.35 * crossings_per_edge.sqrt();
+    (visible as f64).sqrt() / 1.3 * ambiguity * time_pressure * if hidden { 1.05 } else { 1.0 }
+}
+
 fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuDiff>) -> Pattern {
     let s = effective_settings(map, mods, rate);
     let (rate, diameter, approach) = (s.rate, s.diameter, s.approach);
@@ -631,8 +693,7 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
 
     let mut events: Vec<Ev> = Vec::new();
     let mut sliders: Vec<f64> = Vec::new();
-    let mut densities: Vec<f64> = Vec::new();
-    let mut overlaps: Vec<f64> = Vec::new();
+    let mut reading_loads: Vec<f64> = Vec::new();
     let mut visible_indices: Vec<usize> = Vec::new();
     for i in 0..objects.len() {
         let o = &objects[i];
@@ -646,8 +707,8 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
         visible_indices.retain(|&j| objects[j].end_time >= reading_time);
         visible_indices.push(i);
         let visible: Vec<&AnObj> = visible_indices.iter().map(|&j| &objects[j]).collect();
-        densities.push(visible.len() as f64);
-        overlaps.push(visible.iter().filter(|v| !std::ptr::eq(**v, o) && (o.x - v.x).hypot(o.y - v.y) < diameter).count() as f64);
+        let overlap = visible.iter().filter(|v| !std::ptr::eq(**v, o) && (o.x - v.x).hypot(o.y - v.y) < diameter).count();
+        reading_loads.push(reading_load(visible.len(), overlap, reading_crossings(&objects, &visible_indices), approach, s.hidden));
         if let Some(g) = &o.geom {
             let velocity = g.travel / diameter / (0.02f64).max((o.end_time - o.time) / 1000.0);
             sliders.push((velocity / 4.0).sqrt() * (1.0 + 0.15 * (3.0f64).min(g.curvature / std::f64::consts::PI)));
@@ -858,7 +919,8 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
     base[5] = aim_base * clamp01(sustained_aim / pv) * clamp01(aim_passage / 15.0);
     // Tempo is a pattern-strength multiplier, not just a yes/no support gate.
     base[6] = speed_base * (fast_nps / 10.0).powf(1.5).min(1.5);
-    base[7] = (quantile(&densities, 0.9).sqrt() / 1.3) * (1.0 + 0.06 * (4.0f64).min(quantile(&overlaps, 0.9))) * if s.hidden { 1.05 } else { 1.0 };
+    // Quantile of actual simultaneous loads, rather than unrelated density/overlap quantiles.
+    base[7] = quantile(&reading_loads, 0.9);
     // 15 equivalent tapping seconds is a provisional scale reference, not a duration cap.
     let tap_base = if speed_base > 0.0 { speed_base } else {
         weighted_top(&events.iter().map(|e| e.sustained_tap).collect::<Vec<_>>()) / 3.5
@@ -994,6 +1056,7 @@ pub struct Evidence {
     /// index into the plays given
     pub play: usize,
     pub worth: f64,
+    pub details: serde_json::Value,
 }
 
 #[derive(Serialize)]
@@ -1132,6 +1195,7 @@ pub fn skills(read: impl Fn(&str) -> Option<Vec<u8>>, db: &Mutex<Connection>, ha
         duration: f64,
     }
     let mut rows: Vec<Row> = Vec::new();
+    let mut diagnostics = HashMap::new();
     let mut missing = 0usize;
     let mut failed = 0usize;
     for (i, play) in plays.iter().enumerate() {
@@ -1174,7 +1238,13 @@ pub fn skills(read: impl Fn(&str) -> Option<Vec<u8>>, db: &Mutex<Connection>, ha
                 let Some(following) = slider_performance(play, &pattern) else { continue };
                 mastery * following
             } else { mastery };
-            worth[k] = rating(pattern.raw_demand[k] * performance);
+            worth[k] = play_rating(pattern.raw_demand[k], k, performance);
+            diagnostics.insert((i, k), serde_json::json!({
+                "rawDemand": pattern.raw_demand[k], "calibratedDemand": rating(pattern.raw_demand[k], k),
+                "referenceTimesFive": pattern.raw_demand[k] * 5.0, "performance": performance,
+                "headAccuracy": hits.accuracy, "displayAccuracy": play.acc, "missRate": miss_rate,
+                "stars": pattern.stars, "rate": rate, "support": pattern.support[k], "coverage": pattern.coverage[k]
+            }));
         }
         rows.push(Row { play: i, map: play.map.clone(), date: play.date, worth, stars: pattern.stars, ar: pattern.ar, duration: pattern.duration });
     }
@@ -1205,7 +1275,7 @@ pub fn skills(read: impl Fn(&str) -> Option<Vec<u8>>, db: &Mutex<Connection>, ha
             description: desc.to_string(),
             value: round2(value),
             confidence: round2((1.0f64).min(map_count as f64 / 10.0)),
-            evidence: best.into_iter().map(|(play, worth)| Evidence { play, worth: round2(worth) }).collect(),
+            evidence: best.into_iter().map(|(play, worth)| Evidence { play, worth: round2(worth), details: diagnostics.remove(&(play, k)).unwrap_or_default() }).collect(),
         });
     }
     let overall = overall_of(&skills.iter().filter(|s| s.confidence > 0.0).map(|s| s.value).collect::<Vec<_>>());
@@ -1280,14 +1350,36 @@ mod tests {
     const MAP: &str = "[General]\nMode: 0\n[Difficulty]\nCircleSize:4\nApproachRate:9\nOverallDifficulty:8\nSliderMultiplier:1.4\n[TimingPoints]\n0,300,4,1,0,100,1,0\n[HitObjects]\n256,192,0,1,0\n120,120,120,1,0\n400,260,240,1,0\n180,80,360,1,0\n256,192,480,2,0,L|356:192,1,100\n";
 
     #[test]
-    fn rating_is_linear_and_open_ended() {
-        assert_eq!(rating(0.0), 0.0);
-        assert_eq!(rating(-1.0), 0.0);
-        assert_eq!(rating(2.5), 12.5);
-        assert_eq!(rating(5.0), 2.0 * rating(2.5));
-        assert_eq!(rating(1000.0), 5000.0);
-        assert_eq!(rating(f64::NAN), 0.0);
-        assert_eq!(rating(f64::INFINITY), 0.0);
+    fn rating_curves_preserve_raw_ratios_and_remain_open_ended() {
+        let config: serde_json::Value = serde_json::from_str(include_str!("../../src/lib/osu-skill-curves.json")).unwrap();
+        assert_eq!(config["referenceCandidate"], 136083);
+        assert_eq!(config["minimumElasticity"], 1.0);
+        assert_eq!(config["patternVersion"].as_i64(), Some(CACHE_VERSION));
+        assert_eq!(RATING_CURVES.curves.len(), N_SKILLS);
+        for k in 0..N_SKILLS {
+            let points = &RATING_CURVES.curves[SKILLS[k].0];
+            assert_eq!(points[0], [0.0, 0.0]);
+            for &[x, y] in points { assert!((rating(x, k) - y).abs() < 1e-9); }
+            for pair in points.windows(2) {
+                assert!(pair[1][0] > pair[0][0] && pair[1][1] > pair[0][1]);
+                let mid = (pair[0][0] + pair[1][0]) / 2.0;
+                assert!((rating(mid, k) - (pair[0][1] + pair[1][1]) / 2.0).abs() < 1e-9);
+            }
+            // Check both inside segments and across knots / the extrapolation boundary.
+            for step in 1..100 {
+                let raw = points.last().unwrap()[0] * step as f64 / 25.0;
+                for multiplier in [1.01, 1.5, 2.0, 5.0] {
+                    assert!(rating(raw * multiplier, k) + 1e-8 >= rating(raw, k) * multiplier, "skill {k}, raw {raw}");
+                }
+            }
+            let [x, y] = *points.last().unwrap();
+            assert!(rating(x * 2.0, k) > y);
+            assert!(rating(10000.0, k) > 100.0);
+            assert_eq!(rating(-1.0, k), 0.0);
+            assert_eq!(rating(f64::NAN, k), 0.0);
+            assert_eq!(rating(f64::INFINITY, k), 0.0);
+            assert!((play_rating(x, k, 0.9) - y * 0.9).abs() < 1e-9);
+        }
     }
 
     #[test]
@@ -1354,11 +1446,11 @@ mod tests {
         map.ar = 10.0; // 450 ms: only three objects fit.
         let ar10 = analyze_beatmap(&map, &[], 1.0, None);
         assert!(ar9.raw_demand[7] > ar10.raw_demand[7]);
-        // DT scales both spacing and preempt equally: density should stay the same.
+        // Equal crowding at DT, but less time to decode the same screen.
         let dt = analyze_beatmap(&map, &["DT".into()], 1.5, None);
-        assert!((dt.raw_demand[7] - ar10.raw_demand[7]).abs() < 1e-9);
+        assert!((dt.raw_demand[7] / ar10.raw_demand[7] - 1.5f64.powf(0.25)).abs() < 1e-9);
         let custom_dt = analyze_beatmap(&map, &["DT".into()], 1.2, None);
-        assert!((custom_dt.raw_demand[7] - ar10.raw_demand[7]).abs() < 1e-9);
+        assert!((custom_dt.raw_demand[7] / ar10.raw_demand[7] - 1.2f64.powf(0.25)).abs() < 1e-9);
     }
 
     #[test]
@@ -1379,10 +1471,30 @@ mod tests {
         let long = analyze_beatmap(&map, &[], 1.0, None);
         assert!(long.raw_demand[7] > circles.raw_demand[7]);
         let dt = analyze_beatmap(&map, &["DT".into()], 1.2, None);
-        assert!((dt.raw_demand[7] - long.raw_demand[7]).abs() < 1e-9);
+        assert!((dt.raw_demand[7] / long.raw_demand[7] - 1.2f64.powf(0.25)).abs() < 1e-9);
         map.objects[0].repeats = 1;
         let expired = analyze_beatmap(&map, &[], 1.0, None);
         assert_eq!(expired.raw_demand[7], circles.raw_demand[7]);
+    }
+
+    #[test]
+    fn reading_distinguishes_crossed_order_from_equal_crowding() {
+        let make = |xy: &[(f64, f64)]| {
+            let mut map = parse_beatmap(MAP);
+            map.ar = 9.0;
+            map.objects = (0..100).map(|i| Obj {
+                x: xy[i % xy.len()].0, y: xy[i % xy.len()].1,
+                time: i as f64 * 125.0, end_time: i as f64 * 125.0,
+                kind: Kind::Circle, repeats: 0, length: 0.0, curve_type: 0, control_points: Vec::new(),
+            }).collect();
+            analyze_beatmap(&map, &[], 1.0, None)
+        };
+        let simple = make(&[(50.0,50.0),(50.0,330.0),(460.0,330.0),(460.0,50.0)]);
+        let crossed = make(&[(50.0,50.0),(460.0,330.0),(50.0,330.0),(460.0,50.0)]);
+        assert!(crossed.raw_demand[7] > simple.raw_demand[7]);
+        assert!(reading_load(6, 0, 0.25, 600.0, false) > reading_load(6, 0, 0.0, 600.0, false));
+        // Density still matters independently of the time-pressure term.
+        assert!(reading_load(8, 0, 0.0, 600.0, false) > reading_load(4, 0, 0.0, 600.0, false));
     }
 
     #[test]
@@ -1391,7 +1503,7 @@ mod tests {
         let hard = speed_pattern(500.0, 100.0, 200, &[]);
         let clean = Hits { great: 990.0, miss: 0.0, total: 1000.0, accuracy: 0.9933333333 };
         let poor = Hits { great: 500.0, miss: 0.0, total: 1000.0, accuracy: 0.6666666667 };
-        let value = |hits: &Hits, p: &Pattern| rating(accuracy_demand(hits, p.great_hit_window).unwrap() * p.accuracy_load_factor);
+        let value = |hits: &Hits, p: &Pattern| rating(accuracy_demand(hits, p.great_hit_window).unwrap() * p.accuracy_load_factor, ACCURACY);
         assert_eq!(easy.great_hit_window, hard.great_hit_window);
         assert!(value(&clean, &hard) > value(&clean, &easy));
         assert!(value(&poor, &hard) < value(&clean, &easy));

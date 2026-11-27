@@ -1,12 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { bestAcc, goalContext, goalNow, goalTarget, goalTitle, isReached, isRetired, progress, suggestTarget, type Goal, type GoalSpec } from "./goals";
+import { bestAcc, goalContext, goalNow, goalTarget, goalTitle, isReached, isRetired, STD_SKILL_CURVE_SCALE, progress, suggestTarget, type Goal, type GoalSpec } from "./goals";
 import { aggregate } from "./skills";
 import type { MapRow, Play } from "./types";
+import curves from "./osu-skill-curves.json";
+
+it("retires targets on old scales without treating them as current curve targets", () => {
+  expect(curves.scale).toBe(STD_SKILL_CURVE_SCALE);
+  const old: GoalSpec = { kind: "osu-skill", skillset: "speed", label: "Speed", target: 20, scale: "pattern-demand-x5-v2" };
+  expect(isRetired(old)).toBe(true);
+  expect(isRetired({ ...old, scale: "pattern-demand-v1" })).toBe(true);
+  expect(isRetired({ ...old, scale: "pattern-curve-136083-v3" })).toBe(true);
+  expect(isRetired({ ...old, scale: STD_SKILL_CURVE_SCALE })).toBe(false);
+});
 
 it("keeps old standard targets stored but excludes incompatible scales", () => {
   const old: GoalSpec = { kind: "osu-skill", skillset: "speed", label: "Speed", target: 80 };
   expect(isRetired(old)).toBe(true);
-  expect(isRetired({ ...old, scale: "pattern-demand-x5-v2", target: 150 })).toBe(false);
+  expect(isRetired({ ...old, scale: STD_SKILL_CURVE_SCALE, target: 150 })).toBe(false);
   expect(isRetired({ kind: "skill", keys: 4, skillset: "stream", target: 25 })).toBe(false);
 });
 
