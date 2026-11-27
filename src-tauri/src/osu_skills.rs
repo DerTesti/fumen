@@ -21,7 +21,7 @@ use crate::error::Result;
 use crate::pp;
 
 /// Bump when the model changes, so cached rows from an older model are ignored.
-const CACHE_VERSION: i64 = 14;
+const CACHE_VERSION: i64 = 16;
 
 // Always accept 8 notes/s; allow slower beat-relative streams up to 180 ms as well.
 const SPEED_MAX_GAP_MS: f64 = 125.0;
@@ -32,15 +32,15 @@ const ACTIVE_MAX_GAP_MS: f64 = 1000.0;
 /// The eleven skillsets, in order: id, label, group, description. Labels/descriptions are the
 /// model's own (the view shows them as given).
 pub const SKILLS: [(&str, &str, &str, &str); 11] = [
-    ("wide-angle-aim", "Wide angle aim", "Aim", "Weite Richtungsverläufe zwischen den tatsächlichen Objekt- und Slider-Endpositionen."),
+    ("wide-angle-aim", "Wide angle aim", "Aim", "Weite Bewegungen mit offenem Innenwinkel über 90°; jeder Jump zählt nur für Wide oder Snap."),
     ("precision", "Precision", "Aim", "Kleine Trefferflächen mit aktiven, kompakten Zielwechseln statt bloßer Jump-Distanz."),
     ("accuracy", "Accuracy", "Accuracy", "Timing-Präzision relativ zum 300er-Zeitfenster unter Tapping-, Rhythmus- und Aim-Belastung."),
-    ("snap-aim", "Snap aim", "Aim", "Abrupte Geschwindigkeits- und Richtungswechsel bei weiten Bewegungen."),
+    ("snap-aim", "Snap aim", "Aim", "Abrupte Bewegungswechsel bei weiten Jumps mit Innenwinkeln bis 90°; getrennt von Wide angle aim."),
     ("finger-control", "Finger control", "Tapping", "Wechsel aktiver Rhythmusinseln; Pausen und Slider-Haltezeiten zählen nicht als Komplexität."),
     ("aim-stamina", "Aim stamina", "Aim", "Aim-Belastung in 15-Sekunden-Fenstern und zusammenhängenden Passagen; Ruhezeiten unterbrechen den Nachweis."),
     ("speed", "Speed", "Tapping", "rosu-Speed-Schwierigkeit, gewichtet nach tatsächlichem Tempo zusammenhängender schneller Circle-Folgen."),
     ("density-reading", "Density reading", "Reading", "Typische hohe Objektdichte im effektiven AR-Fenster, einschließlich Überlagerung."),
-    ("tapping-stamina", "Tapping stamina", "Tapping", "Schnelles Tapping über zusammenhängende Abschnitte und 15-Sekunden-Fenster."),
+    ("tapping-stamina", "Tapping stamina", "Tapping", "Zeitbasierter Belastungsaufbau über die ganze Map: voller Aufbau bis 180 ms, linear auslaufend bis 250 ms, Erholung bei Pausen und Slidern."),
     ("slider-control", "Slider control", "Tech", "Anspruchsvolle Slider mit nachgewiesenen Lazer-Ticks und Slider-Enden; ohne Detaildaten kein Nachweis."),
     ("flow-aim", "Flow aim", "Aim", "Räumlich anspruchsvolle, rhythmisch stabile Streams mit kontinuierlicher Bewegung."),
 ];
@@ -48,7 +48,7 @@ const N_SKILLS: usize = 11;
 const ACCURACY: usize = 2;
 const FINGER_CONTROL: usize = 4;
 
-pub const MODEL_VERSION: &str = "pattern-rosu-open-x5-v4";
+pub const MODEL_VERSION: &str = "pattern-rosu-jump-tap-v5";
 
 /// Open-ended demand units. No saturating conversion: twice the demonstrated demand
 /// gives twice the rating. Five rating units per demand unit; independent of MSD.
@@ -478,6 +478,45 @@ struct Ev {
     precision: f64,
 }
 
+/// Mutually exclusive evidence: open internal angles are wide; sharp turns are snap.
+/// An unknown angle must not default to a reversal and create false snap evidence.
+fn jump_demands(active: bool, distance: f64, velocity: f64, angle: Option<f64>, acceleration: f64) -> (f64, f64) {
+    if !active || distance < 1.3 { return (0.0, 0.0) }
+    match angle {
+        Some(a) if a > 0.5 => (0.0, velocity * a.powi(2)),
+        Some(_) => (acceleration, 0.0),
+        None => (0.0, 0.0),
+    }
+}
+
+fn tapping_weight(e: &Ev) -> f64 {
+    if !e.circle_pair || e.gap < 25.0 { return 0.0 }
+    clamp01((250.0 - e.gap) / 70.0)
+}
+
+/// X is measured in equivalent tapping seconds, not notes. Solve dX/dt = w - X/tau
+/// exactly for each interval: w fades linearly from 1 at 180ms to 0 at 250ms;
+/// tau fades from 60s under full load to 5s at rest. Sliders/spinners are recovery.
+/// Repeated runs preserve residual load, and constant full tapping approaches X=60.
+fn tapping_peak(events: &[Ev]) -> f64 {
+    let mut x: f64 = 0.0;
+    let mut peak: f64 = 0.0;
+    let mut previous_time = None;
+    for e in events {
+        let elapsed = previous_time.map(|t| e.time - t).unwrap_or(e.gap).max(0.0) / 1000.0;
+        previous_time = Some(e.time);
+        let interval = (e.gap / 1000.0).min(elapsed);
+        // Missing events (e.g. spinner heads) must still contribute their elapsed recovery time.
+        x *= (-(elapsed - interval) / 5.0).exp();
+        let w = tapping_weight(e);
+        let tau = 5.0 + 55.0 * w;
+        let decay = (-interval / tau).exp();
+        x = x * decay + w * tau * (1.0 - decay);
+        peak = peak.max(x);
+    }
+    peak
+}
+
 /// Longest uninterrupted qualifying passage, in played seconds. Every nonqualifying event,
 /// skipped object or long rest resets it, so bursts cannot be stitched across recovery time.
 fn longest_passage(events: &[Ev], qualifies: impl Fn(&Ev) -> bool) -> f64 {
@@ -538,6 +577,7 @@ struct Pattern {
     great_hit_window: f64,
     accuracy_load_factor: f64,
     slider_ticks: Option<u32>,
+    tapping_peak: f64,
     stars: f64,
     ar: f64,
 }
@@ -628,6 +668,7 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
             && (gap <= SPEED_MAX_GAP_MS || (gap <= 180.0 && gap <= o.beat_length * 0.34));
         let velocity = if active { distance / (move_time / 1000.0) } else { 0.0 };
         let mut internal_angle = 0.0;
+        let mut known_angle = None;
         let mut snap_acceleration = 0.0;
         if i >= 2 {
             let before = &objects[i - 2];
@@ -637,6 +678,7 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
                 let len = ax.hypot(ay) * bx.hypot(by);
                 if len > 0.0 {
                     internal_angle = 1.0 - clamp((ax * bx + ay * by) / len, -1.0, 1.0).acos() / std::f64::consts::PI;
+                    known_angle = Some(internal_angle);
                 }
                 // Compare actual inter-object movement vectors, in diameters/s. Slider travel
                 // itself is not an incoming jump: use the previous head and preceding end.
@@ -653,6 +695,7 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
                 }
             }
         }
+        let (jump, wide) = jump_demands(active, distance, velocity, known_angle, snap_acceleration);
         events.push(Ev {
             index: i,
             time: o.time,
@@ -663,8 +706,8 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
             distance,
             velocity,
             internal_angle,
-            jump: if active && distance >= 1.3 { snap_acceleration } else { 0.0 },
-            wide: if active && distance >= 1.3 { velocity * internal_angle.powi(2) } else { 0.0 },
+            jump,
+            wide,
             sustained_tap: if active && circle_pair && gap >= 25.0 && gap <= 300.0 { 1000.0 / gap } else { 0.0 },
             // Small targets + active target changes; compact placement separates this from
             // pure large-distance jumps. All references are provisional calibration choices.
@@ -767,7 +810,7 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
     support[5] = events.iter().filter(|e| e.velocity > 2.0).count() as f64; // aim-stamina
     support[6] = fast_events as f64; // speed
     support[7] = non_spinners as f64; // density-reading
-    support[8] = events.iter().filter(|e| e.sustained_tap >= 1000.0 / 180.0).count() as f64; // tapping-stamina
+    support[8] = events.iter().filter(|e| tapping_weight(e) > 0.0).count() as f64; // tapping-stamina
     support[9] = sliders.len() as f64; // slider-control
     support[10] = flow_runs.iter().flatten().count() as f64; // flow-aim
     let mut coverage = [0.0f64; N_SKILLS];
@@ -793,10 +836,7 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
     let sustained_aim = rolling_load(&events, |e| e.velocity, 15.0);
     let sustained_tap = rolling_load(&events, |e| e.sustained_tap, 15.0);
     let aim_passage = longest_passage(&events, |e| e.active && e.velocity > 2.0);
-    let tap_passage = longest_passage(&events, |e| e.sustained_tap >= 1000.0 / 180.0);
-    let stamina_tap_load = rolling_load(&events, |e| {
-        if e.sustained_tap >= 1000.0 / 180.0 { e.sustained_tap } else { 0.0 }
-    }, 15.0);
+    let tapping_peak = tapping_peak(&events);
     // Geometry/timing only: no OD, stars or rosu components (which may themselves include OD).
     // Reuse supported fast runs so a single fast pair cannot supply the tempo bonus.
     let tempo_load = fast_nps * support_factor(6) * coverage_factor(6);
@@ -819,9 +859,11 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
     // Tempo is a pattern-strength multiplier, not just a yes/no support gate.
     base[6] = speed_base * (fast_nps / 10.0).powf(1.5).min(1.5);
     base[7] = (quantile(&densities, 0.9).sqrt() / 1.3) * (1.0 + 0.06 * (4.0f64).min(quantile(&overlaps, 0.9))) * if s.hidden { 1.05 } else { 1.0 };
-    // Actual sustained tapping and passage length outweigh an isolated high speed component.
-    base[8] = (if speed_base != 0.0 { speed_base } else { stamina_tap_load / 3.5 })
-        * clamp01(stamina_tap_load / 10.0) * clamp01(tap_passage / 15.0);
+    // 15 equivalent tapping seconds is a provisional scale reference, not a duration cap.
+    let tap_base = if speed_base > 0.0 { speed_base } else {
+        weighted_top(&events.iter().map(|e| e.sustained_tap).collect::<Vec<_>>()) / 3.5
+    };
+    base[8] = tap_base * tapping_peak / 15.0;
     base[9] = weighted_top(&sliders);
     // flow-aim on the aim scale, gated by how fast the flow streams are against a flow reference —
     // not the map's peak velocity, which the jumps set and which suppressed flow on any mixed map
@@ -842,6 +884,7 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
         great_hit_window: s.great_hit_window,
         accuracy_load_factor,
         slider_ticks: diff.map(|d| d.large_ticks),
+        tapping_peak,
         stars: diff.map(|d| d.stars).unwrap_or(0.0),
         ar: diff.map(|d| d.ar).unwrap_or(0.0),
     }
@@ -1462,10 +1505,63 @@ mod tests {
         assert!(burst.raw_demand[6] > stream.raw_demand[6]);
         assert!(stream.raw_demand[8] > burst.raw_demand[8] * 3.0);
         assert!(stream.raw_demand[5] > burst.raw_demand[5] * 3.0);
-        assert!(stream.raw_demand[8] > fragmented.raw_demand[8] * 3.0);
+        assert!(stream.raw_demand[8] > fragmented.raw_demand[8]);
         assert!(stream.raw_demand[5] > fragmented.raw_demand[5] * 3.0);
         let slow = pattern_with_fixed_components(240, 250.0, 4.0, 160.0, None);
         assert_eq!(slow.raw_demand[8], 0.0);
+    }
+
+    #[test]
+    fn jumps_never_contribute_to_both_wide_and_snap() {
+        for angle in [0.0, 0.25, 0.5, 0.500001, 0.75, 1.0] {
+            let (snap, wide) = jump_demands(true, 2.0, 10.0, Some(angle), 100.0);
+            assert_ne!(snap > 0.0, wide > 0.0);
+            assert_eq!(wide > 0.0, angle > 0.5);
+        }
+        assert_eq!(jump_demands(true, 2.0, 10.0, None, 100.0), (0.0, 0.0));
+        assert_eq!(jump_demands(false, 2.0, 10.0, Some(1.0), 100.0), (0.0, 0.0));
+    }
+
+    fn tapping_test_event(time: f64, gap: f64, circle_pair: bool) -> Ev {
+        Ev { index: 1, time, gap, active: true, circle_pair, fast: false,
+            distance: 1.0, velocity: 0.0, internal_angle: 0.0, jump: 0.0, wide: 0.0,
+            sustained_tap: if circle_pair { 1000.0 / gap } else { 0.0 }, precision: 0.0 }
+    }
+
+    #[test]
+    fn tapping_weight_is_linear_and_x_is_time_based() {
+        for (gap, weight) in [(100.0, 1.0), (180.0, 1.0), (215.0, 0.5), (250.0, 0.0), (300.0, 0.0)] {
+            assert_eq!(tapping_weight(&tapping_test_event(gap, gap, true)), weight);
+        }
+        assert_eq!(tapping_weight(&tapping_test_event(100.0, 100.0, false)), 0.0);
+        let run = |count: usize, gap: f64| (1..=count).map(|i| tapping_test_event(i as f64 * gap, gap, true)).collect::<Vec<_>>();
+        let a = tapping_peak(&run(100, 100.0));
+        let b = tapping_peak(&run(200, 50.0));
+        assert!((a - b).abs() < 1e-9); // twice as many notes, same ten seconds of full load
+        assert!((a - 60.0 * (1.0 - (-10.0f64 / 60.0).exp())).abs() < 1e-9);
+        assert!(tapping_peak(&run(900, 100.0)) > tapping_peak(&run(150, 100.0)));
+        assert!(tapping_peak(&run(6000, 100.0)) < 60.0);
+        assert!(pattern_with_fixed_components(200, 215.0, 4.0, 160.0, None).raw_demand[8] > 0.0);
+    }
+
+    #[test]
+    fn tapping_runs_keep_residual_x_and_sliders_allow_faster_recovery() {
+        let repeated = |pause: f64| {
+            let mut events = Vec::new();
+            let mut time = 0.0;
+            for block in 0..2 {
+                if block == 1 { time += pause; events.push(tapping_test_event(time, pause, false)); }
+                for _ in 0..50 { time += 100.0; events.push(tapping_test_event(time, 100.0, true)); }
+            }
+            events
+        };
+        let short = tapping_peak(&repeated(500.0));
+        let long = tapping_peak(&repeated(25000.0));
+        assert!(short > long);
+        let mut events = repeated(500.0);
+        let before = tapping_peak(&events);
+        events.push(tapping_test_event(events.last().unwrap().time + 120000.0, 120000.0, false));
+        assert_eq!(tapping_peak(&events), before); // empty time adds no stamina
     }
 
     fn flow_pattern(beat_length: f64, gap: f64, rate: f64, zigzag: bool) -> Pattern {
