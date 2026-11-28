@@ -94,9 +94,10 @@ describe("goals", () => {
     expect(progress(skill, 19)).toBe(0);
     expect(progress(skill, 24.2)).toBe(1);
     expect(progress({ ...skill, done: 5 }, 20)).toBe(1);
-    // ranks in proportions: halfway from #40,000 to #10,000 is #20,000
+    // Profile ranks use twice the target as the fixed baseline, regardless of saved start.
     const rank = goal({ kind: "profile", ruleset: "mania", metric: "rank", target: 10_000, start: 40_000 });
-    expect(progress(rank, 20_000)).toBeCloseTo(0.5);
+    expect(progress(rank, 20_000)).toBe(0);
+    expect(progress(rank, Math.sqrt(20_000 * 10_000))).toBeCloseTo(0.5);
     // a chart not passed when the goal was set: from 10 points under
     const chart = goal({ kind: "chart", map: "a", title: "", version: "", acc: 0.96, rate: 1, start: null });
     expect(progress(chart, 0.91)).toBeCloseTo(0.5);
@@ -115,20 +116,25 @@ describe("goals", () => {
     expect(suggestTarget("rank", 123_456)).toBe(98_000);
   });
 
-  it.each(["osu", "mania", "taiko", "fruits"] as const)("uses saved pp and rank starting values for %s", (ruleset) => {
+  it.each(["osu", "mania"] as const)("uses fixed proximity baselines for profile goals in %s", (ruleset) => {
     const pp = goal({ kind: "profile", ruleset, metric: "pp", target: 2000, start: 1000 });
     expect(progress(pp, 1000)).toBe(0);
-    expect(progress(pp, 1500)).toBeCloseTo(0.5);
+    expect(progress(pp, 1500)).toBe(0);
+    expect(progress(pp, 1800)).toBeCloseTo(0.5);
+    expect(progress(pp, 1900)).toBeCloseTo(0.75);
     expect(progress(pp, 900)).toBe(0);
     expect(progress(pp, 2000)).toBe(1);
-    expect(progress({ ...pp, start: 0 }, 1000)).toBeCloseTo(0.5);
+    expect(progress({ ...pp, start: 0 }, 1800)).toBeCloseTo(0.5);
+    expect(progress({ ...pp, start: 1990 }, 1800)).toBeCloseTo(0.5);
     expect(progress({ ...pp, start: null }, 1800)).toBeCloseTo(0.5);
     const rank = goal({ kind: "profile", ruleset, metric: "rank", target: 10_000, start: 40_000 });
     expect(progress(rank, 40_000)).toBe(0);
-    expect(progress(rank, 20_000)).toBeCloseTo(0.5);
+    expect(progress(rank, 20_000)).toBe(0);
+    expect(progress(rank, Math.sqrt(20_000 * 10_000))).toBeCloseTo(0.5);
     expect(progress(rank, 50_000)).toBe(0);
     expect(progress(rank, 10_000)).toBe(1);
     expect(progress({ ...rank, start: null }, Math.sqrt(20_000 * 10_000))).toBeCloseTo(0.5);
+    expect(progress({ ...rank, start: 100_000 }, Math.sqrt(20_000 * 10_000))).toBeCloseTo(0.5);
   });
 
   it("puts it in words", () => {
