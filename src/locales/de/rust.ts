@@ -3,6 +3,7 @@
  * looked up too, so "{what} failed: {msg}" finds "Importing into lazer". `fromRust()` in
  * src/lib/i18n.ts reads this; `i18n.test.ts` checks it against src-tauri/src. */
 export const rust: Record<string, string> = {
+  "Another osu! fetch is still stopping; try again in a moment.": "Eine andere osu!-Abfrage wird noch beendet. Versuche es gleich erneut.",
   // charts, skins, the library
   "This difficulty has no chart file.": "Dieser Schwierigkeitsgrad hat keine Chart-Datei.",
   "This difficulty's .osu file is missing.": "Die .osu-Datei dieses Schwierigkeitsgrads fehlt.",

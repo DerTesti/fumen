@@ -3,6 +3,7 @@ import { bestAcc, goalContext, goalNow, goalTarget, goalTitle, isReached, isReti
 import { aggregate } from "./skills";
 import type { MapRow, Play } from "./types";
 import curves from "./osu-skill-curves.json";
+import { lang } from "./i18n";
 
 it("retires targets on old scales without treating them as current curve targets", () => {
   expect(curves.scale).toBe(STD_SKILL_CURVE_SCALE);
@@ -114,13 +115,29 @@ describe("goals", () => {
     expect(suggestTarget("rank", 123_456)).toBe(98_000);
   });
 
+  it.each(["osu", "mania", "taiko", "fruits"] as const)("uses saved pp and rank starting values for %s", (ruleset) => {
+    const pp = goal({ kind: "profile", ruleset, metric: "pp", target: 2000, start: 1000 });
+    expect(progress(pp, 1000)).toBe(0);
+    expect(progress(pp, 1500)).toBeCloseTo(0.5);
+    expect(progress(pp, 900)).toBe(0);
+    expect(progress(pp, 2000)).toBe(1);
+    expect(progress({ ...pp, start: 0 }, 1000)).toBeCloseTo(0.5);
+    expect(progress({ ...pp, start: null }, 1800)).toBeCloseTo(0.5);
+    const rank = goal({ kind: "profile", ruleset, metric: "rank", target: 10_000, start: 40_000 });
+    expect(progress(rank, 40_000)).toBe(0);
+    expect(progress(rank, 20_000)).toBeCloseTo(0.5);
+    expect(progress(rank, 50_000)).toBe(0);
+    expect(progress(rank, 10_000)).toBe(1);
+    expect(progress({ ...rank, start: null }, Math.sqrt(20_000 * 10_000))).toBeCloseTo(0.5);
+  });
+
   it("puts it in words", () => {
     expect(goalTitle({ kind: "skill", keys: 4, skillset: "jumpstream", target: 25 })).toBe("Jumpstream 4K");
     expect(goalTitle({ kind: "skill", keys: 7, skillset: "overall", target: 25 })).toBe("Overall 7K");
-    expect(goalTitle({ kind: "profile", ruleset: "taiko", metric: "rank", target: 4000 })).toBe("osu!taiko rank");
-    expect(goalTarget({ kind: "profile", ruleset: "taiko", metric: "rank", target: 4000 })).toBe("#4,000");
-    expect(goalTarget({ kind: "chart", map: "a", title: "T", version: "V", acc: 0.96, rate: 1.1 })).toBe("96.00% at 1.10× or faster");
-    expect(goalTarget({ kind: "skill", keys: 4, skillset: "stamina", target: 25 })).toBe("25.00");
+    expect(goalTitle({ kind: "profile", ruleset: "taiko", metric: "rank", target: 4000 })).toBe(lang === "de" ? "osu!taiko-Rang" : "osu!taiko rank");
+    expect(goalTarget({ kind: "profile", ruleset: "taiko", metric: "rank", target: 4000 })).toBe(lang === "de" ? "#4.000" : "#4,000");
+    expect(goalTarget({ kind: "chart", map: "a", title: "T", version: "V", acc: 0.96, rate: 1.1 })).toBe(lang === "de" ? "96,00 % bei 1,10× oder schneller" : "96.00% at 1.10× or faster");
+    expect(goalTarget({ kind: "skill", keys: 4, skillset: "stamina", target: 25 })).toBe(lang === "de" ? "25,00" : "25.00");
   });
 
   it("leaves skill goals from before Etterna's skillsets alone", () => {
