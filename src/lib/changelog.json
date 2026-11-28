@@ -1,5 +1,17 @@
 [
   {
+    "version": "1.5.6",
+    "date": "2026-11-28",
+    "en": [
+      "New: osu!standard skills, in beta. The Skills page has an osu!standard tab: eleven skills worked out from your passes, a comparison with other players, practice suggestions and goals. Thanks to t1ggy!",
+      "Changed: pp and rank goals now show how close you are to the target."
+    ],
+    "de": [
+      "Neu: osu!standard-Skills, als Beta. Die Skills-Seite hat einen osu!standard-Tab: elf Skills aus deinen Passes, ein Vergleich mit anderen Spielern, Übungsvorschläge und Ziele. Danke an t1ggy!",
+      "Geändert: pp- und Rang-Ziele zeigen jetzt, wie nah du am Ziel bist."
+    ]
+  },
+  {
     "version": "1.5.5",
     "date": "2026-11-28",
     "en": [
