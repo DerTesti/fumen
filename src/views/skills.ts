@@ -135,7 +135,7 @@ export class SkillsView {
         <div class="skills-tools">
           <div class="seg-pill skills-mode" role="tablist" aria-label="${t("Game")}">
             <button type="button" data-mode="mania" class="active">osu!mania</button>
-            <button type="button" data-mode="standard">osu!standard</button>
+            <button type="button" data-mode="standard">osu!standard <span class="skills-beta">Beta</span></button>
           </div>
           <div class="seg-pill skills-keys" role="tablist" aria-label="${t("Keys")}"></div>
           <button class="btn btn-sm skills-compare" type="button">${icon("user")}<span>${t("Compare")}</span></button>
@@ -1056,7 +1056,7 @@ export class SkillsView {
     });
     this.el.addEventListener("click", (e) => {
       const target = e.target as Element;
-      if (target.closest(".skills-help-btn")) return openSkillsHelp();
+      if (target.closest(".skills-help-btn")) return openSkillsHelp(this.mode);
       // osu!standard tab: its own compare flow (the bar reuses the same .cmp-* markup)
       if (this.mode === "standard") {
         if (target.closest(".skills-compare")) {

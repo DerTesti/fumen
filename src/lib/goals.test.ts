@@ -10,6 +10,7 @@ it("retires targets on old scales without treating them as current curve targets
   expect(isRetired(old)).toBe(true);
   expect(isRetired({ ...old, scale: "pattern-demand-v1" })).toBe(true);
   expect(isRetired({ ...old, scale: "pattern-curve-136083-v3" })).toBe(true);
+  expect(isRetired({ ...old, scale: "pattern-reading-ratios-v4" })).toBe(true);
   expect(isRetired({ ...old, scale: STD_SKILL_CURVE_SCALE })).toBe(false);
 });
 

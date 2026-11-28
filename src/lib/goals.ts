@@ -10,7 +10,7 @@ import { bestPerChart, changesChart, rateOf, SKILL_LABEL, skills, type LeftOut, 
 import type { History, MapRow, MsdSkill, Play } from "./types";
 import { t } from "./i18n";
 
-export const STD_SKILL_CURVE_SCALE = "pattern-reading-ratios-v4" as const;
+export const STD_SKILL_CURVE_SCALE = "map-reference-halfstar-v1" as const;
 
 export type Ruleset = "osu" | "taiko" | "fruits" | "mania";
 export const RULESETS: Ruleset[] = ["osu", "taiko", "fruits", "mania"];
@@ -35,7 +35,7 @@ export type GoalSpec =
     }
   | { kind: "profile"; ruleset: Ruleset; metric: "pp" | "rank"; target: number }
   /** an osu!standard skillset (lib/osu-standard); `label` is kept so the title reads without the model */
-  | { kind: "osu-skill"; skillset: string; label: string; target: number; scale?: "pattern-demand-v1" | "pattern-demand-x5-v2" | "pattern-curve-136083-v3" | typeof STD_SKILL_CURVE_SCALE };
+  | { kind: "osu-skill"; skillset: string; label: string; target: number; scale?: "pattern-demand-v1" | "pattern-demand-x5-v2" | "pattern-curve-136083-v3" | "pattern-reading-ratios-v4" | typeof STD_SKILL_CURVE_SCALE };
 
 /** Whether a goal belongs to the osu!standard tab: a standard skillset, or an osu! (standard)
  * profile pp/rank goal. Everything else (mania skills, charts, other rulesets' pp/rank) is mania's. */

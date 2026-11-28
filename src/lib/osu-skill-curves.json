@@ -1,218 +1,2032 @@
 {
-  "scale": "pattern-reading-ratios-v4",
-  "sourceModel": "pattern-rosu-reading-ratios-v7/patterns-17",
-  "patternVersion": 17,
+  "scale": "map-reference-halfstar-v1",
+  "sourceModel": "pattern-rosu-reading-ratios-v8/patterns-18",
+  "patternVersion": 18,
+  "input": "conditional-intensity",
+  "extrapolation": "log-tail",
+  "reference": {
+    "sourceModel": "pattern-rosu-reading-ratios-v7/patterns-17",
+    "mapCount": 25872,
+    "minimumMaps": 30,
+    "corpusSha256": "36a28033dfe673857ff52502c98a006c638746fdb1bb28d1ed2ce01c09ce4ba1",
+    "fitting": "Weighted isotonic log intensity; at least 1% increase per half-star; targets retain their original positions",
+    "provisional": true
+  },
   "curves": {
     "wide-angle-aim": [
       [
-        0.0,
-        0.0
+        0,
+        0
       ],
       [
-        2.1842346118784874,
+        0.8432011506276804,
+        2.5
+      ],
+      [
+        1.0351216257311533,
+        5.0
+      ],
+      [
+        1.202079705658437,
+        7.5
+      ],
+      [
+        1.44967357700266,
+        10.0
+      ],
+      [
+        1.6693968356239763,
+        12.5
+      ],
+      [
+        1.8338081138229123,
         15.0
       ],
       [
-        2.6514171371758986,
-        18.885521735911425
+        2.0586804624400648,
+        17.5
       ],
       [
-        3.067307395953155,
-        21.847826086956523
+        2.247839460618279,
+        20.0
+      ],
+      [
+        2.395254883945333,
+        22.5
+      ],
+      [
+        2.621923278659104,
+        25.0
+      ],
+      [
+        2.834515327577571,
+        27.5
+      ],
+      [
+        3.029635251135405,
+        30.0
+      ],
+      [
+        3.064849576679207,
+        32.5
+      ],
+      [
+        3.120018889817478,
+        35.0
+      ],
+      [
+        3.1512190787156524,
+        37.5
+      ],
+      [
+        3.201047959156687,
+        40.0
       ]
     ],
     "precision": [
       [
-        0.0,
-        0.0
+        0,
+        0
       ],
       [
-        0.8910536950433542,
-        11.86596630579987
+        0.034068847577785194,
+        2.5
       ],
       [
-        1.3086404901731878,
-        17.426877919006827
+        0.05975365685389001,
+        5.0
       ],
       [
-        1.6406237521449722,
-        21.847826086956523
+        0.11435190967983448,
+        7.5
+      ],
+      [
+        0.31024573423348384,
+        10.0
+      ],
+      [
+        0.4388371854035724,
+        12.5
+      ],
+      [
+        0.541993031368192,
+        15.0
+      ],
+      [
+        0.6680602271239997,
+        17.5
+      ],
+      [
+        0.7712645528947869,
+        20.0
+      ],
+      [
+        0.8934229330329242,
+        22.5
+      ],
+      [
+        1.0169566662079736,
+        25.0
+      ],
+      [
+        1.1595591049164666,
+        27.5
+      ],
+      [
+        1.283063565799561,
+        30.0
+      ],
+      [
+        1.4073086366877319,
+        32.5
+      ],
+      [
+        1.4656638015851833,
+        35.0
+      ],
+      [
+        1.5867530131998648,
+        37.5
+      ],
+      [
+        1.6026205433318634,
+        40.0
+      ],
+      [
+        1.6403762445340437,
+        42.5
       ]
     ],
     "accuracy": [
       [
-        0.0,
-        0.0
+        0,
+        0
       ],
       [
-        1.9901240014287203,
-        14.798555902717126
+        0.44631011750105387,
+        2.5
       ],
       [
-        2.4924944776244233,
-        18.534181205723154
+        0.496981227327521,
+        5.0
       ],
       [
-        2.938116621683976,
-        21.847826086956523
+        0.5633127889313654,
+        7.5
+      ],
+      [
+        0.752964756584652,
+        10.0
+      ],
+      [
+        0.8295890017557327,
+        12.5
+      ],
+      [
+        1.1523664511768106,
+        15.0
+      ],
+      [
+        1.5300436916026594,
+        17.5
+      ],
+      [
+        1.7397648580872433,
+        20.0
+      ],
+      [
+        1.95672425307161,
+        22.5
+      ],
+      [
+        2.150435089251043,
+        25.0
+      ],
+      [
+        2.32493599321859,
+        27.5
+      ],
+      [
+        2.4741522042499624,
+        30.0
+      ],
+      [
+        2.6201799583393823,
+        32.5
+      ],
+      [
+        2.7252256076753003,
+        35.0
+      ],
+      [
+        2.830792783167775,
+        37.5
+      ],
+      [
+        3.013441016157875,
+        40.0
+      ],
+      [
+        3.106212030471546,
+        42.5
       ]
     ],
     "snap-aim": [
       [
-        0.0,
-        0.0
+        0,
+        0
       ],
       [
-        3.3210675586901544,
-        13.404726566470286
+        0.043969873438660045,
+        2.5
       ],
       [
-        4.555879129236357,
-        18.388759914715056
+        0.1363600944006632,
+        5.0
       ],
       [
-        5.412874786031661,
-        21.847826086956523
+        0.28427299061022043,
+        7.5
+      ],
+      [
+        0.9614751058578029,
+        10.0
+      ],
+      [
+        1.5989976766877692,
+        12.5
+      ],
+      [
+        1.9064821747665788,
+        15.0
+      ],
+      [
+        2.3843443785162837,
+        17.5
+      ],
+      [
+        2.8090217555573913,
+        20.0
+      ],
+      [
+        3.2127676295974257,
+        22.5
+      ],
+      [
+        3.749683217282982,
+        25.0
+      ],
+      [
+        4.215865816002689,
+        27.5
+      ],
+      [
+        4.5911328257264685,
+        30.0
+      ],
+      [
+        4.8901927577699995,
+        32.5
+      ],
+      [
+        4.972945317710698,
+        35.0
+      ],
+      [
+        5.022674770887806,
+        37.5
+      ],
+      [
+        5.392478333769757,
+        40.0
+      ],
+      [
+        5.446403117107454,
+        42.5
       ]
     ],
     "finger-control": [
       [
-        0.0,
-        0.0
+        0,
+        0
       ],
       [
-        2.038786534481154,
-        12.012336479836256
+        0.266682723407531,
+        7.5
       ],
       [
-        2.883660730079258,
-        16.990254937218154
+        0.47497160008514205,
+        10.0
       ],
       [
-        3.7081090517687723,
-        21.847826086956523
+        0.5377942677794034,
+        12.5
+      ],
+      [
+        0.7969028131977459,
+        15.0
+      ],
+      [
+        1.0980380875671076,
+        17.5
+      ],
+      [
+        1.3779474186995655,
+        20.0
+      ],
+      [
+        1.6638662841249894,
+        22.5
+      ],
+      [
+        2.0755434610138535,
+        25.0
+      ],
+      [
+        2.343613843709713,
+        27.5
+      ],
+      [
+        2.6360442667089754,
+        30.0
+      ],
+      [
+        2.7595334210290776,
+        32.5
+      ],
+      [
+        2.787716251188767,
+        35.0
+      ],
+      [
+        3.38794937860176,
+        37.5
+      ],
+      [
+        3.8175597608316125,
+        40.0
       ]
     ],
     "aim-stamina": [
       [
-        0.0,
-        0.0
+        0,
+        0
       ],
       [
-        1.0876237804998607,
-        10.372769462205511
+        0.07603952052855538,
+        2.5
       ],
       [
-        1.6175129500550665,
-        15.426371907151665
+        0.3061401295227333,
+        5.0
       ],
       [
-        2.2908265040479066,
-        21.847826086956523
+        0.5901938729074833,
+        7.5
+      ],
+      [
+        0.627181903770217,
+        10.0
+      ],
+      [
+        0.6917544346832449,
+        12.5
+      ],
+      [
+        0.8094105175667515,
+        15.0
+      ],
+      [
+        0.9359643224094971,
+        17.5
+      ],
+      [
+        1.0494792054698003,
+        20.0
+      ],
+      [
+        1.2240405537897838,
+        22.5
+      ],
+      [
+        1.3036223846770782,
+        25.0
+      ],
+      [
+        1.3358361426974539,
+        27.5
+      ],
+      [
+        1.5416853909928614,
+        30.0
+      ],
+      [
+        1.6512715523878305,
+        32.5
+      ],
+      [
+        1.8069532378173772,
+        35.0
+      ],
+      [
+        2.2267967673423295,
+        37.5
+      ],
+      [
+        2.251913153847064,
+        40.0
+      ],
+      [
+        2.709958542708401,
+        42.5
       ]
     ],
     "speed": [
       [
-        0.0,
-        0.0
+        0,
+        0
       ],
       [
-        2.9457357718804533,
-        12.951740407799354
+        0.914522978219095,
+        10.0
       ],
       [
-        4.020054090758505,
-        17.67527743181748
+        1.2245388666300494,
+        12.5
       ],
       [
-        4.969055958179593,
-        21.847826086956523
+        1.5061193264295776,
+        15.0
+      ],
+      [
+        2.155734669400247,
+        17.5
+      ],
+      [
+        2.7330830495096707,
+        20.0
+      ],
+      [
+        3.016601786900559,
+        22.5
+      ],
+      [
+        3.3790399134516513,
+        25.0
+      ],
+      [
+        3.7616552429557064,
+        27.5
+      ],
+      [
+        4.0874226691445585,
+        30.0
+      ],
+      [
+        4.219855693642657,
+        32.5
+      ],
+      [
+        4.262054250579085,
+        35.0
+      ],
+      [
+        4.3046747930848746,
+        37.5
+      ],
+      [
+        4.347721541015724,
+        40.0
+      ],
+      [
+        4.39119875642588,
+        42.5
       ]
     ],
     "density-reading": [
       [
-        0.0,
-        0.0
+        0,
+        0
       ],
       [
-        1.9872477932523567,
+        1.0939855984334161,
+        2.5
+      ],
+      [
+        1.2632257594902132,
+        5.0
+      ],
+      [
+        1.3713080002599036,
+        7.5
+      ],
+      [
+        1.4699119880067182,
+        10.0
+      ],
+      [
+        1.5422863162205636,
+        12.5
+      ],
+      [
+        1.6295855416670109,
         15.0
       ],
       [
-        2.2289232804501604,
-        19.565217391304348
+        1.8162064897229382,
+        17.5
       ],
       [
-        2.4085576291808635,
-        21.847826086956523
+        1.8493424526405675,
+        20.0
+      ],
+      [
+        1.8857404025382458,
+        22.5
+      ],
+      [
+        1.9513212371566988,
+        25.0
+      ],
+      [
+        2.050583746867556,
+        27.5
+      ],
+      [
+        2.104867609316495,
+        30.0
+      ],
+      [
+        2.192581697000174,
+        32.5
+      ],
+      [
+        2.214507513970176,
+        35.0
+      ],
+      [
+        2.23703294532591,
+        37.5
+      ],
+      [
+        2.2594032747791695,
+        40.0
+      ],
+      [
+        2.3119632285158214,
+        42.5
       ]
     ],
     "tapping-stamina": [
       [
-        0.0,
-        0.0
+        0,
+        0
       ],
       [
-        0.7813552224687114,
-        6.536729746737351
+        0.02164435288117052,
+        5.0
       ],
       [
-        1.4700636698307075,
-        12.298387012528174
+        0.033374455790516025,
+        7.5
       ],
       [
-        2.6115372172380473,
-        21.847826086956523
+        0.06083904891729357,
+        10.0
+      ],
+      [
+        0.09543784475065059,
+        12.5
+      ],
+      [
+        0.1704683071501641,
+        15.0
+      ],
+      [
+        0.3006226422957854,
+        17.5
+      ],
+      [
+        0.41057126380207537,
+        20.0
+      ],
+      [
+        0.5725176972930436,
+        22.5
+      ],
+      [
+        0.7687208607239722,
+        25.0
+      ],
+      [
+        0.9583317021769748,
+        27.5
+      ],
+      [
+        1.1417066103340296,
+        30.0
+      ],
+      [
+        1.4459505878624093,
+        32.5
+      ],
+      [
+        1.6302070635929236,
+        35.0
+      ],
+      [
+        1.6465091342288527,
+        37.5
+      ],
+      [
+        1.8171775062589857,
+        40.0
+      ],
+      [
+        1.8353492813215753,
+        42.5
       ]
     ],
     "slider-control": [
       [
-        0.0,
-        0.0
+        0,
+        0
       ],
       [
-        1.6377546198965296,
-        14.459380784980013
+        0.9009146757729585,
+        2.5
       ],
       [
-        2.015569611738355,
-        17.79502750943267
+        1.0203673539681066,
+        5.0
       ],
       [
-        2.4746134458107383,
-        21.847826086956523
+        1.1265870109072909,
+        7.5
+      ],
+      [
+        1.2334442476809373,
+        10.0
+      ],
+      [
+        1.3350518191006826,
+        12.5
+      ],
+      [
+        1.3996503135098177,
+        15.0
+      ],
+      [
+        1.4787919578490871,
+        17.5
+      ],
+      [
+        1.5643763218391618,
+        20.0
+      ],
+      [
+        1.653271669323582,
+        22.5
+      ],
+      [
+        1.7654087953743056,
+        25.0
+      ],
+      [
+        1.9169798534910225,
+        27.5
+      ],
+      [
+        2.014852352470701,
+        30.0
+      ],
+      [
+        2.1038764050317402,
+        32.5
+      ],
+      [
+        2.173719532056703,
+        35.0
+      ],
+      [
+        2.242413836982522,
+        37.5
+      ],
+      [
+        2.2648379753523473,
+        40.0
+      ],
+      [
+        2.4139870894886553,
+        42.5
       ]
     ],
     "flow-aim": [
       [
-        0.0,
-        0.0
+        0,
+        0
       ],
       [
-        2.827244585178977,
+        0.8400982306622933,
+        7.5
+      ],
+      [
+        1.173764591861998,
+        10.0
+      ],
+      [
+        1.4639156059248353,
+        12.5
+      ],
+      [
+        1.6862341977790962,
         15.0
       ],
       [
-        3.315006078274878,
-        19.191218071728162
+        1.922261465524053,
+        17.5
       ],
       [
-        3.7738967899097724,
-        21.847826086956523
+        2.222748307110088,
+        20.0
+      ],
+      [
+        2.60750175683199,
+        22.5
+      ],
+      [
+        3.0095552795029756,
+        25.0
+      ],
+      [
+        3.3611672019973415,
+        27.5
+      ],
+      [
+        3.6783918061159877,
+        30.0
+      ],
+      [
+        3.9751345341124544,
+        32.5
+      ],
+      [
+        4.247523336105925,
+        35.0
+      ],
+      [
+        4.513539228204563,
+        37.5
       ]
     ]
   },
-  "notes": [
-    "Experimental mathematical optimum under four declared criteria; no proof of equal human difficulty.",
-    "Calibrate demand first, then apply play quality. Accuracy still uses provisional proxy calibration."
-  ],
-  "densityReference": {
-    "model": "pattern-rosu-reading-ratios-v7/patterns-17",
-    "trainingCells": 83,
-    "trainingMaps": 20559
-  },
-  "extrapolation": "proportional",
-  "minimumElasticity": 1.0,
-  "referenceCandidate": 136083,
-  "policy": "Hold P90 output; lower earlier anchors only when necessary to preserve raw-demand ratios. Continue proportionally above P90."
+  "anchors": {
+    "wide-angle-aim": [
+      {
+        "stars": 1.5,
+        "raw": 0.8432011506276804,
+        "referenceCount": 335,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 2.0,
+        "raw": 1.0351216257311533,
+        "referenceCount": 1454,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 2.5,
+        "raw": 1.202079705658437,
+        "referenceCount": 1757,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.0,
+        "raw": 1.44967357700266,
+        "referenceCount": 1245,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.5,
+        "raw": 1.6693968356239763,
+        "referenceCount": 2528,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.0,
+        "raw": 1.8338081138229123,
+        "referenceCount": 1895,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.5,
+        "raw": 2.0586804624400648,
+        "referenceCount": 2315,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.0,
+        "raw": 2.247839460618279,
+        "referenceCount": 2773,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.5,
+        "raw": 2.395254883945333,
+        "referenceCount": 2382,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.0,
+        "raw": 2.621923278659104,
+        "referenceCount": 1777,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.5,
+        "raw": 2.834515327577571,
+        "referenceCount": 1019,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 7.0,
+        "raw": 3.029635251135405,
+        "referenceCount": 534,
+        "status": "measured",
+        "adjustment": 2.220446049250313e-16
+      },
+      {
+        "stars": 7.5,
+        "raw": 3.064849576679207,
+        "referenceCount": 275,
+        "status": "measured",
+        "adjustment": -1.1102230246251565e-16
+      },
+      {
+        "stars": 8.0,
+        "raw": 3.120018889817478,
+        "referenceCount": 121,
+        "status": "measured",
+        "adjustment": -0.0059575863664596
+      },
+      {
+        "stars": 8.5,
+        "raw": 3.1512190787156524,
+        "referenceCount": 78,
+        "status": "measured",
+        "adjustment": 0.00931263153619355
+      },
+      {
+        "stars": 9.0,
+        "raw": 3.201047959156687,
+        "referenceCount": 43,
+        "status": "measured",
+        "adjustment": -1.1102230246251565e-16
+      }
+    ],
+    "precision": [
+      {
+        "stars": 1.5,
+        "raw": 0.034068847577785194,
+        "referenceCount": 1325,
+        "status": "measured",
+        "adjustment": 2.220446049250313e-16
+      },
+      {
+        "stars": 2.0,
+        "raw": 0.05975365685389001,
+        "referenceCount": 3074,
+        "status": "measured",
+        "adjustment": -1.1102230246251565e-16
+      },
+      {
+        "stars": 2.5,
+        "raw": 0.11435190967983448,
+        "referenceCount": 2501,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.0,
+        "raw": 0.31024573423348384,
+        "referenceCount": 1452,
+        "status": "measured",
+        "adjustment": 2.220446049250313e-16
+      },
+      {
+        "stars": 3.5,
+        "raw": 0.4388371854035724,
+        "referenceCount": 2859,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.0,
+        "raw": 0.541993031368192,
+        "referenceCount": 2033,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.5,
+        "raw": 0.6680602271239997,
+        "referenceCount": 2428,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.0,
+        "raw": 0.7712645528947869,
+        "referenceCount": 2917,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.5,
+        "raw": 0.8934229330329242,
+        "referenceCount": 2513,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.0,
+        "raw": 1.0169566662079736,
+        "referenceCount": 1862,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.5,
+        "raw": 1.1595591049164666,
+        "referenceCount": 1068,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 7.0,
+        "raw": 1.283063565799561,
+        "referenceCount": 570,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 7.5,
+        "raw": 1.4073086366877319,
+        "referenceCount": 308,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 8.0,
+        "raw": 1.4656638015851833,
+        "referenceCount": 142,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 8.5,
+        "raw": 1.5867530131998648,
+        "referenceCount": 94,
+        "status": "measured",
+        "adjustment": -0.0032053531144272673
+      },
+      {
+        "stars": 9.0,
+        "raw": 1.6026205433318634,
+        "referenceCount": 51,
+        "status": "measured",
+        "adjustment": 0.005934936847658001
+      },
+      {
+        "stars": 9.5,
+        "raw": 1.6403762445340437,
+        "referenceCount": 35,
+        "status": "measured",
+        "adjustment": 0.0
+      }
+    ],
+    "accuracy": [
+      {
+        "stars": 1.5,
+        "raw": 0.44631011750105387,
+        "referenceCount": 1510,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 2.0,
+        "raw": 0.496981227327521,
+        "referenceCount": 3162,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 2.5,
+        "raw": 0.5633127889313654,
+        "referenceCount": 2517,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.0,
+        "raw": 0.752964756584652,
+        "referenceCount": 1454,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.5,
+        "raw": 0.8295890017557327,
+        "referenceCount": 2863,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.0,
+        "raw": 1.1523664511768106,
+        "referenceCount": 2035,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.5,
+        "raw": 1.5300436916026594,
+        "referenceCount": 2439,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.0,
+        "raw": 1.7397648580872433,
+        "referenceCount": 2924,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.5,
+        "raw": 1.95672425307161,
+        "referenceCount": 2519,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.0,
+        "raw": 2.150435089251043,
+        "referenceCount": 1871,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.5,
+        "raw": 2.32493599321859,
+        "referenceCount": 1074,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 7.0,
+        "raw": 2.4741522042499624,
+        "referenceCount": 573,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 7.5,
+        "raw": 2.6201799583393823,
+        "referenceCount": 308,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 8.0,
+        "raw": 2.7252256076753003,
+        "referenceCount": 142,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 8.5,
+        "raw": 2.830792783167775,
+        "referenceCount": 94,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 9.0,
+        "raw": 3.013441016157875,
+        "referenceCount": 52,
+        "status": "measured",
+        "adjustment": -1.1102230246251565e-16
+      },
+      {
+        "stars": 9.5,
+        "raw": 3.106212030471546,
+        "referenceCount": 36,
+        "status": "measured",
+        "adjustment": -1.1102230246251565e-16
+      }
+    ],
+    "snap-aim": [
+      {
+        "stars": 1.5,
+        "raw": 0.043969873438660045,
+        "referenceCount": 188,
+        "status": "measured",
+        "adjustment": 2.220446049250313e-16
+      },
+      {
+        "stars": 2.0,
+        "raw": 0.1363600944006632,
+        "referenceCount": 958,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 2.5,
+        "raw": 0.28427299061022043,
+        "referenceCount": 1351,
+        "status": "measured",
+        "adjustment": -2.220446049250313e-16
+      },
+      {
+        "stars": 3.0,
+        "raw": 0.9614751058578029,
+        "referenceCount": 1187,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.5,
+        "raw": 1.5989976766877692,
+        "referenceCount": 2440,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.0,
+        "raw": 1.9064821747665788,
+        "referenceCount": 1914,
+        "status": "measured",
+        "adjustment": -1.1102230246251565e-16
+      },
+      {
+        "stars": 4.5,
+        "raw": 2.3843443785162837,
+        "referenceCount": 2407,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.0,
+        "raw": 2.8090217555573913,
+        "referenceCount": 2914,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.5,
+        "raw": 3.2127676295974257,
+        "referenceCount": 2509,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.0,
+        "raw": 3.749683217282982,
+        "referenceCount": 1860,
+        "status": "measured",
+        "adjustment": -1.1102230246251565e-16
+      },
+      {
+        "stars": 6.5,
+        "raw": 4.215865816002689,
+        "referenceCount": 1069,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 7.0,
+        "raw": 4.5911328257264685,
+        "referenceCount": 572,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 7.5,
+        "raw": 4.8901927577699995,
+        "referenceCount": 306,
+        "status": "measured",
+        "adjustment": -2.220446049250313e-16
+      },
+      {
+        "stars": 8.0,
+        "raw": 4.972945317710698,
+        "referenceCount": 142,
+        "status": "measured",
+        "adjustment": -0.003805165994866022
+      },
+      {
+        "stars": 8.5,
+        "raw": 5.022674770887806,
+        "referenceCount": 94,
+        "status": "measured",
+        "adjustment": 0.005775809827685663
+      },
+      {
+        "stars": 9.0,
+        "raw": 5.392478333769757,
+        "referenceCount": 52,
+        "status": "measured",
+        "adjustment": -0.03285627575737693
+      },
+      {
+        "stars": 9.5,
+        "raw": 5.446403117107454,
+        "referenceCount": 36,
+        "status": "measured",
+        "adjustment": 0.04943952838001664
+      }
+    ],
+    "finger-control": [
+      {
+        "stars": 2.5,
+        "raw": 0.266682723407531,
+        "referenceCount": 243,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.0,
+        "raw": 0.47497160008514205,
+        "referenceCount": 394,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.5,
+        "raw": 0.5377942677794034,
+        "referenceCount": 1260,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.0,
+        "raw": 0.7969028131977459,
+        "referenceCount": 1338,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.5,
+        "raw": 1.0980380875671076,
+        "referenceCount": 1758,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.0,
+        "raw": 1.3779474186995655,
+        "referenceCount": 2331,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.5,
+        "raw": 1.6638662841249894,
+        "referenceCount": 2076,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.0,
+        "raw": 2.0755434610138535,
+        "referenceCount": 1612,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.5,
+        "raw": 2.343613843709713,
+        "referenceCount": 946,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 7.0,
+        "raw": 2.6360442667089754,
+        "referenceCount": 510,
+        "status": "measured",
+        "adjustment": -2.220446049250313e-16
+      },
+      {
+        "stars": 7.5,
+        "raw": 2.7595334210290776,
+        "referenceCount": 258,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 8.0,
+        "raw": 2.787716251188767,
+        "referenceCount": 115,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 8.5,
+        "raw": 3.38794937860176,
+        "referenceCount": 70,
+        "status": "measured",
+        "adjustment": 2.220446049250313e-16
+      },
+      {
+        "stars": 9.0,
+        "raw": 3.8175597608316125,
+        "referenceCount": 37,
+        "status": "measured",
+        "adjustment": 2.220446049250313e-16
+      }
+    ],
+    "aim-stamina": [
+      {
+        "stars": 1.5,
+        "raw": 0.07603952052855538,
+        "referenceCount": 1446,
+        "status": "measured",
+        "adjustment": 2.220446049250313e-16
+      },
+      {
+        "stars": 2.0,
+        "raw": 0.3061401295227333,
+        "referenceCount": 3160,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 2.5,
+        "raw": 0.5901938729074833,
+        "referenceCount": 2515,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.0,
+        "raw": 0.627181903770217,
+        "referenceCount": 1453,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.5,
+        "raw": 0.6917544346832449,
+        "referenceCount": 2861,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.0,
+        "raw": 0.8094105175667515,
+        "referenceCount": 2035,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.5,
+        "raw": 0.9359643224094971,
+        "referenceCount": 2437,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.0,
+        "raw": 1.0494792054698003,
+        "referenceCount": 2922,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.5,
+        "raw": 1.2240405537897838,
+        "referenceCount": 2518,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.0,
+        "raw": 1.3036223846770782,
+        "referenceCount": 1871,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.5,
+        "raw": 1.3358361426974539,
+        "referenceCount": 1074,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 7.0,
+        "raw": 1.5416853909928614,
+        "referenceCount": 573,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 7.5,
+        "raw": 1.6512715523878305,
+        "referenceCount": 308,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 8.0,
+        "raw": 1.8069532378173772,
+        "referenceCount": 142,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 8.5,
+        "raw": 2.2267967673423295,
+        "referenceCount": 94,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 9.0,
+        "raw": 2.251913153847064,
+        "referenceCount": 52,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 9.5,
+        "raw": 2.709958542708401,
+        "referenceCount": 36,
+        "status": "measured",
+        "adjustment": 0.0
+      }
+    ],
+    "speed": [
+      {
+        "stars": 3.0,
+        "raw": 0.914522978219095,
+        "referenceCount": 37,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.5,
+        "raw": 1.2245388666300494,
+        "referenceCount": 144,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.0,
+        "raw": 1.5061193264295776,
+        "referenceCount": 405,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.5,
+        "raw": 2.155734669400247,
+        "referenceCount": 905,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.0,
+        "raw": 2.7330830495096707,
+        "referenceCount": 1443,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.5,
+        "raw": 3.016601786900559,
+        "referenceCount": 1425,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.0,
+        "raw": 3.3790399134516513,
+        "referenceCount": 1321,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.5,
+        "raw": 3.7616552429557064,
+        "referenceCount": 880,
+        "status": "measured",
+        "adjustment": -1.1102230246251565e-16
+      },
+      {
+        "stars": 7.0,
+        "raw": 4.0874226691445585,
+        "referenceCount": 506,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 7.5,
+        "raw": 4.219855693642657,
+        "referenceCount": 272,
+        "status": "measured",
+        "adjustment": -0.05662307615864526
+      },
+      {
+        "stars": 8.0,
+        "raw": 4.262054250579085,
+        "referenceCount": 131,
+        "status": "measured",
+        "adjustment": -0.030190574250694047
+      },
+      {
+        "stars": 8.5,
+        "raw": 4.3046747930848746,
+        "referenceCount": 95,
+        "status": "measured",
+        "adjustment": 0.003837626178868181
+      },
+      {
+        "stars": 9.0,
+        "raw": 4.347721541015724,
+        "referenceCount": 56,
+        "status": "measured",
+        "adjustment": -0.03816689785639871
+      },
+      {
+        "stars": 9.5,
+        "raw": 4.39119875642588,
+        "referenceCount": 36,
+        "status": "adjusted",
+        "adjustment": 0.8264733127466162
+      }
+    ],
+    "density-reading": [
+      {
+        "stars": 1.5,
+        "raw": 1.0939855984334161,
+        "referenceCount": 1510,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 2.0,
+        "raw": 1.2632257594902132,
+        "referenceCount": 3164,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 2.5,
+        "raw": 1.3713080002599036,
+        "referenceCount": 2520,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.0,
+        "raw": 1.4699119880067182,
+        "referenceCount": 1455,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.5,
+        "raw": 1.5422863162205636,
+        "referenceCount": 2867,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.0,
+        "raw": 1.6295855416670109,
+        "referenceCount": 2045,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.5,
+        "raw": 1.8162064897229382,
+        "referenceCount": 2448,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.0,
+        "raw": 1.8493424526405675,
+        "referenceCount": 2937,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.5,
+        "raw": 1.8857404025382458,
+        "referenceCount": 2533,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.0,
+        "raw": 1.9513212371566988,
+        "referenceCount": 1898,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.5,
+        "raw": 2.050583746867556,
+        "referenceCount": 1094,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 7.0,
+        "raw": 2.104867609316495,
+        "referenceCount": 594,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 7.5,
+        "raw": 2.192581697000174,
+        "referenceCount": 319,
+        "status": "measured",
+        "adjustment": -0.001727309866133564
+      },
+      {
+        "stars": 8.0,
+        "raw": 2.214507513970176,
+        "referenceCount": 148,
+        "status": "measured",
+        "adjustment": 0.0037332233463209796
+      },
+      {
+        "stars": 8.5,
+        "raw": 2.23703294532591,
+        "referenceCount": 97,
+        "status": "measured",
+        "adjustment": -0.004052904523190182
+      },
+      {
+        "stars": 9.0,
+        "raw": 2.2594032747791695,
+        "referenceCount": 56,
+        "status": "measured",
+        "adjustment": 0.007059274327408271
+      },
+      {
+        "stars": 9.5,
+        "raw": 2.3119632285158214,
+        "referenceCount": 36,
+        "status": "measured",
+        "adjustment": 0.0
+      }
+    ],
+    "tapping-stamina": [
+      {
+        "stars": 2.0,
+        "raw": 0.02164435288117052,
+        "referenceCount": 173,
+        "status": "measured",
+        "adjustment": -1.1102230246251565e-16
+      },
+      {
+        "stars": 2.5,
+        "raw": 0.033374455790516025,
+        "referenceCount": 518,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.0,
+        "raw": 0.06083904891729357,
+        "referenceCount": 1043,
+        "status": "measured",
+        "adjustment": 2.220446049250313e-16
+      },
+      {
+        "stars": 3.5,
+        "raw": 0.09543784475065059,
+        "referenceCount": 2621,
+        "status": "measured",
+        "adjustment": 2.220446049250313e-16
+      },
+      {
+        "stars": 4.0,
+        "raw": 0.1704683071501641,
+        "referenceCount": 1970,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.5,
+        "raw": 0.3006226422957854,
+        "referenceCount": 2428,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.0,
+        "raw": 0.41057126380207537,
+        "referenceCount": 2928,
+        "status": "measured",
+        "adjustment": 2.220446049250313e-16
+      },
+      {
+        "stars": 5.5,
+        "raw": 0.5725176972930436,
+        "referenceCount": 2529,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.0,
+        "raw": 0.7687208607239722,
+        "referenceCount": 1894,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.5,
+        "raw": 0.9583317021769748,
+        "referenceCount": 1089,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 7.0,
+        "raw": 1.1417066103340296,
+        "referenceCount": 592,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 7.5,
+        "raw": 1.4459505878624093,
+        "referenceCount": 318,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 8.0,
+        "raw": 1.6302070635929236,
+        "referenceCount": 148,
+        "status": "measured",
+        "adjustment": -0.0009529396628350506
+      },
+      {
+        "stars": 8.5,
+        "raw": 1.6465091342288527,
+        "referenceCount": 97,
+        "status": "measured",
+        "adjustment": 0.0014557215434547466
+      },
+      {
+        "stars": 9.0,
+        "raw": 1.8171775062589857,
+        "referenceCount": 56,
+        "status": "measured",
+        "adjustment": -0.007537424835685647
+      },
+      {
+        "stars": 9.5,
+        "raw": 1.8353492813215753,
+        "referenceCount": 36,
+        "status": "measured",
+        "adjustment": 0.011838824743606535
+      }
+    ],
+    "slider-control": [
+      {
+        "stars": 1.5,
+        "raw": 0.9009146757729585,
+        "referenceCount": 1498,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 2.0,
+        "raw": 1.0203673539681066,
+        "referenceCount": 3150,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 2.5,
+        "raw": 1.1265870109072909,
+        "referenceCount": 2506,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.0,
+        "raw": 1.2334442476809373,
+        "referenceCount": 1435,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.5,
+        "raw": 1.3350518191006826,
+        "referenceCount": 2843,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.0,
+        "raw": 1.3996503135098177,
+        "referenceCount": 2011,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.5,
+        "raw": 1.4787919578490871,
+        "referenceCount": 2390,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.0,
+        "raw": 1.5643763218391618,
+        "referenceCount": 2871,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.5,
+        "raw": 1.653271669323582,
+        "referenceCount": 2477,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.0,
+        "raw": 1.7654087953743056,
+        "referenceCount": 1833,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.5,
+        "raw": 1.9169798534910225,
+        "referenceCount": 1043,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 7.0,
+        "raw": 2.014852352470701,
+        "referenceCount": 556,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 7.5,
+        "raw": 2.1038764050317402,
+        "referenceCount": 294,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 8.0,
+        "raw": 2.173719532056703,
+        "referenceCount": 134,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 8.5,
+        "raw": 2.242413836982522,
+        "referenceCount": 88,
+        "status": "measured",
+        "adjustment": -0.009377048363198637
+      },
+      {
+        "stars": 9.0,
+        "raw": 2.2648379753523473,
+        "referenceCount": 50,
+        "status": "measured",
+        "adjustment": 0.016719705377144845
+      },
+      {
+        "stars": 9.5,
+        "raw": 2.4139870894886553,
+        "referenceCount": 31,
+        "status": "measured",
+        "adjustment": 0.0
+      }
+    ],
+    "flow-aim": [
+      {
+        "stars": 2.5,
+        "raw": 0.8400982306622933,
+        "referenceCount": 38,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.0,
+        "raw": 1.173764591861998,
+        "referenceCount": 49,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 3.5,
+        "raw": 1.4639156059248353,
+        "referenceCount": 84,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.0,
+        "raw": 1.6862341977790962,
+        "referenceCount": 189,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 4.5,
+        "raw": 1.922261465524053,
+        "referenceCount": 305,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.0,
+        "raw": 2.222748307110088,
+        "referenceCount": 470,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 5.5,
+        "raw": 2.60750175683199,
+        "referenceCount": 588,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.0,
+        "raw": 3.0095552795029756,
+        "referenceCount": 685,
+        "status": "measured",
+        "adjustment": 0.0
+      },
+      {
+        "stars": 6.5,
+        "raw": 3.3611672019973415,
+        "referenceCount": 505,
+        "status": "measured",
+        "adjustment": -1.1102230246251565e-16
+      },
+      {
+        "stars": 7.0,
+        "raw": 3.6783918061159877,
+        "referenceCount": 309,
+        "status": "measured",
+        "adjustment": 2.220446049250313e-16
+      },
+      {
+        "stars": 7.5,
+        "raw": 3.9751345341124544,
+        "referenceCount": 173,
+        "status": "measured",
+        "adjustment": -1.1102230246251565e-16
+      },
+      {
+        "stars": 8.0,
+        "raw": 4.247523336105925,
+        "referenceCount": 77,
+        "status": "measured",
+        "adjustment": 2.220446049250313e-16
+      },
+      {
+        "stars": 8.5,
+        "raw": 4.513539228204563,
+        "referenceCount": 47,
+        "status": "measured",
+        "adjustment": 0.0
+      }
+    ]
+  }
 }

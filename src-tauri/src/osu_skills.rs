@@ -21,7 +21,7 @@ use crate::error::Result;
 use crate::pp;
 
 /// Bump when the model changes, so cached rows from an older model are ignored.
-const CACHE_VERSION: i64 = 17;
+const CACHE_VERSION: i64 = 18;
 
 // Always accept 8 notes/s; allow slower beat-relative streams up to 180 ms as well.
 const SPEED_MAX_GAP_MS: f64 = 125.0;
@@ -48,12 +48,19 @@ const N_SKILLS: usize = 11;
 const ACCURACY: usize = 2;
 const FINGER_CONTROL: usize = 4;
 
-pub const MODEL_VERSION: &str = "pattern-rosu-reading-ratios-v7";
+pub const MODEL_VERSION: &str = "pattern-rosu-reading-ratios-v8";
+
+#[derive(Deserialize)]
+struct ReferenceAnchor {
+    raw: f64,
+    status: String,
+}
 
 #[derive(Deserialize)]
 struct RatingCurves {
     curves: HashMap<String, Vec<[f64; 2]>>,
     extrapolation: String,
+    anchors: HashMap<String, Vec<ReferenceAnchor>>,
 }
 
 // Fixed snapshot: offline experiments never activate a new curve automatically.
@@ -62,17 +69,7 @@ static RATING_CURVES: LazyLock<RatingCurves> = LazyLock::new(|| {
         .expect("valid embedded skill curves")
 });
 
-/// Offline report input only: no player performance and no output scaling.
-pub(crate) fn calibration_sample(bytes: &[u8], db: &Mutex<Connection>, hash: &str) -> Option<serde_json::Value> {
-    let p = pattern_for(&|_| Some(bytes.to_vec()), db, hash, &[], 1.0)?;
-    if !p.stars.is_finite() || p.stars <= 0.0 { return None }
-    Some(serde_json::json!({ "raw": p.raw_demand, "support": p.support,
-        "coverage": p.coverage, "stars": p.stars, "tappingPeak": p.tapping_peak }))
-}
-
-pub(crate) fn calibration_model() -> String { format!("{MODEL_VERSION}/patterns-{CACHE_VERSION}") }
-
-/// Monotone per-skill calibration, with linear continuation beyond the final anchor.
+/// Half-star map-reference calibration, with uncapped logarithmic continuation.
 pub fn rating(d: f64, skill: usize) -> f64 {
     let d = finite(d, 0.0).max(0.0);
     if d == 0.0 { return 0.0 }
@@ -80,6 +77,9 @@ pub fn rating(d: f64, skill: usize) -> f64 {
     let &[last_x, last_y] = points.last().unwrap();
     if d > last_x && RATING_CURVES.extrapolation == "proportional" {
         return last_y * (d / last_x);
+    }
+    if d > last_x && RATING_CURVES.extrapolation == "log-tail" {
+        return last_y * (1.0 + d.ln() - last_x.ln());
     }
     let upper = points.iter().position(|p| d <= p[0]).unwrap_or(points.len() - 1).max(1);
     let [x0, y0] = points[upper - 1];
@@ -92,6 +92,34 @@ fn play_rating(d: f64, skill: usize, performance: f64) -> f64 {
     rating(d, skill) * clamp01(performance)
 }
 
+/// Undo only the two outer evidence factors used to construct the reference corpus.
+/// Occurrence and evidence sufficiency remain separate; inner skill factors stay intact.
+fn intensity(p: &Pattern, k: usize) -> f64 {
+    if p.raw_demand[k] <= 0.0 || p.support[k] <= 0.0 || p.coverage[k] <= 0.0 { return 0.0 }
+    let support_target = if k == FINGER_CONTROL { 6.0 } else { 12.0 };
+    let coverage_target = if k == FINGER_CONTROL { 0.05 } else { 0.25 };
+    let weight = (p.support[k] / support_target).sqrt().min(1.0)
+        * (0.5 + 0.5 * (p.coverage[k] / coverage_target).sqrt()).min(1.0);
+    finite(p.raw_demand[k] / weight, 0.0).max(0.0)
+}
+
+fn usable_evidence(p: &Pattern, k: usize) -> bool {
+    let geometry_sensitive = matches!(k, 0 | 1 | 2 | 3 | 5 | 9 | 10);
+    p.support[k] >= if k == FINGER_CONTROL { 6.0 } else { 12.0 }
+        && p.coverage[k] >= if k == FINGER_CONTROL { 0.01 } else { 0.05 }
+        && !(p.geometry_limited && geometry_sensitive)
+}
+
+fn uncertain_reference(d: f64, k: usize) -> bool {
+    let anchors = &RATING_CURVES.anchors[SKILLS[k].0];
+    let lower = anchors.iter().rev().find(|a| a.raw <= d);
+    let upper = anchors.iter().find(|a| a.raw >= d);
+    match (lower, upper) {
+        (Some(a), Some(b)) => a.status != "measured" || b.status != "measured",
+        _ => true,
+    }
+}
+
 /// A chart's open-ended demand per skillset and its star rating at some mods, from the pattern
 /// cache (recommend.rs): library charts reuse the pattern worked out for your own skills, so they
 /// cost nothing to score. The stars are with the mods on, so a recommender can keep a map whose
@@ -101,7 +129,7 @@ pub fn rated_demand(read: &impl Fn(&str) -> Option<Vec<u8>>, db: &Mutex<Connecti
     let p = pattern_for(read, db, hash, mods, rate_of(mods))?;
     let mut demand = [0.0f64; N_SKILLS];
     for k in 0..N_SKILLS {
-        demand[k] = rating(p.raw_demand[k], k);
+        demand[k] = if usable_evidence(&p, k) { rating(intensity(&p, k), k) } else { 0.0 };
     }
     Some((demand, p.stars))
 }
@@ -616,6 +644,7 @@ struct Pattern {
     tapping_peak: f64,
     stars: f64,
     ar: f64,
+    geometry_limited: bool,
 }
 
 struct AnObj {
@@ -949,6 +978,7 @@ fn analyze_beatmap(map: &Map, mods: &[String], rate: f64, diff: Option<&pp::OsuD
         tapping_peak,
         stars: diff.map(|d| d.stars).unwrap_or(0.0),
         ar: diff.map(|d| d.ar).unwrap_or(0.0),
+        geometry_limited: map.objects.iter().any(|o| o.control_points.len() > 63),
     }
 }
 
@@ -1229,7 +1259,7 @@ pub fn skills(read: impl Fn(&str) -> Option<Vec<u8>>, db: &Mutex<Connection>, ha
         }
         let mut worth = [0.0f64; N_SKILLS];
         for k in 0..N_SKILLS {
-            if pattern.support[k] == 0.0 || pattern.raw_demand[k] <= 0.0 {
+            if !usable_evidence(&pattern, k) || pattern.raw_demand[k] <= 0.0 {
                 continue;
             }
             let performance = if k == ACCURACY {
@@ -1238,10 +1268,11 @@ pub fn skills(read: impl Fn(&str) -> Option<Vec<u8>>, db: &Mutex<Connection>, ha
                 let Some(following) = slider_performance(play, &pattern) else { continue };
                 mastery * following
             } else { mastery };
-            worth[k] = play_rating(pattern.raw_demand[k], k, performance);
+            let demand = intensity(&pattern, k);
+            worth[k] = play_rating(demand, k, performance);
             diagnostics.insert((i, k), serde_json::json!({
-                "rawDemand": pattern.raw_demand[k], "calibratedDemand": rating(pattern.raw_demand[k], k),
-                "referenceTimesFive": pattern.raw_demand[k] * 5.0, "performance": performance,
+                "rawDemand": pattern.raw_demand[k], "intensity": demand, "calibratedDemand": rating(demand, k),
+                "uncertain": uncertain_reference(demand, k), "scale": "map-reference-halfstar-v1", "performance": performance,
                 "headAccuracy": hits.accuracy, "displayAccuracy": play.acc, "missRate": miss_rate,
                 "stars": pattern.stars, "rate": rate, "support": pattern.support[k], "coverage": pattern.coverage[k]
             }));
@@ -1350,10 +1381,11 @@ mod tests {
     const MAP: &str = "[General]\nMode: 0\n[Difficulty]\nCircleSize:4\nApproachRate:9\nOverallDifficulty:8\nSliderMultiplier:1.4\n[TimingPoints]\n0,300,4,1,0,100,1,0\n[HitObjects]\n256,192,0,1,0\n120,120,120,1,0\n400,260,240,1,0\n180,80,360,1,0\n256,192,480,2,0,L|356:192,1,100\n";
 
     #[test]
-    fn rating_curves_preserve_raw_ratios_and_remain_open_ended() {
+    fn half_star_reference_curves_are_monotone_and_remain_open_ended() {
         let config: serde_json::Value = serde_json::from_str(include_str!("../../src/lib/osu-skill-curves.json")).unwrap();
-        assert_eq!(config["referenceCandidate"], 136083);
-        assert_eq!(config["minimumElasticity"], 1.0);
+        assert_eq!(config["scale"], "map-reference-halfstar-v1");
+        assert_eq!(config["input"], "conditional-intensity");
+        assert_eq!(config["extrapolation"], "log-tail");
         assert_eq!(config["patternVersion"].as_i64(), Some(CACHE_VERSION));
         assert_eq!(RATING_CURVES.curves.len(), N_SKILLS);
         for k in 0..N_SKILLS {
@@ -1369,16 +1401,49 @@ mod tests {
             for step in 1..100 {
                 let raw = points.last().unwrap()[0] * step as f64 / 25.0;
                 for multiplier in [1.01, 1.5, 2.0, 5.0] {
-                    assert!(rating(raw * multiplier, k) + 1e-8 >= rating(raw, k) * multiplier, "skill {k}, raw {raw}");
+                    assert!(rating(raw * multiplier, k) >= rating(raw, k), "skill {k}, raw {raw}");
                 }
             }
             let [x, y] = *points.last().unwrap();
             assert!(rating(x * 2.0, k) > y);
+            assert!((rating(x * 2.0, k) - y * (1.0 + 2.0f64.ln())).abs() < 1e-8);
+            assert!(uncertain_reference(x * 2.0, k));
             assert!(rating(10000.0, k) > 100.0);
             assert_eq!(rating(-1.0, k), 0.0);
             assert_eq!(rating(f64::NAN, k), 0.0);
             assert_eq!(rating(f64::INFINITY, k), 0.0);
             assert!((play_rating(x, k, 0.9) - y * 0.9).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn reference_intensity_separates_difficulty_from_evidence() {
+        let mut p = analyze_beatmap(&parse_beatmap(MAP), &[], 1.0, None);
+        p.raw_demand[0] = 2.0; p.support[0] = 3.0; p.coverage[0] = 0.0625;
+        assert!((intensity(&p, 0) - 2.0 / 0.375).abs() < 1e-9);
+        assert!(!usable_evidence(&p, 0));
+        p.support[0] = 12.0; p.coverage[0] = 0.25;
+        assert_eq!(intensity(&p, 0), 2.0);
+        assert!(usable_evidence(&p, 0));
+        p.geometry_limited = true;
+        assert!(!usable_evidence(&p, 0));
+        p.support[8] = 12.0; p.coverage[8] = 0.25;
+        assert!(usable_evidence(&p, 8));
+        p.raw_demand[0] = 0.0;
+        assert_eq!(intensity(&p, 0), 0.0);
+    }
+
+    #[test]
+    fn every_embedded_half_star_anchor_preserves_its_target() {
+        let config: serde_json::Value = serde_json::from_str(include_str!("../../src/lib/osu-skill-curves.json")).unwrap();
+        for k in 0..N_SKILLS {
+            let anchors = config["anchors"][SKILLS[k].0].as_array().unwrap();
+            for (i, anchor) in anchors.iter().enumerate() {
+                let stars = anchor["stars"].as_f64().unwrap();
+                let raw = anchor["raw"].as_f64().unwrap();
+                assert!((rating(raw, k) - (5.0 * stars - 5.0)).abs() < 1e-8);
+                if i > 0 { assert_eq!(stars - anchors[i - 1]["stars"].as_f64().unwrap(), 0.5); }
+            }
         }
     }
 
