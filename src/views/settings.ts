@@ -198,6 +198,7 @@ export class SettingsView {
         <section class="settings-section" data-section="library" role="tabpanel">
           ${head("library")}
           <div class="setting-row" data-row="path"></div>
+          <div class="setting-row" data-row="lazer-app"></div>
           <div class="setting-row" data-row="stable"></div>
           <div class="setting-row" data-row="library"></div>
           <div class="setting-row">
@@ -434,6 +435,7 @@ export class SettingsView {
       </div>`;
     this.el.querySelectorAll<HTMLElement>(".seg-pill").forEach((s) => attachSegIndicator(s));
     this.renderLibrary();
+    void this.renderLazerApp();
     this.renderCollections();
     this.renderAccount();
     this.renderUpdate();
@@ -978,7 +980,7 @@ export class SettingsView {
     }
     pathRow.innerHTML = `
       <div class="setting-text">
-        <div class="setting-title">${t("osu!lazer folder")}</div>
+        <div class="setting-title">${t("osu!lazer data folder")}</div>
         <div class="setting-desc setting-path">${inst ? esc(inst.storage) : `<span class="is-missing">${custom ? t("Not found in the chosen folder") : t("Not found")}</span>`}</div>
       </div>
       <div class="setting-actions">
@@ -1014,6 +1016,26 @@ export class SettingsView {
         ${stableCustom ? `<button class="btn btn-ghost btn-sm s-stable-reset" type="button">${t("Use default")}</button>` : ""}
         <button class="btn btn-sm s-stable-pick" type="button">${icon("folder")}${t("Change")}</button>
         <input type="checkbox" role="switch" data-setting="useStable" aria-label="${t("Use osu!stable's beatmaps")}" ${on ? "checked" : ""} />
+      </div>`;
+  }
+
+  /** lazer's program: imports into lazer run on its own code, so Add beatmaps and Browse need it */
+  private async renderLazerApp(): Promise<void> {
+    const row = this.el.querySelector<HTMLElement>('[data-row="lazer-app"]');
+    if (!row) return;
+    const st = await api.lazerImportStatus().catch(() => null);
+    const custom = !!store.settings?.lazerAppPath;
+    const where = st?.app
+      ? `<span class="setting-path">${esc(st.app)}</span><br>osu!lazer ${esc((st.version ?? "").replace(/-lazer$/, ""))}`
+      : `<span class="is-missing">${custom ? t("Not found in the chosen folder") : t("Not found")}</span><br>${t("Needed to add beatmaps. Pick the folder it's installed in (on Linux the one with its AppImage).")}`;
+    row.innerHTML = `
+      <div class="setting-text">
+        <div class="setting-title">${t("osu!lazer program")}</div>
+        <div class="setting-desc">${where}</div>
+      </div>
+      <div class="setting-actions">
+        ${custom ? `<button class="btn btn-ghost btn-sm s-app-reset" type="button">${t("Use default")}</button>` : ""}
+        <button class="btn btn-sm s-app-pick" type="button">${icon("folder")}${t("Change")}</button>
       </div>`;
   }
 
@@ -1174,6 +1196,20 @@ export class SettingsView {
       store.settings = await api.updateSettings({ lazerPath: dir });
       await refreshStatus();
       return;
+    }
+    if (target.closest(".s-app-pick")) {
+      const dir = await open({ directory: true, title: t("osu!lazer program folder"), defaultPath: store.settings?.lazerAppPath ?? undefined });
+      if (typeof dir !== "string") return;
+      if (!(await api.inspectLazerApp(dir))) {
+        toast(t("osu!lazer isn't in that folder."), { kind: "danger" });
+        return;
+      }
+      store.settings = await api.updateSettings({ lazerAppPath: dir });
+      return void this.renderLazerApp();
+    }
+    if (target.closest(".s-app-reset")) {
+      store.settings = await api.updateSettings({ lazerAppPath: null });
+      return void this.renderLazerApp();
     }
     if (target.closest(".s-stable-pick")) {
       const dir = await open({ directory: true, title: t("osu!stable folder"), defaultPath: store.status?.stable?.install?.path ?? store.status?.stable?.defaultPath ?? undefined });

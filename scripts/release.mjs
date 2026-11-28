@@ -1,5 +1,6 @@
 // Releases Fumen: builds the signed Windows installer, tags it, puts it on GitHub (a release in the
-// repo) and then on fumen.dertesti.dev/updates, where every installed Fumen finds it.
+// repo) and then on fumen.dertesti.dev/updates, where every installed Fumen finds it. Then the
+// Linux packages of the same commit (linux-build.mjs, GitHub's Ubuntu) go onto the site's downloads.
 //
 //   node scripts/release.mjs 0.4.1                  that version
 //   node scripts/release.mjs patch|minor            the next one
@@ -160,3 +161,11 @@ if (live?.version !== version) fail(`${origin}/updates/latest.json doesn't show 
 const head = await fetch(latest.platforms["windows-x86_64"].url, { method: "HEAD" }).catch(() => null);
 if (!head?.ok) fail(`The installer isn't reachable at ${latest.platforms["windows-x86_64"].url}`);
 console.log(`✓ Fumen ${version} is out: ${latest.platforms["windows-x86_64"].url}`);
+
+// ── Linux: built on GitHub from the release commit, onto the site's downloads ──
+console.log("→ Linux");
+try {
+  run("node", ["scripts/linux-build.mjs"]);
+} catch {
+  fail(`Windows is out, the Linux build isn't: npm run linux (or node scripts/linux-build.mjs --run <id>)`);
+}

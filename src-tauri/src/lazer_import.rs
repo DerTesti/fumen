@@ -127,6 +127,8 @@ pub struct Installed {
     /// `osu!.app/Contents/MacOS` on macOS
     pub dir: PathBuf,
     pub version: String,
+    /// what it was found as: the folder, or on Linux the AppImage it was unpacked from
+    pub source: PathBuf,
 }
 
 /// Where osu!lazer is looked for, for messages.
@@ -138,45 +140,93 @@ pub const INSTALL_HINT: &str = if cfg!(target_os = "macos") {
     "%LOCALAPPDATA%\\osulazer"
 };
 
-/// lazer as installed by its installer (Velopack: `%LOCALAPPDATA%\osulazer\current`).
-#[cfg(windows)]
+/// lazer's program as picked in Settings (`lazerAppPath`), set by lib.rs from the settings;
+/// `None`: it's looked for in the usual places.
+static PICKED: std::sync::RwLock<Option<PathBuf>> = std::sync::RwLock::new(None);
+
+pub fn set_picked(path: Option<PathBuf>) {
+    *PICKED.write().unwrap_or_else(|e| e.into_inner()) = path;
+}
+
+pub fn picked() -> Option<PathBuf> {
+    PICKED.read().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// The lazer Fumen works with: the one picked in Settings, else the one found where it's usually
+/// installed.
 pub fn installed() -> Option<Installed> {
-    let dir = PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("osulazer").join("current");
-    let version = parse_sq_version(&std::fs::read_to_string(dir.join("sq.version")).ok()?)?;
-    dir.join("osu.Game.dll").is_file().then_some(Installed { dir, version })
+    match picked() {
+        Some(p) => installed_at(&p),
+        None => detected(),
+    }
+}
+
+/// lazer at a place the user picked: its program folder or one a few levels above it (Velopack's
+/// `osulazer`, an `osu!.app`, a package's folder), a file in it (`osu!.exe`), or on Linux its
+/// AppImage or a folder holding one.
+pub fn installed_at(path: &Path) -> Option<Installed> {
+    #[cfg(target_os = "linux")]
+    if let Some((image, dir)) = crate::lazer_linux::appimage_at(path) {
+        return installed_in(&dir).map(|i| Installed { source: image, ..i });
+    }
+    let dir = if path.is_file() { path.parent()? } else { path };
+    installed_in(&find_assemblies(dir, 3)?)
+}
+
+/// lazer's assemblies in `dir` and its version: Velopack's `sq.version` next to them or a level
+/// or two up, else an app bundle's Info.plist.
+fn installed_in(dir: &Path) -> Option<Installed> {
+    if !dir.join("osu.Game.dll").is_file() {
+        return None;
+    }
+    let version = dir
+        .ancestors()
+        .take(3)
+        .find_map(|d| parse_sq_version(&std::fs::read_to_string(d.join("sq.version")).ok()?))
+        .or_else(|| plist_version(&std::fs::read_to_string(dir.parent()?.join("Info.plist")).ok()?))?;
+    Some(Installed { dir: dir.to_path_buf(), version, source: dir.to_path_buf() })
+}
+
+/// The folder under `root` (itself or up to `depth` levels down) that holds lazer's assemblies.
+pub(crate) fn find_assemblies(root: &Path, depth: u32) -> Option<PathBuf> {
+    if root.join("osu.Game.dll").is_file() {
+        return Some(root.to_path_buf());
+    }
+    if depth == 0 {
+        return None;
+    }
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(root).ok()?.flatten().filter(|e| e.file_type().is_ok_and(|t| t.is_dir())).map(|e| e.path()).collect();
+    dirs.sort();
+    dirs.iter().find_map(|d| find_assemblies(d, depth - 1))
+}
+
+/// lazer as installed by its installer (Velopack: `%LOCALAPPDATA%osulazercurrent`).
+#[cfg(windows)]
+fn detected() -> Option<Installed> {
+    installed_in(&PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("osulazer").join("current"))
 }
 
 /// lazer's app in /Applications or ~/Applications. Its version: Velopack's `sq.version` (in the
 /// bundle's MacOS or Contents folder), else the bundle's own version.
 #[cfg(target_os = "macos")]
-pub fn installed() -> Option<Installed> {
+fn detected() -> Option<Installed> {
     let home = PathBuf::from(std::env::var_os("HOME")?);
-    [PathBuf::from("/Applications"), home.join("Applications")].into_iter().find_map(|apps| {
-        let contents = apps.join("osu!.app").join("Contents");
-        let dir = contents.join("MacOS");
-        if !dir.join("osu.Game.dll").is_file() {
-            return None;
-        }
-        let version = [dir.join("sq.version"), contents.join("sq.version")]
-            .iter()
-            .find_map(|p| parse_sq_version(&std::fs::read_to_string(p).ok()?))
-            .or_else(|| plist_version(&std::fs::read_to_string(contents.join("Info.plist")).ok()?))?;
-        Some(Installed { dir, version })
-    })
+    [PathBuf::from("/Applications"), home.join("Applications")]
+        .into_iter()
+        .find_map(|apps| installed_in(&apps.join("osu!.app").join("Contents").join("MacOS")))
 }
 
 #[cfg(target_os = "linux")]
-pub fn installed() -> Option<Installed> {
+fn detected() -> Option<Installed> {
     crate::lazer_linux::installed()
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-pub fn installed() -> Option<Installed> {
+fn detected() -> Option<Installed> {
     None
 }
 
 /// CFBundleVersion from an Info.plist (XML), as lazer names its versions ("2026.1005.0-lazer").
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn plist_version(xml: &str) -> Option<String> {
     let after = &xml[xml.find("<key>CFBundleVersion</key>")? + "<key>CFBundleVersion</key>".len()..];
     let start = after.find("<string>")? + "<string>".len();
@@ -276,6 +326,8 @@ pub struct Status {
     pub message: Option<String>,
     /// the installed lazer's version
     pub version: Option<String>,
+    /// where it is (its folder, or on Linux its AppImage)
+    pub app: Option<String>,
     pub tested: bool,
     pub running: bool,
     /// lazer runs and downloads can be handed to it ([`hand_over`]): an import can start anyway
@@ -296,7 +348,8 @@ pub fn status(storage: Option<&Path>, compat: &Compat) -> Status {
     let library = storage.is_some_and(|s| s.join("client.realm").is_file());
     let handoff = running && library && lazer.as_ref().is_some_and(can_hand_over);
     let (reason, message) = match &lazer {
-        None => (Some("not-installed"), Some(format!("osu!lazer's installation wasn't found (it's looked for in {INSTALL_HINT})."))),
+        None if picked().is_some() => (Some("not-installed"), Some("osu!lazer wasn't found where it was picked in Settings.".to_string())),
+        None => (Some("not-installed"), Some(format!("osu!lazer's installation wasn't found (it's looked for in {INSTALL_HINT}). Pick it in Settings."))),
         Some(_) if storage.map_or(true, |s| !s.join("client.realm").is_file()) => {
             (Some("no-library"), Some("lazer's data folder wasn't found. Pick it in Settings.".to_string()))
         }
@@ -307,7 +360,8 @@ pub fn status(storage: Option<&Path>, compat: &Compat) -> Status {
         Some(_) if running => (Some("running"), Some("osu!lazer is running. Close it to import.".to_string())),
         Some(_) => (None, None),
     };
-    Status { ready: reason.is_none(), reason, message, version, tested, running, handoff, tested_versions, unfinished: 0 }
+    let app = lazer.as_ref().map(|l| l.source.to_string_lossy().into_owned());
+    Status { ready: reason.is_none(), reason, message, version, app, tested, running, handoff, tested_versions, unfinished: 0 }
 }
 
 // ── handing sets to a running lazer ─────────────────────────────────────

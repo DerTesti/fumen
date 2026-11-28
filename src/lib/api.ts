@@ -62,6 +62,7 @@ export const api = {
   notedBlock: () => invoke<FumenBlock | null>("noted_block"),
   updateSettings: (patch: Partial<Settings> | Record<string, unknown>) => invoke<Settings>("update_settings", { patch }),
   inspectLazerPath: (path: string) => invoke<LazerInstall | null>("inspect_lazer_path", { path }),
+  inspectLazerApp: (path: string) => invoke<{ path: string; version: string } | null>("inspect_lazer_app", { path }),
   inspectStablePath: (path: string) => invoke<StableInstall | null>("inspect_stable_path", { path }),
   libraryStatus: () => invoke<LibraryStatus>("library_status"),
   libraryCare: () => invoke<CareReport>("library_care"),
