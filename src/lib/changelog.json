@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.5.5",
+    "date": "2026-11-28",
+    "en": [
+      "Fix: Add beatmaps and Browse now also work when osu!lazer is installed somewhere Fumen doesn't look. In Settings under Library you can pick osu!lazer's program next to its data folder (on Linux the folder with its AppImage). On Linux Fumen also finds lazer in more places by itself, like ~/AppImages or wherever AppImageLauncher and Gear Lever put it."
+    ],
+    "de": [
+      "Fix: Beatmaps hinzufügen und Browse gehen jetzt auch, wenn osu!lazer woanders installiert ist, als Fumen sucht. In den Einstellungen unter Library kannst du neben dem Datenordner jetzt auch das Programm von osu!lazer wählen (unter Linux den Ordner mit dem AppImage). Unter Linux findet Fumen lazer außerdem an mehr Stellen von selbst, etwa in ~/AppImages oder dort, wo AppImageLauncher und Gear Lever es ablegen."
+    ]
+  },
+  {
     "version": "1.5.4",
     "date": "2026-11-25",
     "en": [
