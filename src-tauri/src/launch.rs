@@ -25,8 +25,19 @@ pub fn lazer() -> Result<()> {
     #[cfg(windows)]
     {
         // Velopack's stub in the install's root starts the current version (and updates)
-        let root = std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap_or_default()).join("osulazer");
-        let exe = [root.join("osu!.exe"), root.join("current").join("osu!.exe")].into_iter().find(|p| p.is_file());
+        // a picked lazer: Velopack's stub above its program folder (where Update.exe is), else its osu!.exe
+        let picked = crate::lazer_import::picked().map(|_| crate::lazer_import::installed());
+        let exe = match picked {
+            Some(Some(l)) => {
+                let stub = l.dir.parent().filter(|p| p.join("Update.exe").is_file()).map(|p| p.join("osu!.exe"));
+                stub.into_iter().chain([l.dir.join("osu!.exe")]).find(|p| p.is_file())
+            }
+            Some(None) => None,
+            None => {
+                let root = std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap_or_default()).join("osulazer");
+                [root.join("osu!.exe"), root.join("current").join("osu!.exe")].into_iter().find(|p| p.is_file())
+            }
+        };
         let Some(exe) = exe else { return Err(Error::known("lazer-not-installed", "osu!lazer's installation wasn't found.")) };
         let mut cmd = Command::new(&exe);
         if let Some(dir) = exe.parent() {
@@ -37,7 +48,13 @@ pub fn lazer() -> Result<()> {
     #[cfg(target_os = "macos")]
     {
         let mut cmd = Command::new("/usr/bin/open");
-        cmd.args(["-a", "osu!"]);
+        // a picked lazer: its app bundle; else the one macOS knows as osu!
+        match crate::lazer_import::installed().filter(|_| crate::lazer_import::picked().is_some()).and_then(|l| {
+            l.dir.ancestors().find(|a| a.extension().is_some_and(|e| e == "app")).map(|a| a.to_path_buf())
+        }) {
+            Some(app) => cmd.arg(app),
+            None => cmd.args(["-a", "osu!"]),
+        };
         spawn(cmd, "osu!lazer")
     }
     #[cfg(target_os = "linux")]

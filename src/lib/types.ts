@@ -463,6 +463,8 @@ export interface FumenBlock {
 
 export interface Settings {
   lazerPath: string | null;
+  /** osu!lazer's program (its folder, or on Linux its AppImage) as picked; null = looked for */
+  lazerAppPath?: string | null;
   autoRescan: boolean;
   stablePath: string | null;
   useStable: boolean;
@@ -823,6 +825,8 @@ export interface LazerImportStatus {
   message: string | null;
   /** the installed lazer, as in its sq.version ("2026.1005.0-lazer") */
   version: string | null;
+  /** where it is: its folder, or on Linux its AppImage */
+  app?: string | null;
   tested: boolean;
   running: boolean;
   /** lazer is open and takes downloads itself (they're handed to it): imports can run anyway */

@@ -64,7 +64,11 @@ export const settings: Record<string, string> = {
   "Turn them off": "Ausschalten",
   "Re-import when osu!lazer's or osu!stable's library changed since the last import.":
     "Neu importieren, wenn sich die Bibliothek von osu!lazer oder osu!stable seit dem letzten Import geändert hat.",
-  "osu!lazer folder": "osu!lazer-Ordner",
+  "osu!lazer program": "osu!lazer-Programm",
+  "osu!lazer program folder": "Programmordner von osu!lazer",
+  "Needed to add beatmaps. Pick the folder it's installed in (on Linux the one with its AppImage).":
+    "Wird zum Hinzufügen von Beatmaps gebraucht. Wähle den Ordner, in dem es installiert ist (unter Linux den mit seinem AppImage).",
+  "osu!lazer isn't in that folder.": "In diesem Ordner ist kein osu!lazer.",
   "osu!lazer data folder": "Datenordner von osu!lazer",
   "osu!stable folder": "osu!stable-Ordner",
   "Not found": "Nicht gefunden",

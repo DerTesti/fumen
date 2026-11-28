@@ -268,6 +268,7 @@ fn update_settings(app: AppHandle, state: State<'_, AppState>, mut patch: Value)
         s.save(&state.settings_path)?;
         s.clone()
     };
+    lazer_import::set_picked(updated.lazer_app_override());
     state.refresh_storage();
     watch_plays(&app);
     Ok(updated)
@@ -627,6 +628,25 @@ async fn live_replay(app: AppHandle, id: String) -> Result<replay::Replay> {
 #[tauri::command]
 fn inspect_lazer_path(path: String) -> Option<LazerInstall> {
     paths::inspect_lazer(&PathBuf::from(path))
+}
+
+/// lazer's program at a place the user picked (a folder, or on Linux an AppImage, unpacked the
+/// first time); `None` if lazer isn't there.
+#[tauri::command]
+async fn inspect_lazer_app(path: String) -> Option<LazerApp> {
+    tauri::async_runtime::spawn_blocking(move || {
+        lazer_import::installed_at(&PathBuf::from(path)).map(|l| LazerApp { path: l.source.to_string_lossy().into_owned(), version: l.version })
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LazerApp {
+    path: String,
+    version: String,
 }
 
 /// Validates a folder the user picked; `None` if it isn't osu!stable's (no osu!.db or Songs).
@@ -2517,6 +2537,7 @@ pub fn run() {
             let cache_dir = app.path().app_cache_dir()?;
             let settings_path = config_dir.join("settings.json");
             let settings = Settings::load(&settings_path);
+            lazer_import::set_picked(settings.lazer_app_override());
             online::set(settings.online);
             // a block noted last time holds until a check finds it lifted (also offline)
             online::set_block(online::noted(&data_dir));
@@ -2574,6 +2595,7 @@ pub fn run() {
             library_care,
             update_settings,
             inspect_lazer_path,
+            inspect_lazer_app,
             inspect_stable_path,
             library_status,
             scan_library,

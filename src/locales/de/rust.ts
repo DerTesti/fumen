@@ -43,7 +43,9 @@ export const rust: Record<string, string> = {
 
   // osu!lazer, importing and deleting
   "osu!lazer's installation wasn't found.": "Die Installation von osu!lazer wurde nicht gefunden.",
-  "osu!lazer's installation wasn't found (it's looked for in {where}).": "Die Installation von osu!lazer wurde nicht gefunden (gesucht wird in {where}).",
+  "osu!lazer's installation wasn't found (it's looked for in {where}). Pick it in Settings.":
+    "Die Installation von osu!lazer wurde nicht gefunden (gesucht wird in {where}). Wähle sie in den Einstellungen.",
+  "osu!lazer wasn't found where it was picked in Settings.": "osu!lazer wurde dort, wo es in den Einstellungen gewählt ist, nicht gefunden.",
   "Applications as osu!.app": "Programme als osu!.app",
   "osu!lazer {version} isn't tested with Fumen's import yet; importing stays off until it is.":
     "osu!lazer {version} ist noch nicht mit Fumens Import getestet; Importieren bleibt aus, bis es das ist.",

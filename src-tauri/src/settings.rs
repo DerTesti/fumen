@@ -12,6 +12,9 @@ use crate::error::Result;
 pub struct Settings {
     /// osu!lazer data folder override; `None` = auto-detect.
     pub lazer_path: Option<String>,
+    /// osu!lazer's program (its folder, or on Linux its AppImage) override; `None` = looked for.
+    /// Imports into lazer run on its own code, so they need it, not only the data folder.
+    pub lazer_app_path: Option<String>,
     /// Re-import automatically when lazer's database changed since the last scan.
     pub auto_rescan: bool,
     /// osu!stable folder override; `None` = auto-detect.
@@ -40,6 +43,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             lazer_path: None,
+            lazer_app_path: None,
             auto_rescan: true,
             stable_path: None,
             use_stable: true,
@@ -95,6 +99,10 @@ impl Settings {
 
     pub fn lazer_override(&self) -> Option<PathBuf> {
         self.lazer_path.as_deref().filter(|p| !p.trim().is_empty()).map(PathBuf::from)
+    }
+
+    pub fn lazer_app_override(&self) -> Option<PathBuf> {
+        self.lazer_app_path.as_deref().filter(|p| !p.trim().is_empty()).map(PathBuf::from)
     }
 
     pub fn stable_override(&self) -> Option<PathBuf> {
