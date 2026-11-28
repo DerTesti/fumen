@@ -4,8 +4,12 @@ import { t } from "../lib/i18n";
 import { closeAnimated } from "../ui/controls";
 import { icon } from "../ui/icons";
 
-export function openSkillsHelp(): void {
-  const parts: [string, string][] = [
+export function openSkillsHelp(mode: "mania" | "standard" = "mania"): void {
+  const parts: [string, string][] = mode === "standard" ? [
+    [t("Map references"), t("Each map is analysed for eleven skills. Reference maps in half-star steps align their requirements: a typical relevant demand at 5 stars corresponds to 20. A map does not need every skill equally.")],
+    [t("Your skill"), t("Your best five different maps demonstrate each skill. Accuracy, misses and real slider results determine how much of a map's demand your play demonstrates. Missing demonstrations count as zero.")],
+    [t("Evidence quality"), t("Very short patterns and maps with unreliable slider geometry do not provide reliable skill evidence. This scale is provisional; Accuracy uses an inferred timing estimate.")],
+  ] : [
     [t("What a pass is worth"), t("Every osu!mania pass is rated with MinaCalc, Etterna's calculator: the map at the rate you played, for your accuracy as Etterna counts it. That gives a number per skillset.")],
     [t("Your skill"), t("A skillset blends your passes the way Etterna does. Your best count most, and it takes many good passes to get up there. Overall blends the seven skillsets.")],
     [t("What counts"), t("Passes only, without mods like Hold Off. A map counts with its two best rates, and rate edits count as the same map.")],

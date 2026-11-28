@@ -2,7 +2,7 @@
  * and checked whenever the plays or the library change. A goal that's been reached is marked with
  * the time and stays done, whatever happens to the numbers after. */
 import { api, asApiError } from "./api";
-import { goalContext, goalNow, goalTarget, goalTitle, isReached, isRetired, type Goal, type GoalContext, type GoalSpec } from "./goals";
+import { goalContext, goalNow, goalTarget, goalTitle, isReached, isRetired, STD_SKILL_CURVE_SCALE, type Goal, type GoalContext, type GoalSpec } from "./goals";
 import { historyEvents, historyNow, loadHistory, mapIndexOf } from "./history";
 import { Emitter, events, store } from "./store";
 import { leftOutNow } from "./skills-left-out";
@@ -47,6 +47,7 @@ function changed(): void {
 
 /** Sets a goal from where things stand now. */
 export async function addGoal(spec: GoalSpec): Promise<Goal> {
+  if (spec.kind === "osu-skill") spec = { ...spec, scale: STD_SKILL_CURVE_SCALE };
   const ctx = currentContext();
   const goal: Goal = { ...spec, id: crypto.randomUUID(), created: Date.now(), start: ctx ? goalNow(spec, ctx) : null };
   await api.putGoal(goal);

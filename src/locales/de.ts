@@ -15,6 +15,7 @@ import { set } from "./de/set";
 import { chart } from "./de/chart";
 import { history } from "./de/history";
 import { skills } from "./de/skills";
+import { osuStandard } from "./de/osu-standard";
 import { manage } from "./de/manage";
 import { live } from "./de/live";
 import { pools } from "./de/pools";
@@ -25,4 +26,4 @@ import { obs } from "./de/obs";
 /** what Fumen's Rust side says, for fromRust() (apart: the code doesn't name these texts) */
 export { rust } from "./de/rust";
 
-export const de: Record<string, string> = { ...common, ...shell, ...settings, ...player, ...menus, ...home, ...library, ...set, ...chart, ...history, ...skills, ...manage, ...live, ...pools, ...matches, ...visualizer, ...obs };
+export const de: Record<string, string> = { ...common, ...shell, ...settings, ...player, ...menus, ...home, ...library, ...set, ...chart, ...history, ...skills, ...osuStandard, ...manage, ...live, ...pools, ...matches, ...visualizer, ...obs };

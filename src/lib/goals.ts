@@ -10,6 +10,8 @@ import { bestPerChart, changesChart, rateOf, SKILL_LABEL, skills, type LeftOut, 
 import type { History, MapRow, MsdSkill, Play } from "./types";
 import { t } from "./i18n";
 
+export const STD_SKILL_CURVE_SCALE = "map-reference-halfstar-v1" as const;
+
 export type Ruleset = "osu" | "taiko" | "fruits" | "mania";
 export const RULESETS: Ruleset[] = ["osu", "taiko", "fruits", "mania"];
 export const RULESET_LABEL: Record<Ruleset, string> = { osu: "osu!", taiko: "osu!taiko", fruits: "osu!catch", mania: "osu!mania" };
@@ -31,7 +33,13 @@ export type GoalSpec =
       acc: number;
       rate: number;
     }
-  | { kind: "profile"; ruleset: Ruleset; metric: "pp" | "rank"; target: number };
+  | { kind: "profile"; ruleset: Ruleset; metric: "pp" | "rank"; target: number }
+  /** an osu!standard skillset (lib/osu-standard); `label` is kept so the title reads without the model */
+  | { kind: "osu-skill"; skillset: string; label: string; target: number; scale?: "pattern-demand-v1" | "pattern-demand-x5-v2" | "pattern-curve-136083-v3" | "pattern-reading-ratios-v4" | typeof STD_SKILL_CURVE_SCALE };
+
+/** Whether a goal belongs to the osu!standard tab: a standard skillset, or an osu! (standard)
+ * profile pp/rank goal. Everything else (mania skills, charts, other rulesets' pp/rank) is mania's. */
+export const isStdGoal = (g: GoalSpec): boolean => g.kind === "osu-skill" || (g.kind === "profile" && g.ruleset === "osu");
 
 export type Goal = GoalSpec & {
   id: string;
@@ -55,7 +63,10 @@ export interface GoalContext {
 
 /** Skill goals from before the skills were Etterna's (a pattern in stars, no skillset) aren't
  * measured any more; they stay stored but aren't shown. */
-export const isRetired = (g: GoalSpec): boolean => g.kind === "skill" && !(g as { skillset?: string }).skillset;
+export const isRetired = (g: GoalSpec): boolean =>
+  (g.kind === "skill" && !(g as { skillset?: string }).skillset)
+  // Old targets are kept in storage, but cannot be compared to nonlinear averages of plays.
+  || (g.kind === "osu-skill" && g.scale !== STD_SKILL_CURVE_SCALE);
 
 /** A skill goal's skill in a sheet. */
 export const skillIn = (sheet: SkillSheet, skillset: GoalSkill): number | null =>
@@ -103,6 +114,9 @@ export function goalNow(goal: GoalSpec, ctx: GoalContext): number | null {
       // osu! says rank 0 / null for players without one
       return v ? v : null;
     }
+    // osu!standard skills aren't in the mania context: the standard tab works these out itself
+    case "osu-skill":
+      return null;
   }
 }
 
@@ -121,8 +135,11 @@ export function progress(goal: Goal, now: number | null): number {
   if (goal.done || isReached(goal, now)) return 1;
   if (now === null) return 0;
   const target = targetOf(goal);
-  // without a start: from a little way off (rank: from twice the target)
-  const start = goal.start ?? (goal.kind === "chart" ? Math.max(0, target - 0.1) : lowerIsBetter(goal) ? target * 2 : target * 0.8);
+  // a little way off the target (rank: from twice the target)
+  const base = goal.kind === "chart" ? Math.max(0, target - 0.1) : lowerIsBetter(goal) ? target * 2 : target * 0.8;
+  // skills/charts show how far you've come since setting the goal; pp/rank show nearness to the
+  // target, so a goal set just above where you already are doesn't read as empty
+  const start = goal.kind === "profile" ? base : (goal.start ?? base);
   if (lowerIsBetter(goal)) {
     // ranks move in proportions: #20,000 → #10,000 is as far as #2,000 → #1,000
     const [s, t, n] = [start, target, now].map((v) => Math.log(Math.max(1, v)));
@@ -134,7 +151,8 @@ export function progress(goal: Goal, now: number | null): number {
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 /** A target a step beyond where things are now, for a skill, a chart's accuracy, pp or a rank. */
-export function suggestTarget(what: "skill" | "chart" | "pp" | "rank", now: number | null): number {
+export function suggestTarget(what: "skill" | "osu-skill" | "chart" | "pp" | "rank", now: number | null): number {
+  if (what === "osu-skill") return now === null ? 5 : Math.ceil((now + Math.max(0.5, now * 0.05)) * 100) / 100;
   if (what === "skill") return now === null ? 15 : Math.ceil((now + 0.5) * 2) / 2;
   if (what === "chart") return now === null || now < 0.955 ? 0.96 : Math.min(1, Math.ceil((now + 0.005) * 200) / 200);
   if (what === "rank") return now === null ? 100_000 : roundSig(now * 0.8);
@@ -152,13 +170,14 @@ const roundSig = (v: number) => {
 /** "Jumpstream 4K", "Hours [Feru's HD]", "osu!mania pp" */
 export function goalTitle(goal: GoalSpec): string {
   if (goal.kind === "skill") return `${skillName(goal.skillset)} ${goal.keys}K`;
+  if (goal.kind === "osu-skill") return `${goal.label} · osu!standard`;
   if (goal.kind === "chart") return `${goal.title} [${goal.version}]`;
   return goal.metric === "pp" ? `${RULESET_LABEL[goal.ruleset]} pp` : t("{ruleset} rank", { ruleset: RULESET_LABEL[goal.ruleset] });
 }
 
 /** A value of the goal's kind: "25.00", "96.00%", "1,500pp", "#10,000". */
 export function goalValue(goal: GoalSpec, v: number): string {
-  if (goal.kind === "skill") return fixed(v, 2);
+  if (goal.kind === "skill" || goal.kind === "osu-skill") return fixed(v, 2);
   if (goal.kind === "chart") return pct(v);
   return goal.metric === "pp" ? `${num(Math.round(v))}pp` : `#${num(Math.round(v))}`;
 }

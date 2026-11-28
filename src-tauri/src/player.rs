@@ -111,19 +111,15 @@ fn encode(name: &str) -> String {
         .collect()
 }
 
-fn is_mania(b: &Value) -> bool {
-    b["mode_int"].as_i64().or_else(|| b["mode"].as_str().and_then(mode_of)) == Some(MANIA)
-}
-
 /// The player called `name` and their osu!mania plays.
-pub fn fetch(ep: &Endpoints, token: &str, name: &str, cancel: &AtomicBool, mut progress: impl FnMut(Progress)) -> Result<Fetched> {
+pub fn fetch(ep: &Endpoints, token: &str, name: &str, mode: i64, ruleset: &str, cancel: &AtomicBool, mut progress: impl FnMut(Progress)) -> Result<Fetched> {
     let name = name.trim();
     if name.is_empty() {
         return Err(Error::known("player-not-found", "Type a player's name."));
     }
     let mut api = Api { ep, token, cancel, calls: 0 };
     progress(Progress { stage: "player", done: 0, total: 0 });
-    let user = match api.get(&format!("users/{}/mania?key=username", encode(name))) {
+    let user = match api.get(&format!("users/{}/{ruleset}?key=username", encode(name))) {
         Err(e) if e.code() == "osu-not-found" => return Err(Error::known("player-not-found", format!("osu! has no player called {name}."))),
         r => r?,
     };
@@ -131,8 +127,8 @@ pub fn fetch(ep: &Endpoints, token: &str, name: &str, cancel: &AtomicBool, mut p
     let mut f = Fetched { user, ..Default::default() };
     let mut seen = HashSet::new();
     let mut add = |f: &mut Fetched, v: &Value, best_pos: Option<i64>| -> bool {
-        let Some((score, beatmap)) = parse_score(v, MANIA, best_pos) else { return false };
-        if score.mode != MANIA || beatmap.as_ref().is_some_and(|b| b.mode.is_some_and(|m| m != MANIA)) || !seen.insert(score.id) {
+        let Some((score, beatmap)) = parse_score(v, mode, best_pos) else { return false };
+        if score.mode != mode || beatmap.as_ref().is_some_and(|b| b.mode.is_some_and(|m| m != mode)) || !seen.insert(score.id) {
             return false;
         }
         if let Some(b) = beatmap {
@@ -147,7 +143,7 @@ pub fn fetch(ep: &Endpoints, token: &str, name: &str, cancel: &AtomicBool, mut p
 
     for page in 0..TOP_PAGES {
         let offset = page * 100;
-        let top = api.get(&format!("users/{id}/scores/best?mode=mania&limit=100&offset={offset}"))?;
+        let top = api.get(&format!("users/{id}/scores/best?mode={ruleset}&limit=100&offset={offset}"))?;
         for (i, s) in list(&top).iter().enumerate() {
             f.counts.top += add(&mut f, s, Some((offset + i + 1) as i64)) as usize;
         }
@@ -157,12 +153,12 @@ pub fn fetch(ep: &Endpoints, token: &str, name: &str, cancel: &AtomicBool, mut p
             break;
         }
     }
-    let firsts = api.get(&format!("users/{id}/scores/firsts?mode=mania&limit=100"))?;
+    let firsts = api.get(&format!("users/{id}/scores/firsts?mode={ruleset}&limit=100"))?;
     for s in list(&firsts) {
         f.counts.firsts += add(&mut f, s, None) as usize;
     }
     step(&api, planned);
-    let recent = api.get(&format!("users/{id}/scores/recent?mode=mania&limit=100&include_fails=0"))?;
+    let recent = api.get(&format!("users/{id}/scores/recent?mode={ruleset}&limit=100&include_fails=0"))?;
     for s in list(&recent) {
         f.counts.recent += add(&mut f, s, None) as usize;
     }
@@ -174,7 +170,7 @@ pub fn fetch(ep: &Endpoints, token: &str, name: &str, cancel: &AtomicBool, mut p
     for page in 0..MOST_PLAYED_PAGES {
         let items = api.get(&format!("users/{id}/beatmapsets/most_played?limit=100&offset={}", page * 100))?;
         for item in list(&items) {
-            if !is_mania(&item["beatmap"]) {
+            if item["beatmap"]["mode_int"].as_i64().or_else(|| item["beatmap"]["mode"].as_str().and_then(mode_of)) != Some(mode) {
                 continue;
             }
             let Some(b) = parse_beatmap(&item["beatmap"], &item["beatmapset"]) else { continue };
@@ -194,7 +190,7 @@ pub fn fetch(ep: &Endpoints, token: &str, name: &str, cancel: &AtomicBool, mut p
         }
     }
     for beatmap in lookups {
-        match api.get(&format!("beatmaps/{beatmap}/scores/users/{id}?mode=mania")) {
+        match api.get(&format!("beatmaps/{beatmap}/scores/users/{id}?mode={ruleset}")) {
             // no score of theirs osu! keeps there (unranked, or only fails)
             Err(e) if e.code() == "osu-not-found" => {}
             Err(e) => return Err(e),
@@ -315,14 +311,14 @@ struct Library {
 }
 
 impl Library {
-    fn read(conn: &Connection) -> Result<Library> {
+    fn read(conn: &Connection, mode: i64) -> Result<Library> {
         let mut lib = Library { by_md5: HashMap::new(), by_online: HashMap::new() };
         // lazer's first, like everywhere
         let mut st = conn.prepare(
             "SELECT m.id, m.md5, m.online_id, m.hash FROM maps m JOIN sets s ON s.id = m.set_id
-             WHERE m.ruleset_id = 3 AND m.hash IS NOT NULL ORDER BY s.source = 'stable'",
+             WHERE m.ruleset_id = ?1 AND m.hash IS NOT NULL ORDER BY s.source = 'stable'",
         )?;
-        let mut rows = st.query([])?;
+        let mut rows = st.query([mode])?;
         while let Some(r) = rows.next()? {
             let entry = (r.get::<_, String>(0)?, r.get::<_, String>(3)?);
             if let Some(online) = r.get::<_, Option<i64>>(2)?.filter(|v| *v > 0) {
@@ -344,6 +340,47 @@ impl Library {
 /// fetched again.
 fn cache_file(dir: &Path, beatmap: i64, md5: Option<&str>) -> PathBuf {
     dir.join(format!("{beatmap}-{}.osu", md5.filter(|h| h.len() == 32 && h.bytes().all(|b| b.is_ascii_hexdigit())).unwrap_or("x")))
+}
+
+/// Shared chart cache for practice and comparisons. Check the requested revision before
+/// invoking the downloader; an unversioned entry can be reused only if its content matches.
+pub(crate) fn cached_chart(
+    dir: &Path,
+    beatmap: i64,
+    md5: Option<&str>,
+    download: impl FnOnce() -> Result<Option<String>>,
+) -> Result<Option<String>> {
+    let path = cache_file(dir, beatmap, md5);
+    let mut paths = vec![path.clone()];
+    if md5.is_some() {
+        paths.push(cache_file(dir, beatmap, None));
+    } else if let Ok(entries) = std::fs::read_dir(dir) {
+        // When no checksum is available, also reuse charts cached by comparisons under MD5.
+        let prefix = format!("{beatmap}-");
+        let mut revisions: Vec<_> = entries.flatten().filter(|e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            name.starts_with(&prefix) && name.ends_with(".osu")
+        }).collect();
+        revisions.sort_by_key(|e| std::cmp::Reverse(e.metadata().and_then(|m| m.modified()).ok()));
+        paths.extend(revisions.into_iter().map(|e| e.path()));
+    }
+    let valid = |text: &str| text.contains("[HitObjects]") && md5.is_none_or(|want| md5_is(text, want));
+    for file in paths {
+        if let Ok(text) = std::fs::read_to_string(file) {
+            if valid(&text) {
+                return Ok(Some(text));
+            }
+        }
+    }
+    let Some(text) = download()? else { return Ok(None) };
+    if !valid(&text) {
+        return Ok(None);
+    }
+    if std::fs::create_dir_all(dir).is_ok() {
+        let _ = std::fs::write(path, &text);
+    }
+    Ok(Some(text))
 }
 
 /// Drops cached chart files nobody has needed for a while.
@@ -442,7 +479,7 @@ pub fn build(
     cancel: &AtomicBool,
     progress: impl Fn(Progress) + Sync,
 ) -> Result<Vec<u8>> {
-    let lib = Library::read(conn)?;
+    let lib = Library::read(conn, MANIA)?;
     std::fs::create_dir_all(cache)?;
     tidy_cache(cache);
 
@@ -580,6 +617,178 @@ pub fn build(
     Ok(serde_json::to_vec(&out)?)
 }
 
+// ── osu!standard comparison ─────────────────────────────────────────────────
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ComparePlay {
+    beatmap_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    set_id: Option<i64>,
+    title: String,
+    title_unicode: String,
+    artist: String,
+    artist_unicode: String,
+    version: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    mods: Vec<String>,
+    /// 0–1
+    acc: f64,
+    date: i64,
+    /// the library difficulty id, when you have this chart
+    #[serde(skip_serializing_if = "Option::is_none")]
+    library: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CompareStd {
+    player: PlayerOut,
+    skills: Vec<crate::osu_skills::SkillOut>,
+    overall: f64,
+    plays: Vec<ComparePlay>,
+    counts: Counts,
+    unreadable: usize,
+}
+
+fn hits_of(statistics: &str) -> HashMap<String, f64> {
+    serde_json::from_str(statistics).unwrap_or_default()
+}
+
+fn player_out(u: &Value) -> PlayerOut {
+    let s = &u["statistics"];
+    PlayerOut {
+        id: u["id"].as_i64().unwrap_or(0),
+        name: u["username"].as_str().unwrap_or_default().to_string(),
+        avatar: u["avatar_url"].as_str().map(str::to_string),
+        country: u["country_code"].as_str().map(str::to_string),
+        rank: s["global_rank"].as_i64(),
+        country_rank: s["country_rank"].as_i64(),
+        pp: s["pp"].as_f64(),
+        accuracy: s["hit_accuracy"].as_f64().map(|a| a / 100.0),
+        play_count: s["play_count"].as_i64(),
+    }
+}
+
+/// Another player's osu!standard skills: the charts come from the library or the mirrors like
+/// `build`, but they're analysed with the standard model (osu_skills) and the skills aggregated
+/// there. `db` is locked only briefly (chart lookup, then osu_skills' own short locks).
+pub fn build_std(files: &crate::paths::Files, cache: &Path, db: &Mutex<Connection>, f: Fetched, cancel: &AtomicBool, progress: impl Fn(Progress) + Sync) -> Result<Vec<u8>> {
+    let lib = Library::read(&db.lock().unwrap_or_else(|e| e.into_inner()), 0)?;
+    std::fs::create_dir_all(cache)?;
+    tidy_cache(cache);
+
+    let jobs: Vec<i64> = {
+        let mut ids: Vec<i64> = f.scores.iter().map(|s| s.beatmap_id).collect::<HashSet<_>>().into_iter().collect();
+        ids.sort_unstable();
+        ids
+    };
+    let total = jobs.len();
+    let queue = Mutex::new(VecDeque::from(jobs));
+    let done = AtomicUsize::new(0);
+    // beatmap → the distinct mod sets played on it, so each chart's pattern is worked out (in these
+    // parallel workers) for exactly the variants skills() will need
+    let mut combos: HashMap<i64, Vec<(Vec<String>, Option<f64>)>> = HashMap::new();
+    for s in &f.scores {
+        let (mods, rate) = mods_of(&s.mods);
+        let e = combos.entry(s.beatmap_id).or_default();
+        if !e.contains(&(mods.clone(), rate)) {
+            e.push((mods, rate));
+        }
+    }
+    // beatmap → (the key the chart is cached/read under, its .osu text)
+    let texts: Mutex<HashMap<i64, (String, String)>> = Mutex::new(HashMap::new());
+    progress(Progress { stage: "charts", done: 0, total });
+    std::thread::scope(|scope| {
+        for worker in 0..CHART_WORKERS.min(total.max(1)) {
+            let (queue, done, texts, lib, f, progress, combos) = (&queue, &done, &texts, &lib, &f, &progress, &combos);
+            scope.spawn(move || {
+                let agent = crate::downloads::chart_agent();
+                loop {
+                    if cancel.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let Some(beatmap) = queue.lock().unwrap_or_else(|e| e.into_inner()).pop_front() else { break };
+                    let api = f.beatmaps.get(&beatmap);
+                    let md5 = api.and_then(|b| b.md5.as_deref());
+                    let found = lib.find(beatmap, md5);
+                    let text = found.and_then(|(_, key)| crate::charts::read(files, key).ok()).or_else(|| {
+                        let file = cache_file(cache, beatmap, md5);
+                        if let Ok(t) = std::fs::read_to_string(&file) {
+                            if md5.is_none_or(|w| md5_is(&t, w)) {
+                                return Some(t);
+                            }
+                        }
+                        match crate::downloads::download_chart(&agent, beatmap, worker) {
+                            Ok(Some(t)) if md5.is_some_and(|w| !md5_is(&t, w)) => None,
+                            Ok(Some(t)) => {
+                                let _ = std::fs::write(&file, &t);
+                                Some(t)
+                            }
+                            Ok(None) => None,
+                            Err(e) => {
+                                eprintln!("[player] {e}");
+                                None
+                            }
+                        }
+                    });
+                    if let Some(t) = text {
+                        // the library's hash when you have it (shares the pattern cache with your own
+                        // skills), else the chart's md5, else just the beatmap id
+                        let key = found.map(|(_, k)| k.clone()).or_else(|| md5.map(str::to_string)).unwrap_or_else(|| format!("o{beatmap}"));
+                        // the heavy analysis, here in the worker (not the single-threaded skills() pass)
+                        for (mods, rate) in combos.get(&beatmap).map(Vec::as_slice).unwrap_or(&[]) {
+                            crate::osu_skills::warm(db, &key, t.as_bytes(), mods, *rate);
+                        }
+                        texts.lock().unwrap_or_else(|e| e.into_inner()).insert(beatmap, (key, t));
+                    }
+                    let n = done.fetch_add(1, Ordering::SeqCst) + 1;
+                    progress(Progress { stage: "charts", done: n, total });
+                }
+            });
+        }
+    });
+    if cancel.load(Ordering::SeqCst) {
+        return Err(Error::known("cancelled", "Cancelled"));
+    }
+    let texts = texts.into_inner().unwrap_or_else(|e| e.into_inner());
+
+    // plays and their display rows in lockstep; osu_skills' evidence indexes into this
+    let mut std_plays: Vec<crate::osu_skills::StdPlay> = Vec::new();
+    let mut out_plays: Vec<ComparePlay> = Vec::new();
+    let mut hashes: HashMap<String, String> = HashMap::new();
+    let mut by_key: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut unreadable = 0usize;
+    for s in &f.scores {
+        let Some((key, text)) = texts.get(&s.beatmap_id) else {
+            unreadable += 1;
+            continue;
+        };
+        let mapid = format!("o{}", s.beatmap_id);
+        hashes.entry(mapid.clone()).or_insert_with(|| key.clone());
+        by_key.entry(key.clone()).or_insert_with(|| text.clone().into_bytes());
+        let (mods, rate) = mods_of(&s.mods);
+        let b = f.beatmaps.get(&s.beatmap_id);
+        std_plays.push(crate::osu_skills::StdPlay { map: mapid, mods: mods.clone(), rate, stable: s.legacy_id.is_some(), hits: hits_of(&s.statistics), acc: s.accuracy, date: s.date as f64 });
+        out_plays.push(ComparePlay {
+            beatmap_id: s.beatmap_id,
+            set_id: b.and_then(|b| b.set_id),
+            title: b.map(|b| b.title.clone()).unwrap_or_default(),
+            title_unicode: b.map(|b| b.title_unicode.clone()).unwrap_or_default(),
+            artist: b.map(|b| b.artist.clone()).unwrap_or_default(),
+            artist_unicode: b.map(|b| b.artist_unicode.clone()).unwrap_or_default(),
+            version: b.map(|b| b.version.clone()).unwrap_or_default(),
+            mods,
+            acc: s.accuracy,
+            date: s.date,
+            library: lib.find(s.beatmap_id, b.and_then(|b| b.md5.as_deref())).map(|(id, _)| id.clone()),
+        });
+    }
+    let computed = crate::osu_skills::skills(move |k: &str| by_key.get(k).cloned(), db, &hashes, &std_plays)?;
+    let out = CompareStd { player: player_out(&f.user), skills: computed.skills, overall: computed.overall, plays: out_plays, counts: f.counts.clone(), unreadable };
+    Ok(serde_json::to_vec(&out)?)
+}
+
 /// Whether `text` (a .osu as downloaded) has the MD5 `want` (hex).
 fn md5_is(text: &str, want: &str) -> bool {
     use md5::Digest;
@@ -597,6 +806,35 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn practice_chart_cache_reuses_downloads_and_rejects_stale_revisions() {
+        use md5::Digest;
+        let dir = std::env::temp_dir().join(format!("fumen-practice-cache-{}-{}", std::process::id(), crate::lazer::now_ms()));
+        let text = "osu file format v14\n[HitObjects]\n256,192,0,1,0\n";
+        let sum = format!("{:x}", md5::Md5::digest(text.as_bytes()));
+        let downloaded = cached_chart(&dir, 42, Some(&sum), || Ok(Some(text.into()))).unwrap();
+        assert_eq!(downloaded.as_deref(), Some(text));
+        assert_eq!(cached_chart(&dir, 42, Some(&sum), || panic!("cache hit must not download")).unwrap(), downloaded);
+        assert_eq!(cached_chart(&dir, 42, None, || panic!("reuse comparison's versioned cache")).unwrap(), downloaded);
+        let updated = "osu file format v14\n[HitObjects]\n256,192,100,1,0\n";
+        let new_sum = format!("{:x}", md5::Md5::digest(updated.as_bytes()));
+        let mut called = false;
+        assert_eq!(cached_chart(&dir, 42, Some(&new_sum), || {
+            called = true;
+            Ok(Some(updated.into()))
+        }).unwrap().as_deref(), Some(updated));
+        assert!(called);
+        // A mirror serving the wrong revision must not poison the requested cache entry.
+        assert_eq!(cached_chart(&dir, 43, Some(&sum), || Ok(Some(updated.into()))).unwrap(), None);
+        assert!(!cache_file(&dir, 43, Some(&sum)).exists());
+        std::fs::write(cache_file(&dir, 44, None), text).unwrap();
+        assert_eq!(cached_chart(&dir, 44, Some(&sum), || panic!("matching unversioned cache")).unwrap().as_deref(), Some(text));
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            std::fs::remove_file(entry.unwrap().path()).unwrap();
+        }
+        std::fs::remove_dir(dir).unwrap();
+    }
 
     /// A 4K chart: a stream, then jacks.
     fn chart(title: &str) -> String {
@@ -649,7 +887,7 @@ mod tests {
         }));
         let ep = Endpoints { site: base.clone(), osu: base };
         let mut steps = Vec::new();
-        let f = fetch(&ep, "t", " Some One ", &AtomicBool::new(false), |p| steps.push(p)).unwrap();
+        let f = fetch(&ep, "t", " Some One ", MANIA, "mania", &AtomicBool::new(false), |p| steps.push(p)).unwrap();
         let ids: Vec<i64> = f.scores.iter().map(|s| s.id).collect();
         // the osu! play is left out, the first place counted once, the most played looked up
         assert_eq!(ids, vec![1, 2, 4, 5]);
@@ -667,7 +905,7 @@ mod tests {
         let last = steps.last().unwrap();
         assert_eq!((last.stage, last.done, last.total), ("scores", 7, 7));
 
-        let none = fetch(&ep, "t", "", &AtomicBool::new(false), |_| {}).unwrap_err();
+        let none = fetch(&ep, "t", "", MANIA, "mania", &AtomicBool::new(false), |_| {}).unwrap_err();
         assert_eq!(none.code(), "player-not-found");
     }
 

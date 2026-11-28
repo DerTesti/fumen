@@ -1,7 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { bestAcc, goalContext, goalNow, goalTarget, goalTitle, isReached, isRetired, progress, suggestTarget, type Goal, type GoalSpec } from "./goals";
+import { bestAcc, goalContext, goalNow, goalTarget, goalTitle, isReached, isRetired, STD_SKILL_CURVE_SCALE, progress, suggestTarget, type Goal, type GoalSpec } from "./goals";
 import { aggregate } from "./skills";
 import type { MapRow, Play } from "./types";
+import curves from "./osu-skill-curves.json";
+import { lang } from "./i18n";
+
+it("retires targets on old scales without treating them as current curve targets", () => {
+  expect(curves.scale).toBe(STD_SKILL_CURVE_SCALE);
+  const old: GoalSpec = { kind: "osu-skill", skillset: "speed", label: "Speed", target: 20, scale: "pattern-demand-x5-v2" };
+  expect(isRetired(old)).toBe(true);
+  expect(isRetired({ ...old, scale: "pattern-demand-v1" })).toBe(true);
+  expect(isRetired({ ...old, scale: "pattern-curve-136083-v3" })).toBe(true);
+  expect(isRetired({ ...old, scale: "pattern-reading-ratios-v4" })).toBe(true);
+  expect(isRetired({ ...old, scale: STD_SKILL_CURVE_SCALE })).toBe(false);
+});
+
+it("keeps old standard targets stored but excludes incompatible scales", () => {
+  const old: GoalSpec = { kind: "osu-skill", skillset: "speed", label: "Speed", target: 80 };
+  expect(isRetired(old)).toBe(true);
+  expect(isRetired({ ...old, scale: STD_SKILL_CURVE_SCALE, target: 150 })).toBe(false);
+  expect(isRetired({ kind: "skill", keys: 4, skillset: "stream", target: 25 })).toBe(false);
+});
 
 const map = (id: string, sr: number, shares: number[]): MapRow => ({
   set: 0, id, version: id, mode: 3, status: 1, sr, bpm: 180, length: 120_000, objects: 1000, holds: 0,
@@ -75,9 +94,10 @@ describe("goals", () => {
     expect(progress(skill, 19)).toBe(0);
     expect(progress(skill, 24.2)).toBe(1);
     expect(progress({ ...skill, done: 5 }, 20)).toBe(1);
-    // ranks in proportions: halfway from #40,000 to #10,000 is #20,000
+    // Profile ranks use twice the target as the fixed baseline, regardless of saved start.
     const rank = goal({ kind: "profile", ruleset: "mania", metric: "rank", target: 10_000, start: 40_000 });
-    expect(progress(rank, 20_000)).toBeCloseTo(0.5);
+    expect(progress(rank, 20_000)).toBe(0);
+    expect(progress(rank, Math.sqrt(20_000 * 10_000))).toBeCloseTo(0.5);
     // a chart not passed when the goal was set: from 10 points under
     const chart = goal({ kind: "chart", map: "a", title: "", version: "", acc: 0.96, rate: 1, start: null });
     expect(progress(chart, 0.91)).toBeCloseTo(0.5);
@@ -96,13 +116,34 @@ describe("goals", () => {
     expect(suggestTarget("rank", 123_456)).toBe(98_000);
   });
 
+  it.each(["osu", "mania"] as const)("uses fixed proximity baselines for profile goals in %s", (ruleset) => {
+    const pp = goal({ kind: "profile", ruleset, metric: "pp", target: 2000, start: 1000 });
+    expect(progress(pp, 1000)).toBe(0);
+    expect(progress(pp, 1500)).toBe(0);
+    expect(progress(pp, 1800)).toBeCloseTo(0.5);
+    expect(progress(pp, 1900)).toBeCloseTo(0.75);
+    expect(progress(pp, 900)).toBe(0);
+    expect(progress(pp, 2000)).toBe(1);
+    expect(progress({ ...pp, start: 0 }, 1800)).toBeCloseTo(0.5);
+    expect(progress({ ...pp, start: 1990 }, 1800)).toBeCloseTo(0.5);
+    expect(progress({ ...pp, start: null }, 1800)).toBeCloseTo(0.5);
+    const rank = goal({ kind: "profile", ruleset, metric: "rank", target: 10_000, start: 40_000 });
+    expect(progress(rank, 40_000)).toBe(0);
+    expect(progress(rank, 20_000)).toBe(0);
+    expect(progress(rank, Math.sqrt(20_000 * 10_000))).toBeCloseTo(0.5);
+    expect(progress(rank, 50_000)).toBe(0);
+    expect(progress(rank, 10_000)).toBe(1);
+    expect(progress({ ...rank, start: null }, Math.sqrt(20_000 * 10_000))).toBeCloseTo(0.5);
+    expect(progress({ ...rank, start: 100_000 }, Math.sqrt(20_000 * 10_000))).toBeCloseTo(0.5);
+  });
+
   it("puts it in words", () => {
     expect(goalTitle({ kind: "skill", keys: 4, skillset: "jumpstream", target: 25 })).toBe("Jumpstream 4K");
     expect(goalTitle({ kind: "skill", keys: 7, skillset: "overall", target: 25 })).toBe("Overall 7K");
-    expect(goalTitle({ kind: "profile", ruleset: "taiko", metric: "rank", target: 4000 })).toBe("osu!taiko rank");
-    expect(goalTarget({ kind: "profile", ruleset: "taiko", metric: "rank", target: 4000 })).toBe("#4,000");
-    expect(goalTarget({ kind: "chart", map: "a", title: "T", version: "V", acc: 0.96, rate: 1.1 })).toBe("96.00% at 1.10× or faster");
-    expect(goalTarget({ kind: "skill", keys: 4, skillset: "stamina", target: 25 })).toBe("25.00");
+    expect(goalTitle({ kind: "profile", ruleset: "taiko", metric: "rank", target: 4000 })).toBe(lang === "de" ? "osu!taiko-Rang" : "osu!taiko rank");
+    expect(goalTarget({ kind: "profile", ruleset: "taiko", metric: "rank", target: 4000 })).toBe(lang === "de" ? "#4.000" : "#4,000");
+    expect(goalTarget({ kind: "chart", map: "a", title: "T", version: "V", acc: 0.96, rate: 1.1 })).toBe(lang === "de" ? "96,00 % bei 1,10× oder schneller" : "96.00% at 1.10× or faster");
+    expect(goalTarget({ kind: "skill", keys: 4, skillset: "stamina", target: 25 })).toBe(lang === "de" ? "25,00" : "25.00");
   });
 
   it("leaves skill goals from before Etterna's skillsets alone", () => {

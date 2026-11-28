@@ -76,6 +76,11 @@
 .skill-delta.down { color: var(--danger); }
 .skill-value { text-align: right; font-size: var(--fs-15); color: var(--t1); }
 .skill.empty .skill-value { color: var(--t4); }
+.skill.provisional .skill-head > .skill-name,
+.skill.provisional .skill-head > .skill-value,
+.skill-them.provisional { color: var(--t3); }
+.skill-map-count { display: inline-block; margin-left: 6px; font-size: var(--fs-11); font-weight: 400; color: var(--t3); white-space: nowrap; }
+.skills-beta { margin-left: 4px; font-size: var(--fs-10); font-weight: 500; opacity: .7; }
 /* overall on top, a step bigger, a line under it */
 .skill-overall { margin-bottom: 4px; }
 .skill-overall::after { content: ""; display: block; height: 1px; margin: 0 12px; background: var(--stroke-dim); }

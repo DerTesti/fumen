@@ -28,6 +28,8 @@ mod mirror_search;
 mod mma;
 mod mods;
 mod msd;
+mod osu_skills;
+mod recommend;
 mod wife;
 mod vibro;
 mod osu;
@@ -184,6 +186,11 @@ impl AppState {
 
     fn db(&self) -> std::sync::MutexGuard<'_, Connection> {
         self.db.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The database behind its lock, for callers that lock briefly many times (osu_skills).
+    fn db_mutex(&self) -> &std::sync::Mutex<Connection> {
+        &self.db
     }
 }
 
@@ -921,6 +928,28 @@ async fn get_chart(app: AppHandle, id: String, mods: Option<mods::Mods>) -> Resu
     tauri::async_runtime::spawn_blocking(move || charts::chart_json(&load_chart_with(&app, &id, mods)?, mods).map(tauri::ipc::Response::new))
         .await
         .map_err(|e| Error::known("internal", e.to_string()))?
+}
+
+/// Your osu!standard skills, worked out and cached in the backend (see `osu_skills.rs`), the way
+/// osu!mania's are. `plays` are your standard passes (the frontend's play history, lib/osu-standard):
+/// the compute, including reading each chart and its rosu difficulty, happens here.
+#[tauri::command]
+async fn osu_standard(app: AppHandle, plays: Vec<osu_skills::StdPlay>) -> Result<osu_skills::Computed> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut hashes: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        for p in &plays {
+            if !hashes.contains_key(&p.map) {
+                if let Ok(h) = chart_hash(&app, &p.map) {
+                    hashes.insert(p.map.clone(), h);
+                }
+            }
+        }
+        let state = app.state::<AppState>();
+        let files = state.files();
+        osu_skills::skills(|h| files.read(h), state.db_mutex(), &hashes, &plays)
+    })
+    .await
+    .map_err(|e| Error::known("internal", e.to_string()))?
 }
 
 /// An osu!mania difficulty's dan at a clock rate (the chart comes with the one at 1×).
@@ -2010,9 +2039,71 @@ async fn compare_player(app: AppHandle, name: String) -> Result<tauri::ipc::Resp
             let emit = |p: player::Progress| {
                 let _ = app.emit("compare-progress", p);
             };
-            let fetched = osu_auth::with_token(&state.data_dir, &ep, |token| player::fetch(&ep, token, &name, &state.compare_cancel, emit))?;
+            let fetched = osu_auth::with_token(&state.data_dir, &ep, |token| player::fetch(&ep, token, &name, 3, "mania", &state.compare_cancel, emit))?;
             let conn = state.db();
             player::build(&conn, &state.files(), &state.cache_dir.join("osu-charts"), fetched, &state.compare_cancel, emit).map(tauri::ipc::Response::new)
+        })();
+        state.comparing.store(false, Ordering::SeqCst);
+        result
+    })
+    .await
+    .map_err(|e| Error::known("internal", e.to_string()))?
+}
+
+/// Another osu! player's osu!standard skills, next to yours (osu_skills, player::build_std). Shares
+/// the compare lock and progress with `compare_player`.
+#[tauri::command]
+async fn compare_osu_standard(app: AppHandle, name: String) -> Result<tauri::ipc::Response> {
+    tauri::async_runtime::spawn_blocking(move || {
+        online::ensure()?;
+        let state = app.state::<AppState>();
+        state.compare_cancel.store(true, Ordering::SeqCst);
+        let started = std::time::Instant::now();
+        while state.comparing.swap(true, Ordering::SeqCst) {
+            if started.elapsed() > std::time::Duration::from_secs(10) {
+                return Err(Error::known("busy", "Another comparison is still stopping; try again in a moment."));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        state.compare_cancel.store(false, Ordering::SeqCst);
+        let result = (|| {
+            let ep = osu_auth::Endpoints::default();
+            let emit = |p: player::Progress| {
+                let _ = app.emit("compare-progress", p);
+            };
+            let fetched = osu_auth::with_token(&state.data_dir, &ep, |token| player::fetch(&ep, token, &name, 0, "osu", &state.compare_cancel, emit))?;
+            player::build_std(&state.files(), &state.cache_dir.join("osu-charts"), state.db_mutex(), fetched, &state.compare_cancel, emit).map(tauri::ipc::Response::new)
+        })();
+        state.comparing.store(false, Ordering::SeqCst);
+        result
+    })
+    .await
+    .map_err(|e| Error::known("internal", e.to_string()))?
+}
+
+/// Charts to practise your weak osu!standard skillsets on, from osu!'s ranked maps (recommend.rs).
+/// Shares the compare lock and cancel, since both fetch from osu!.
+#[tauri::command]
+async fn osu_recommendations(app: AppHandle, skills: Vec<recommend::SkillValue>, comfort_stars: f64, peak_stars: f64, library: Vec<recommend::LibCandidate>, played: Vec<i64>) -> Result<tauri::ipc::Response> {
+    tauri::async_runtime::spawn_blocking(move || {
+        online::ensure()?;
+        let state = app.state::<AppState>();
+        state.compare_cancel.store(true, Ordering::SeqCst);
+        let started = std::time::Instant::now();
+        while state.comparing.swap(true, Ordering::SeqCst) {
+            if started.elapsed() > std::time::Duration::from_secs(10) {
+                return Err(Error::known("busy", "Another osu! fetch is still stopping; try again in a moment."));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        state.compare_cancel.store(false, Ordering::SeqCst);
+        let result = (|| {
+            let ep = osu_auth::Endpoints::default();
+            let played: std::collections::HashSet<i64> = played.into_iter().collect();
+            let emit = |p: player::Progress| {
+                let _ = app.emit("recommend-progress", p);
+            };
+            osu_auth::with_token(&state.data_dir, &ep, |token| recommend::recommend(&state.files(), &state.cache_dir.join("osu-charts"), state.db_mutex(), &ep, token, &skills, comfort_stars, peak_stars, &library, &played, &state.compare_cancel, emit)).map(tauri::ipc::Response::new)
         })();
         state.comparing.store(false, Ordering::SeqCst);
         result
@@ -2601,6 +2692,7 @@ pub fn run() {
             scan_library,
             get_library,
             get_chart,
+            osu_standard,
             get_dan,
             get_msd,
             msd_rates,
@@ -2617,6 +2709,8 @@ pub fn run() {
             map_storyboard,
             repair_lazer_sets,
             compare_player,
+            compare_osu_standard,
+            osu_recommendations,
             cancel_compare,
             import_beatmaps,
             cancel_import,

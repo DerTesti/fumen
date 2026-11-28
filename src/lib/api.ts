@@ -2,6 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Attempt } from "./attempts";
+import type { LibCandidate, OsuPractice, OsuStandardComparison, OsuStandardPlay, OsuStandardResult } from "./osu-standard";
 import type { HeartDevice } from "./heart";
 import type { HeartTry } from "./heart-stats";
 import type { Comparison } from "./compare";
@@ -77,6 +78,19 @@ export const api = {
     const raw = await invoke<ArrayBuffer | ChartData>("get_chart", { id, mods: mods ?? null });
     if (raw instanceof ArrayBuffer) return JSON.parse(new TextDecoder().decode(raw)) as ChartData;
     return raw;
+  },
+  /** your osu!standard skills, worked out and cached in the backend (lib/osu-standard, osu_skills.rs) */
+  osuStandard: (plays: OsuStandardPlay[]) => invoke<OsuStandardResult>("osu_standard", { plays }),
+  /** another player's osu!standard skills next to yours (lib/osu-standard, player::build_std) */
+  async compareOsuStandard(name: string): Promise<OsuStandardComparison> {
+    // raw JSON bytes (tauri::ipc::Response) — parse here
+    const raw = await invoke<ArrayBuffer | OsuStandardComparison>("compare_osu_standard", { name });
+    return raw instanceof ArrayBuffer ? (JSON.parse(new TextDecoder().decode(raw)) as OsuStandardComparison) : raw;
+  },
+  /** charts to practise your weak osu!standard skillsets on (lib/osu-standard, recommend.rs) */
+  async osuRecommendations(skills: { id: string; value: number }[], comfortStars: number, peakStars: number, library: LibCandidate[], played: number[]): Promise<OsuPractice> {
+    const raw = await invoke<ArrayBuffer | OsuPractice>("osu_recommendations", { skills, comfortStars, peakStars, library, played });
+    return raw instanceof ArrayBuffer ? (JSON.parse(new TextDecoder().decode(raw)) as OsuPractice) : raw;
   },
   /** an osu!mania difficulty's dan at a clock rate */
   getDan: (id: string, rate: number) => invoke<DanRating | null>("get_dan", { id, rate }),

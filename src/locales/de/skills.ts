@@ -1,5 +1,10 @@
 /** Skills, the comparison with another player, goals and practice suggestions. */
 export const skills: Record<string, string> = {
+  "Map references": "Map-Referenzen",
+  "Evidence quality": "Belastbarkeit der Nachweise",
+  "Each map is analysed for eleven skills. Reference maps in half-star steps align their requirements: a typical relevant demand at 5 stars corresponds to 20. A map does not need every skill equally.": "Jede Map wird auf elf Skills analysiert. Referenzmaps in Halbstern-Schritten richten die Anforderungen aus: Eine typische relevante Anforderung bei 5 Sternen entspricht 20. Eine Map verlangt nicht jeden Skill gleich stark.",
+  "Your best five different maps demonstrate each skill. Accuracy, misses and real slider results determine how much of a map's demand your play demonstrates. Missing demonstrations count as zero.": "Deine besten fünf unterschiedlichen Maps belegen den jeweiligen Skill. Accuracy, Misses und echte Slider-Treffer bestimmen, welchen Anteil der Map-Anforderung dein Play nachweist. Fehlende Nachweise zählen als null.",
+  "Very short patterns and maps with unreliable slider geometry do not provide reliable skill evidence. This scale is provisional; Accuracy uses an inferred timing estimate.": "Sehr kurze Muster und Maps mit unzuverlässiger Slider-Geometrie liefern keine belastbaren Skill-Nachweise. Die Skala ist vorläufig; Accuracy verwendet eine abgeleitete Timing-Schätzung.",
   // pattern names stay English, as in the game
   Stream: "Stream",
   Jumpstream: "Jumpstream",

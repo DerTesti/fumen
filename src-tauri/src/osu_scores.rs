@@ -27,8 +27,8 @@ const SAME_PLAY_MS: i64 = 120_000;
 /// …and lazer's copy of an osu!stable play (lazer keeps the replay's time)
 const STABLE_COPY_MS: i64 = 2_000;
 /// the judgements a play's hit counts show
-const JUDGEMENTS: [&str; 10] =
-    ["perfect", "great", "good", "ok", "meh", "miss", "large_tick_hit", "large_tick_miss", "small_tick_hit", "small_tick_miss"];
+const JUDGEMENTS: [&str; 11] =
+    ["perfect", "great", "good", "ok", "meh", "miss", "large_tick_hit", "large_tick_miss", "small_tick_hit", "small_tick_miss", "slider_tail_hit"];
 
 pub fn mode_of(name: &str) -> Option<i64> {
     RULESETS.iter().position(|r| *r == name).map(|i| i as i64)
@@ -228,12 +228,12 @@ pub fn mods_of(json: &str) -> (Vec<String>, Option<f64>) {
     (acronyms, ((rate - 1.0f64).abs() > 1e-6).then_some(rate))
 }
 
-/// The judgement counts a play shows (the ones above zero).
+/// Judgements above zero, plus explicit zero slider counts to distinguish misses from missing data.
 pub(crate) fn hits_of(json: &str) -> Map<String, Value> {
     let v: Value = serde_json::from_str(json).unwrap_or_default();
     JUDGEMENTS
         .iter()
-        .filter_map(|k| v[*k].as_i64().filter(|n| *n > 0).map(|n| (k.to_string(), n.into())))
+        .filter_map(|k| v[*k].as_i64().filter(|n| *n > 0 || (*n == 0 && matches!(*k, "slider_tail_hit" | "large_tick_hit"))).map(|n| (k.to_string(), n.into())))
         .collect()
 }
 
@@ -1396,6 +1396,9 @@ mod tests {
         assert_eq!(mods_of(r#"["NC","HR"]"#), (vec!["NC".into(), "HR".into()], Some(1.5)));
         let hits = hits_of(r#"{"great":305,"ok":0,"miss":76,"ignore_hit":3,"perfect":396}"#);
         assert_eq!(Value::Object(hits), serde_json::json!({ "perfect": 396, "great": 305, "miss": 76 }));
+        let slider_hits = hits_of(r#"{"slider_tail_hit":0,"large_tick_hit":0,"ok":0}"#);
+        assert_eq!(Value::Object(slider_hits), serde_json::json!({ "slider_tail_hit": 0, "large_tick_hit": 0 }));
+        assert!(!hits_of("{}").contains_key("slider_tail_hit"));
     }
 
     fn api_score(id: i64, beatmap: i64, md5: &str, date: &str, extra: &str) -> String {
